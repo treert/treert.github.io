@@ -1,3 +1,81 @@
-hello world
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>treert</title>
+  <link rel="stylesheet" type="text/css" href="global.css">
+  <style>
+    /* 自定义的部分 */
+    /* {
+      outline: 1px dashed red;
+    }
+    /* 从家鸣那儿扒来的 */
+    #img {
+      float: left;
+      /*box-shadow: -3px -3px 5px #333;*/
 
-有没有生效？
+      transform: perspective(600px) rotateY(30deg);
+      -webkit-transform: perspective(600px) rotateY(30deg);
+      -moz-transform: perspective(600px) rotateY(30deg);
+      -ms-transform: perspective(600px) rotateY(30deg);
+
+        transition: transform .5s ease;
+      -webkit-transition: -webkit-transform .5s ease;
+      -moz-transition: -moz-transform .5s ease;
+      -ms-transform: -ms-transform .5s ease;
+
+      -webkit-box-reflect: below 10px -webkit-gradient(linear, 0 0, 0 100%, from(rgba(255,255,255,.0)), color-stop(.6, rgba(255,255,255,.0)),  to(rgba(255,255,255,.4)));
+      -ms-box-relect: below 10px -webkit-gradient(linear, 0 0, 0 100%, from(rgba(255,255,255,.0)), color-stop(.6, rgba(255,255,255,.0)),  to(rgba(255,255,255,.4)));
+    }
+
+    #img:hover {
+      transform: perspective(600px) rotateY(0);
+      -webkit-transform: perspective(600px) rotateY(0);
+      -moz-transform: perspective(600px) rotateY(0);
+      -ms-transform: perspective(600px) rotateY(0);
+    }
+
+    body {
+      background-color: #444;
+    }
+
+    div {
+      width: 800px;
+      margin: 150px auto;
+    }
+
+    h1 {
+      font-family: 'Arial';
+      font-size: 160px;
+      height: 160px;
+      line-height: 160px;
+      color: white;
+      text-shadow: 3px 3px 5px #222;
+      text-align: right;
+      font-weight: normal;
+      margin: 0 0 30px 280px;
+      
+    }
+
+    p {
+      margin-left: 280px;
+      margin-right: 10px;
+      color: #999;
+      text-align: right;
+      text-shadow: 1px 1px 0 #;
+      font-size: 24px;
+      font-family: 'Microsoft Yahei';
+      font-weight: normal;
+      text-shadow: 2px 2px 2px #222;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <img id="img" src="tree.png"/>
+    <h1>TNT</h1>
+    <p>学习前端相关</p>
+    <div class="clear">有效闭合浮动元素，这段文字不会显示</div>
+  </div>
+</body>
+</html>
