@@ -3,7 +3,7 @@
 <head lang="en">
     <meta charset="UTF-8">
     <meta name="viewport" content="initial-scale=1">
-    <link rel="stylesheet" type="text/css" href="../global.css">
+    <link rel="stylesheet" type="text/css" href="/global.css">
     <script src="http://libs.useso.com/js/jquery/2.1.1/jquery.js"></script>
     <title>字符串编码转换小工具</title>
     <style>
@@ -23,15 +23,52 @@
                 convertToUtf();
             }
         }
+
+        function ConvertToUtf8String(code){
+            if(code < 0x80){
+                return String.fromCharCode(code);
+            }
+            var utf = code;
+            var mask = -1<<6;
+            var pad = 0x80;
+            do{
+                if(utf&mask){
+                    utf = (utf&(~mask))|((utf&mask)<<2)|((~mask)+1)<<1;
+                }else{
+                    if(utf&pad){
+                        pad |=pad>>1;
+                        pad <<=8;
+                    }
+                    utf |= pad;
+                    break;
+                }
+                mask<<=8;
+                pad |=pad>>1;
+                pad <<=8;
+            }while(true);
+            var out = [];
+            for(var j = 24; j >=0 ; j-=8){
+                var t = (utf>>j)&0xff;
+                if(t){
+                    out.push(t.toString(16).toUpperCase());
+                }
+            }
+            return '\\x'+out.join('\\x');
+        }
+
         function convertToUtf()
         {
             var val = $("#m-input").val();
             var out = [];
             for(var i = 0; i < val.length; i++){
                 var code = val.charCodeAt(i);
+                out.push(ConvertToUtf8String(code));
+                continue;
+
                 var utf = 0;
                 if(code<0x80){
                     utf = code;
+
                 }else{
                     utf = code;
                     var mask = -1<<6;
@@ -60,7 +97,7 @@
                 }
             }
             $("#m-before").html(val);
-            $("#m-after").html('\\x'+out.join('\\x'));
+            $("#m-after").html(out.join(""));
         }
     </script>
     <textarea id="m-input" onkeydown="keySend();">输入要转换的字符串</textarea>
@@ -69,7 +106,7 @@
     <h5>原文</h5>
     <p id="m-before"></p>
     <h5>转义字符串</h5>
-    <p id="m-after"></p>
+    <pre id="m-after" style="outline: solid red 1px"></pre>
 </div>
 
 
