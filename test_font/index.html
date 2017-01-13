@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>测试常见字体的显示效果</title>
+    <script src="http://libs.useso.com/js/jquery/2.1.1/jquery.js"></script>
+    <style>
+        p{
+            font-size: 18px;
+            font-weight: normal;
+            background-color: beige;
+        }
+
+        .my_div{
+            float:left;
+            margin-left: 20px;
+            //width: 150px;
+            height: 150px;
+        }
+    </style>
+    <script>
+        font_family_conf = [
+                ["conslas"],
+                ["黑体","黑体"],
+                ["宋体","宋体"],
+                ['"Microsoft YaHei"',"微软雅黑"],
+                ["Helvetica","Helvetica"],
+                ["Arial","Arial"],
+                ["sans-serif","sans-serif"],
+                ["Helvetica, Tahoma, Arial, STXihei, “华文细黑”,“Microsoft YaHei”, “微软雅黑”, SimSun, “宋体”, Heiti, “黑体”,  sans-serif","多字体兼容"]
+        ];
+
+        test_string = [
+            "1234567890",
+            "abcdefghij",
+            "一二三四五"
+        ];
+
+        $(function(){
+            for(var i in font_family_conf)
+            {
+                var conf = font_family_conf[i];
+                var font_name = conf[0];
+                var font_desc = conf[1] || font_name;
+
+                var body = $("body");
+                var item = $("<div>").addClass("my_div");
+
+                var p_desc = $("<h4>").html(font_desc).css("font-family",font_name);
+                item.append(p_desc);
+
+                var value = test_string.join("<br>");
+                var p_value = $("<p>").html(value).css("font-family",font_name);
+                item.append(p_value);
+
+                body.append(item);
+            }
+        })
+    </script>
+
+</head>
+<body>
+
+</body>
+</html>
