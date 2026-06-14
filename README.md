@@ -16,4 +16,21 @@
 
 纯静态 HTML + CSS + JS，无构建工具，无框架依赖。
 
+## GitHub Pages 设置
+
+新仓库需要手动启用 GitHub Pages：
+
+1. **用户/组织站点**（`<username>.github.io`）：
+   - 仓库名必须为 `<你的用户名>.github.io`
+   - 推送到 `master`（或 `main`）分支，Pages 会自动生效
+   - 访问地址：`https://<用户名>.github.io/`
+
+2. **项目站点**（如 `llm-tokenizer`）：
+   - 进入仓库 → **Settings** → **Pages**
+   - **Source** 选择 `Deploy from a branch`
+   - **Branch** 选择 `master`（或 `main`），根目录 `/ (root)`
+   - 点击 **Save**，稍等片刻即可通过 `https://<用户名>.github.io/<仓库名>/` 访问
+
+3. 如果使用自定义域名，在 Pages 设置中填入域名并配置 DNS 即可。
+
 
