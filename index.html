@@ -1,27 +1,92 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <title>treert</title>
-  <meta name="viewport" content="initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="./global.css">
-  <style>
-    a{
-      display: block;
-      margin: auto;
-      font-size: 24px;
-    }
-  </style>
 </head>
 <body>
-  <div>
-    <a href="http://treert.github.io/2048">2048，抠了bilibili的图</a>
-    <a href="http://treert.github.io/2048/my2048">折腾2048成一个拼图小游戏</a>
-    <a href="http://treert.github.io/jquery.ripples/html">学习webgl，一个水波效果</a>
-    <a href="./char_code_tool/index.html">字符编码工具</a>
-    <a href="./test_font/index.html">测试下常用字体的显示</a>
-    <a href="./ue-consolehelp/ue4.html">UE4 Console Help</a>
-    <a href="./ue-consolehelp/ue5.html">UE5 Console Help</a>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="avatar">T</div>
+      <h1>treert</h1>
+      <p>一些自用小工具和折腾记录</p>
+    </header>
+
+    <!-- Projects -->
+    <div class="project-grid">
+
+      <a class="card" href="./ue-consolehelp/ue5.html">
+        <div class="card-icon" style="background:#e8f4fd;">⚙️</div>
+        <div class="card-body">
+          <h3>UE5 Console Help</h3>
+          <p>Unreal Engine 5 控制台变量与命令速查</p>
+          <span class="tag">工具</span>
+        </div>
+      </a>
+
+      <a class="card" href="./ue-consolehelp/ue4.html">
+        <div class="card-icon" style="background:#fdf2e8;">🔧</div>
+        <div class="card-body">
+          <h3>UE4 Console Help</h3>
+          <p>Unreal Engine 4 控制台变量与命令速查</p>
+          <span class="tag">工具</span>
+        </div>
+      </a>
+
+      <a class="card" href="./char_code_tool/index.html">
+        <div class="card-icon" style="background:#e8f8e8;">🔤</div>
+        <div class="card-body">
+          <h3>字符编码工具</h3>
+          <p>字符串转 UTF-8 转义序列，Ctrl+Enter 快捷转换</p>
+          <span class="tag">工具</span>
+        </div>
+      </a>
+
+      <a class="card" href="./test_font/index.html">
+        <div class="card-icon" style="background:#f8f0e8;">🔡</div>
+        <div class="card-body">
+          <h3>字体显示测试</h3>
+          <p>常见中英文字体的渲染效果对比</p>
+          <span class="tag">参考</span>
+        </div>
+      </a>
+
+      <a class="card" href="http://treert.github.io/2048">
+        <div class="card-icon" style="background:#fde8f0;">🎮</div>
+        <div class="card-body">
+          <h3>2048</h3>
+          <p>经典 2048 游戏，抠了 bilibili 的图</p>
+          <span class="tag">游戏</span>
+        </div>
+      </a>
+
+      <a class="card" href="http://treert.github.io/2048/my2048">
+        <div class="card-icon" style="background:#e8e8fd;">🧩</div>
+        <div class="card-body">
+          <h3>2048 拼图版</h3>
+          <p>2048 魔改成的拼图小游戏</p>
+          <span class="tag">游戏</span>
+        </div>
+      </a>
+
+      <a class="card" href="http://treert.github.io/jquery.ripples/html">
+        <div class="card-icon" style="background:#e8f8f8;">🌊</div>
+        <div class="card-body">
+          <h3>水波效果</h3>
+          <p>学习 WebGL，一个鼠标交互的水波纹特效</p>
+          <span class="tag">Demo</span>
+        </div>
+      </a>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      Hosted on <a href="https://github.com/treert/treert.github.io">GitHub Pages</a>
+    </footer>
   </div>
 </body>
 </html>

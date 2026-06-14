@@ -1,17 +1,50 @@
 <!DOCTYPE html>
-<html lang="zh-cn">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>404</title>
+  <title>404 - 页面未找到</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./global.css">
   <style>
-
-  #img404 {margin:auto;display:block;}
-
-  body {background-color: #C0C0C0}
-
+    .notfound {
+      text-align: center;
+      padding: 100px 24px;
+    }
+    .notfound .code {
+      font-size: 120px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+    .notfound h2 {
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+    .notfound p {
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+    }
+    .notfound .btn {
+      display: inline-block;
+      padding: 10px 28px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: background .2s;
+    }
+    .notfound .btn:hover {
+      background: var(--accent-hover);
+    }
   </style>
 </head>
 <body>
-  <img id="img404"src="http://static.hdslb.com/error/404.png">
+  <div class="notfound">
+    <div class="code">404</div>
+    <h2>页面找不到了</h2>
+    <p>你访问的页面可能已被移除或链接有误</p>
+    <a class="btn" href="/">← 返回首页</a>
+  </div>
 </body>
 </html>
