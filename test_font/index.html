@@ -1,64 +1,388 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <title>测试常见字体的显示效果</title>
-    <script src="../js/jquery.min.js"></script>
-    <style>
-        p{
-            font-size: 18px;
-            font-weight: normal;
-            background-color: beige;
-        }
-
-        .my_div{
-            float:left;
-            margin-left: 20px;
-            height: 150px;
-        }
-    </style>
-    <script>
-        font_family_conf = [
-                ["conslas"],
-                ["黑体","黑体"],
-                ["宋体","宋体"],
-                ['"Microsoft YaHei"',"微软雅黑"],
-                ["Helvetica","Helvetica"],
-                ["Arial","Arial"],
-                ["sans-serif","sans-serif"],
-                ["Helvetica, Tahoma, Arial, STXihei, “华文细黑”,“Microsoft YaHei”, “微软雅黑”, SimSun, “宋体”, Heiti, “黑体”,  sans-serif","多字体兼容"]
-        ];
-
-        test_string = [
-            "1234567890",
-            "abcdefghij",
-            "一二三四五"
-        ];
-
-        $(function(){
-            for(var i in font_family_conf)
-            {
-                var conf = font_family_conf[i];
-                var font_name = conf[0];
-                var font_desc = conf[1] || font_name;
-
-                var body = $("body");
-                var item = $("<div>").addClass("my_div");
-
-                var p_desc = $("<h4>").html(font_desc).css("font-family",font_name);
-                item.append(p_desc);
-
-                var value = test_string.join("<br>");
-                var p_value = $("<p>").html(value).css("font-family",font_name);
-                item.append(p_value);
-
-                body.append(item);
-            }
-        })
-    </script>
-
+  <meta charset="utf-8">
+  <title>字体显示测试</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../global.css">
+  <style>
+    .font-size-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #font-size {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+    #font-size-value {
+      font-family: var(--mono);
+      font-size: 13px;
+      min-width: 44px;
+      text-align: right;
+    }
+    .chip-group {
+      margin-bottom: 12px;
+    }
+    .chip-group:last-child {
+      margin-bottom: 0;
+    }
+    .chip-group-title {
+      font-size: 12px;
+      color: var(--text-secondary);
+      letter-spacing: .5px;
+      margin-bottom: 6px;
+    }
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .font-chip {
+      position: relative;
+    }
+    .font-chip input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .font-chip span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--bg);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      transition: border-color .2s, color .2s, background .2s;
+    }
+    .font-chip span:hover {
+      border-color: var(--accent);
+    }
+    .font-chip input:checked + span {
+      background: rgba(9, 132, 227, .1);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .chip-remove {
+      border: none;
+      background: none;
+      color: inherit;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 0 0 2px;
+      cursor: pointer;
+      opacity: .6;
+    }
+    .chip-remove:hover {
+      opacity: 1;
+    }
+    .custom-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .custom-row .mono-input {
+      flex: 1;
+    }
+    .empty-hint {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    #font-details {
+      margin-bottom: 0;
+    }
+    #font-details .chip-group:first-child {
+      margin-top: 2px;
+    }
+    .font-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .font-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px 18px;
+      overflow: hidden;
+    }
+    .font-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .font-name {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .font-value {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      word-break: break-all;
+    }
+    .sample {
+      line-height: 1.5;
+      word-break: break-word;
+    }
+  </style>
 </head>
 <body>
+  <div class="container wide">
+    <a class="back-link" href="../index.html">← 返回首页</a>
 
+    <header class="page-header">
+      <h1>字体显示测试</h1>
+      <p>对比常见中英文字体的渲染效果，支持自定义文字、字号与字体列表</p>
+    </header>
+
+    <section class="panel">
+      <label class="field-label" for="sample-text">测试文字</label>
+      <textarea id="sample-text" class="mono-input" rows="4"></textarea>
+
+      <label class="field-label" for="font-size">字号</label>
+      <div class="font-size-row">
+        <input type="range" id="font-size" min="12" max="64" step="1" value="18">
+        <span id="font-size-value">18px</span>
+      </div>
+
+      <details class="group" id="font-details">
+        <summary class="group-title" id="font-summary">字体</summary>
+        <div id="font-picker"></div>
+        <div class="custom-row">
+          <input id="custom-font" class="mono-input" type="text" placeholder="自定义字体名，如 Fira Code，回车添加">
+          <button class="btn btn-ghost" id="btn-add-font" type="button">添加</button>
+        </div>
+      </details>
+    </section>
+
+    <div class="font-grid" id="font-grid"></div>
+  </div>
+
+  <script>
+    'use strict';
+
+    const DEFAULT_SAMPLE = [
+      '1234567890',
+      'abcdefghij',
+      '一二三四五',
+      'The quick brown fox jumps over the lazy dog. 你好，世界！',
+    ].join('\n');
+
+    // 预置字体：[字体值, 显示名, 是否默认勾选]
+    const FONT_GROUPS = [
+      {
+        title: '中文',
+        fonts: [
+          ['"Microsoft YaHei"', '微软雅黑', true],
+          ['SimHei', '黑体', true],
+          ['SimSun', '宋体', true],
+          ['KaiTi', '楷体', true],
+          ['FangSong', '仿宋', false],
+          ['"PingFang SC"', '苹方', true],
+          ['"Noto Sans SC", "Source Han Sans SC"', '思源黑体', false],
+          ['"Noto Serif SC", "Source Han Serif SC"', '思源宋体', false],
+        ],
+      },
+      {
+        title: '西文',
+        fonts: [
+          ['Consolas', 'Consolas', true],
+          ['Helvetica', 'Helvetica', true],
+          ['Arial', 'Arial', true],
+          ['Georgia', 'Georgia', true],
+          ['"Times New Roman"', 'Times', true],
+          ['Verdana', 'Verdana', false],
+          ['"Courier New"', 'Courier New', false],
+        ],
+      },
+      {
+        title: '通用族',
+        fonts: [
+          ['sans-serif', 'sans-serif', true],
+          ['serif', 'serif', true],
+          ['monospace', 'monospace', true],
+          ['system-ui', 'system-ui', false],
+          ['cursive', 'cursive', false],
+        ],
+      },
+      {
+        title: '字体栈',
+        fonts: [
+          ['Helvetica, Tahoma, Arial, "STXihei", "华文细黑", "Microsoft YaHei", "微软雅黑", SimSun, "宋体", Heiti, "黑体", sans-serif', '多字体兼容', true],
+        ],
+      },
+    ];
+
+    const sampleText = document.getElementById('sample-text');
+    const fontSize = document.getElementById('font-size');
+    const fontSizeValue = document.getElementById('font-size-value');
+    const picker = document.getElementById('font-picker');
+    const fontSummary = document.getElementById('font-summary');
+    const customFont = document.getElementById('custom-font');
+    const btnAddFont = document.getElementById('btn-add-font');
+    const grid = document.getElementById('font-grid');
+
+    const state = {
+      checked: new Set(),
+      customs: [],
+    };
+    for (const g of FONT_GROUPS) {
+      for (const [value, , on] of g.fonts) {
+        if (on) state.checked.add(value);
+      }
+    }
+
+    sampleText.value = DEFAULT_SAMPLE;
+
+    function getActiveFonts() {
+      const list = [];
+      for (const g of FONT_GROUPS) {
+        for (const [value, label] of g.fonts) {
+          if (state.checked.has(value)) list.push({ value, label });
+        }
+      }
+      for (const c of state.customs) {
+        if (state.checked.has(c.value)) list.push(c);
+      }
+      return list;
+    }
+
+    function makeChip(font, removable) {
+      const label = document.createElement('label');
+      label.className = 'font-chip';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = state.checked.has(font.value);
+      cb.addEventListener('change', () => {
+        if (cb.checked) state.checked.add(font.value);
+        else state.checked.delete(font.value);
+        renderCards();
+      });
+      const tag = document.createElement('span');
+      tag.textContent = font.label;
+      tag.title = font.value;
+      if (removable) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'chip-remove';
+        x.textContent = '×';
+        x.title = '移除该字体';
+        x.addEventListener('click', (e) => {
+          e.preventDefault();
+          state.customs = state.customs.filter(c => c.value !== font.value);
+          state.checked.delete(font.value);
+          renderPicker();
+          renderCards();
+        });
+        tag.appendChild(x);
+      }
+      label.append(cb, tag);
+      return label;
+    }
+
+    function renderPicker() {
+      picker.textContent = '';
+      const groups = FONT_GROUPS.map(g => ({
+        title: g.title,
+        fonts: g.fonts.map(([value, label]) => ({ value, label })),
+        removable: false,
+      }));
+      if (state.customs.length) {
+        groups.push({ title: '自定义', fonts: state.customs, removable: true });
+      }
+      for (const g of groups) {
+        const wrap = document.createElement('div');
+        wrap.className = 'chip-group';
+        const title = document.createElement('div');
+        title.className = 'chip-group-title';
+        title.textContent = g.title;
+        const chips = document.createElement('div');
+        chips.className = 'chip-row';
+        for (const font of g.fonts) chips.appendChild(makeChip(font, g.removable));
+        wrap.append(title, chips);
+        picker.appendChild(wrap);
+      }
+    }
+
+    function addCustomFont() {
+      const value = customFont.value.trim();
+      if (!value) return;
+      const exists = state.customs.some(c => c.value === value)
+        || FONT_GROUPS.some(g => g.fonts.some(f => f[0] === value));
+      if (!exists) {
+        state.customs.push({ value, label: value });
+        state.checked.add(value);
+        renderPicker();
+        renderCards();
+      }
+      customFont.value = '';
+      customFont.focus();
+    }
+
+    function updateSummary() {
+      fontSummary.textContent = `字体（已选 ${state.checked.size} 项，悬停选项可查看字体值）`;
+    }
+
+    function renderCards() {
+      updateSummary();
+      const size = fontSize.value + 'px';
+      fontSizeValue.textContent = size;
+      const text = sampleText.value || DEFAULT_SAMPLE;
+      grid.textContent = '';
+
+      const fonts = getActiveFonts();
+      if (!fonts.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-hint';
+        empty.textContent = '未选择任何字体，请在上方勾选。';
+        grid.appendChild(empty);
+        return;
+      }
+
+      for (const font of fonts) {
+        const card = document.createElement('div');
+        card.className = 'font-card';
+
+        const meta = document.createElement('div');
+        meta.className = 'font-meta';
+        const name = document.createElement('span');
+        name.className = 'font-name';
+        name.textContent = font.label;
+        const value = document.createElement('span');
+        value.className = 'font-value';
+        value.textContent = font.value;
+        meta.append(name, value);
+
+        const sample = document.createElement('p');
+        sample.className = 'sample';
+        sample.style.fontFamily = font.value;
+        sample.style.fontSize = size;
+        text.split('\n').forEach((line, i) => {
+          if (i > 0) sample.appendChild(document.createElement('br'));
+          sample.appendChild(document.createTextNode(line));
+        });
+
+        card.append(meta, sample);
+        grid.appendChild(card);
+      }
+    }
+
+    sampleText.addEventListener('input', renderCards);
+    fontSize.addEventListener('input', renderCards);
+    btnAddFont.addEventListener('click', addCustomFont);
+    customFont.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') addCustomFont();
+    });
+    renderPicker();
+    renderCards();
+  </script>
 </body>
 </html>
