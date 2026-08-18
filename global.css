@@ -78,6 +78,21 @@ a:hover {
   font-size: 15px;
 }
 
+/* === Group === */
+.group {
+  margin-bottom: 40px;
+}
+.group:last-of-type {
+  margin-bottom: 0;
+}
+.group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+
 /* === Project Grid === */
 .project-grid {
   display: grid;
@@ -121,15 +136,6 @@ a:hover {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
-}
-.card-body .tag {
-  display: inline-block;
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-secondary);
-  margin-top: 6px;
 }
 
 /* === Footer === */
