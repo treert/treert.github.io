@@ -86,11 +86,38 @@ a:hover {
   margin-bottom: 0;
 }
 .group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 1px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: color .2s;
+}
+.group-title:hover {
+  color: var(--text);
+}
+.group-title::-webkit-details-marker {
+  display: none;
+}
+.group-title::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg) translateY(-1px);
+  transition: transform .2s;
+}
+.group[open] .group-title {
   margin-bottom: 14px;
+}
+.group[open] .group-title::before {
+  transform: rotate(45deg) translateY(-1px);
 }
 
 /* === Project Grid === */
