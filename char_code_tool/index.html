@@ -67,15 +67,15 @@
 
     <header class="page-header">
       <h1>字符编码工具</h1>
-      <p>字符串与 UTF-8 转义序列互转，查看字符码点与字节</p>
+      <p>字符串与 JS 字符串字面值互转，查看字符码点与 UTF-8 字节</p>
     </header>
 
     <section class="panel">
       <h2>输入</h2>
-      <textarea id="input" class="mono-input" rows="6" placeholder="输入要转换的字符串，或 \xE4\xB8\x80 形式的转义序列"></textarea>
+      <textarea id="input" class="mono-input" rows="6" placeholder='输入要转换的字符串，或 JS 字符串字面值（如 "你好\n"）'></textarea>
       <div class="toolbar">
-        <button class="btn btn-primary" id="btn-encode">编码为 \xHH</button>
-        <button class="btn btn-ghost" id="btn-decode">从 \xHH 解码</button>
+        <button class="btn btn-primary" id="btn-encode">编码为 JS 字面值</button>
+        <button class="btn btn-ghost" id="btn-decode">从字面值解码</button>
         <button class="btn btn-ghost" id="btn-copy">复制结果</button>
         <span class="hint">Ctrl + Enter 快捷编码</span>
       </div>
@@ -103,7 +103,6 @@
 
     const MAX_ROWS = 200;
     const encoder = new TextEncoder();
-    const decoder = new TextDecoder('utf-8');
 
     const input = document.getElementById('input');
     const output = document.getElementById('output');
@@ -118,6 +117,26 @@
       return b.toString(16).toUpperCase().padStart(2, '0');
     }
 
+    function toJsLiteral(text) {
+      let out = '"';
+      for (const ch of text) {
+        const cp = ch.codePointAt(0);
+        if (ch === '"') out += '\\"';
+        else if (ch === '\\') out += '\\\\';
+        else if (ch === '\n') out += '\\n';
+        else if (ch === '\r') out += '\\r';
+        else if (ch === '\t') out += '\\t';
+        else if (ch === '\b') out += '\\b';
+        else if (ch === '\f') out += '\\f';
+        else if (ch === '\v') out += '\\v';
+        else if (cp < 0x20 || cp === 0x7F) out += '\\x' + hex(cp);
+        else if (cp < 0x7F) out += ch;
+        else if (cp <= 0xFFFF) out += '\\u' + cp.toString(16).toUpperCase().padStart(4, '0');
+        else out += '\\u{' + cp.toString(16).toUpperCase() + '}';
+      }
+      return out + '"';
+    }
+
     function encode() {
       const text = input.value;
       if (!text) {
@@ -126,51 +145,100 @@
         msg.textContent = '请输入内容';
         return;
       }
-      const bytes = encoder.encode(text);
-      output.textContent = Array.from(bytes, b => '\\x' + hex(b)).join('');
+      output.textContent = toJsLiteral(text);
       const truncated = renderCodepoints(text);
       msg.textContent = truncated ? `字符较多，码点表仅显示前 ${MAX_ROWS} 个` : '';
     }
 
     function decode() {
-      const text = input.value;
+      let text = input.value;
       if (!text) {
         output.textContent = '';
         codepointPanel.hidden = true;
         msg.textContent = '请输入内容';
         return;
       }
-      const bytes = [];
+      // 整体被引号包裹时视为完整字面值，去掉首尾引号
+      if (text.length >= 2) {
+        const q = text[0];
+        if ((q === '"' || q === "'" || q === '`') && text[text.length - 1] === q) {
+          text = text.slice(1, -1);
+        }
+      }
+      let out = '';
       let i = 0;
+      let invalidCount = 0;
+      let octalCount = 0;
+      const simple = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v' };
       while (i < text.length) {
-        let m = text.slice(i).match(/^\\x([0-9a-fA-F]{2})/);
-        if (m) {
-          bytes.push(parseInt(m[1], 16));
-          i += m[0].length;
+        if (text[i] !== '\\') {
+          let j = text.indexOf('\\', i);
+          if (j === -1) j = text.length;
+          out += text.slice(i, j);
+          i = j;
           continue;
         }
-        m = text.slice(i).match(/^\\u([0-9a-fA-F]{4})/);
-        if (m) {
-          bytes.push(...encoder.encode(String.fromCodePoint(parseInt(m[1], 16))));
-          i += m[0].length;
-          continue;
-        }
-        let j = text.indexOf('\\', i);
-        if (j === i) {
-          // 不构成合法转义的反斜杠按字面处理
-          bytes.push(0x5C);
+        const rest = text.slice(i);
+        const n = text[i + 1];
+        if (n === undefined) {
+          // 末尾孤立反斜杠按字面保留
+          out += '\\';
+          invalidCount++;
           i++;
           continue;
         }
-        if (j === -1) j = text.length;
-        bytes.push(...encoder.encode(text.slice(i, j)));
-        i = j;
+        // 行延续：\ 后紧跟换行不产生字符
+        if (n === '\n') { i += 2; continue; }
+        if (n === '\r') { i += (text[i + 2] === '\n') ? 3 : 2; continue; }
+        if (n.codePointAt(0) === 0x2028 || n.codePointAt(0) === 0x2029) { i += 2; continue; }
+        if (Object.hasOwn(simple, n)) { out += simple[n]; i += 2; continue; }
+        let m = rest.match(/^\\x([0-9a-fA-F]{2})/);
+        if (m) {
+          out += String.fromCharCode(parseInt(m[1], 16));
+          i += m[0].length;
+          continue;
+        }
+        m = rest.match(/^\\u\{([0-9a-fA-F]+)\}/);
+        if (m) {
+          const cp = parseInt(m[1], 16);
+          if (cp <= 0x10FFFF) {
+            out += String.fromCodePoint(cp);
+          } else {
+            out += m[0];
+            invalidCount++;
+          }
+          i += m[0].length;
+          continue;
+        }
+        m = rest.match(/^\\u([0-9a-fA-F]{4})/);
+        if (m) {
+          out += String.fromCharCode(parseInt(m[1], 16));
+          i += m[0].length;
+          continue;
+        }
+        if (/^\\[xu]/.test(rest)) {
+          out += '\\';
+          invalidCount++;
+          i++;
+          continue;
+        }
+        // \0 之外的八进制转义仅非严格模式有效
+        m = rest.match(/^\\([0-3][0-7]{0,2}|[4-7][0-7]?)/);
+        if (m) {
+          out += String.fromCharCode(parseInt(m[1], 8));
+          if (m[1] !== '0') octalCount++;
+          i += m[0].length;
+          continue;
+        }
+        // \ 后跟其他字符即该字符本身（如 \\、\"、\a）
+        out += n;
+        i += 2;
       }
-      const decoded = decoder.decode(new Uint8Array(bytes));
-      output.textContent = decoded;
-      const truncated = renderCodepoints(decoded);
+      output.textContent = out;
+      const truncated = renderCodepoints(out);
       const notes = [];
-      if (decoded.includes('\uFFFD')) notes.push('存在无法按 UTF-8 解码的字节，已用 � 替代');
+      if (invalidCount) notes.push(`${invalidCount} 处无效或超出范围的转义已按字面保留`);
+      if (octalCount) notes.push(`${octalCount} 处八进制转义在严格模式下会报错`);
       if (truncated) notes.push(`字符较多，码点表仅显示前 ${MAX_ROWS} 个`);
       msg.textContent = notes.join('；');
     }
