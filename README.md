@@ -4,11 +4,15 @@
 
 ## 目录
 
-| 项目 | 说明 |
-|------|------|
-| [字符编码工具](./char_code_tool/index.html) | 字符串转 UTF-8 转义序列 |
-| [字体显示测试](./test_font/index.html) | 常见中英文字体渲染效果对比 |
-| [404](./404.html) | 自定义 404 页面 |
+| 分类 | 项目 | 说明 |
+|------|------|------|
+| AI / LLM | [LLM Tokenizer](https://treert.github.io/llm-tokenizer/) | 浏览器中计算和可视化文本 Token，支持 DeepSeek 等模型 |
+| AI / LLM | [LLM-LENS](https://treert.github.io/llm-lens/) | 通过解剖开源 LLM 权重，理解大语言模型的工作原理 |
+| 小工具 | [字符编码工具](./char_code_tool/index.html) | 字符串与 UTF-8 转义互转，查看码点与字节 |
+| 小工具 | [字体显示测试](./test_font/index.html) | 常见中英文字体渲染对比，支持自定义文字与字体 |
+| 折腾 / 好玩 | [Conway 生命游戏](./conway-life-game/index.html) | 元胞自动机演示，内置 20 个经典结构，支持 Life 1.06 导入导出 |
+| 折腾 / 好玩 | [水波效果](https://treert.github.io/jquery.ripples/html) | 学习 WebGL，一个鼠标交互的水波纹特效 |
+| — | [404](./404.html) | 自定义 404 页面 |
 
 ## 技术栈
 

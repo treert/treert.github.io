@@ -195,28 +195,6 @@ export class Board {
     return out;
   }
 
-  /** @returns {{minX:number,minY:number,maxX:number,maxY:number,width:number,height:number}|null} */
-  liveBounds() {
-    if (this.population === 0) return null;
-    const { cols, rows, cells } = this;
-    let minX = cols;
-    let minY = rows;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < rows; y++) {
-      const base = y * cols;
-      for (let x = 0; x < cols; x++) {
-        if (cells[base + x]) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-    return { minX, minY, maxX, maxY, width: maxX - minX + 1, height: maxY - minY + 1 };
-  }
-
   /** 深拷贝当前状态，供撤销栈使用 */
   snapshot() {
     return {
