@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Conway 性能基准</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 24px; }
+    table { border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 5px 12px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    th { background: #f5f5f5; font-weight: 600; }
+    h1 { font-size: 17px; }
+    code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; }
+    .note { color: #555; max-width: 720px; }
+  </style>
+</head>
+<body>
+  <h1>Conway 生命游戏 · 性能基准</h1>
+  <p class="note">
+    直接 import 项目里的真实模块来测，不复制逻辑。在浏览器里打开这个文件即可，
+    完整结果也能从控制台的 <code>window.__bench</code> 取到。
+  </p>
+  <p class="note">
+    <b>测量方式很重要：</b>每个数据点都用自适应迭代（跑满 200ms，通常几千到几万次）。
+    如果只跑固定几百次，V8 还没完成优化，测出来的数字会明显失真——尤其会低估优化过的实现。
+  </p>
+  <canvas id="c" style="position:absolute; left:-9999px"></canvas>
+
+  <script type="module">
+    import { Board } from '../js/board.js';
+    import { Renderer } from '../js/renderer.js';
+
+    const renderer = new Renderer(document.getElementById('c'));
+    const BLOCK = [[0, 0], [1, 0], [0, 1], [1, 1]];
+
+    /** 自适应迭代：跑满 minMs 或到达上限，确保 V8 完成优化 */
+    function timeIt(fn, minMs = 200) {
+      fn();
+      let n = 0;
+      const t0 = performance.now();
+      let t1 = t0;
+      while (t1 - t0 < minMs && n < 200000) {
+        fn();
+        n++;
+        t1 = performance.now();
+      }
+      return (t1 - t0) / n;
+    }
+
+    /** 每个数据点都用全新棋盘，避免前一个测量把内容演化掉、影响后一个 */
+    function measure(label, cols, rows, setup) {
+      renderer.layout(cols, rows, 900, 700);
+
+      const stepBoard = new Board(cols, rows);
+      setup(stepBoard);
+      const stepMs = timeIt(() => stepBoard.step());
+
+      const fillBoard = new Board(cols, rows);
+      setup(fillBoard);
+      const fillMs = timeIt(() => renderer._fillOffscreen(fillBoard));
+
+      const drawBoard = new Board(cols, rows);
+      setup(drawBoard);
+      const drawMs = timeIt(() => renderer.draw(drawBoard, null));
+
+      const frameBoard = new Board(cols, rows);
+      setup(frameBoard);
+      const frameMs = timeIt(() => {
+        frameBoard.step();
+        renderer.draw(frameBoard, null);
+      });
+
+      return {
+        场景: label,
+        格子数: cols * rows,
+        格子像素: renderer.cellSize,
+        'step()': +stepMs.toFixed(4),
+        '逐格写像素': +fillMs.toFixed(4),
+        'draw()': +drawMs.toFixed(4),
+        '一帧(step+draw)': +frameMs.toFixed(4),
+        '200代/秒时每帧': +(frameMs * 3.33).toFixed(3),
+      };
+    }
+
+    // 混沌状态：没有大片空白可以跳过，step() 的最坏情况
+    const dense = (b) => b.fillRandom(0.3);
+    // 稀疏：几块分散的静物，内容恒定不变，便于看"全量扫描浪费了多少"
+    const sparse = (b) => {
+      for (let y = 20; y < b.rows; y += 40) {
+        for (let x = 20; x < b.cols; x += 40) b.stamp(BLOCK, x, y);
+      }
+    };
+
+    const rows = [];
+    for (const [cols, boardRows] of [[62, 56], [160, 120], [240, 160]]) {
+      rows.push(measure(`${cols}x${boardRows} 密集`, cols, boardRows, dense));
+    }
+    for (const [cols, boardRows] of [[62, 56], [160, 120], [240, 160]]) {
+      rows.push(measure(`${cols}x${boardRows} 稀疏`, cols, boardRows, sparse));
+    }
+
+    window.__bench = JSON.stringify(rows, null, 1);
+
+    const keys = Object.keys(rows[0]);
+    const table = document.createElement('table');
+    table.innerHTML =
+      `<tr>${keys.map((k) => `<th>${k}</th>`).join('')}</tr>` +
+      rows.map((r) => `<tr>${keys.map((k) => `<td>${r[k]}</td>`).join('')}</tr>`).join('');
+    document.body.appendChild(table);
+
+    const p = document.createElement('p');
+    p.className = 'note';
+    p.innerHTML =
+      '参考：速度档位上限 200 代/秒、单帧上限 40 代。60fps 下每帧预算 16.7ms，' +
+      '所以「200代/秒时每帧」这一列就是实际占用。';
+    document.body.appendChild(p);
+  </script>
+</body>
+</html>
