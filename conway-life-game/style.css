@@ -5,6 +5,80 @@
   font-size: 13px;
 }
 
+/* === 快捷键说明（折叠着，不展开时不占额外高度） === */
+.page-help summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  transition: color .15s;
+}
+.page-help summary:hover {
+  color: var(--accent);
+}
+.page-help summary::-webkit-details-marker {
+  display: none;
+}
+.page-help summary::after {
+  content: " ▾";
+  font-size: 11px;
+}
+.page-help[open] summary::after {
+  content: " ▴";
+}
+.page-help-body {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text);
+}
+.page-help-body table {
+  border-collapse: collapse;
+}
+.page-help-body td {
+  padding: 3px 14px 3px 0;
+  vertical-align: top;
+  line-height: 1.9;
+}
+.page-help-body td:first-child {
+  white-space: nowrap;
+  text-align: right;
+}
+.page-help-body p {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.page-help-body p:last-child {
+  border-top: none;
+  padding-top: 0;
+}
+.page-help-body kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.page-help-body code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 /* 首页那种大留白在工具页没必要，上下都收一点，给棋盘让出纵向空间 */
 .container {
   padding-top: 36px;

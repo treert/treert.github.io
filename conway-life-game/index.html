@@ -13,7 +13,25 @@
 
     <header class="page-header">
       <h1>Conway 生命游戏</h1>
-      <p>元胞自动机 · 空格播放 / R 旋转 / W 环绕 / Esc 取消选择</p>
+      <details class="page-help" id="page-help">
+        <summary>元胞自动机 · 空格播放 / R 旋转 / W 环绕（点这里看全部快捷键）</summary>
+        <div class="page-help-body">
+          <table>
+            <tr><td><kbd>空格</kbd></td><td>播放 / 暂停</td></tr>
+            <tr><td><kbd>S</kbd></td><td>单步</td></tr>
+            <tr><td><kbd>R</kbd></td><td>选中结构顺时针旋转 90°</td></tr>
+            <tr><td><kbd>H</kbd></td><td>选中结构水平翻转</td></tr>
+            <tr><td><kbd>V</kbd></td><td>选中结构垂直翻转</td></tr>
+            <tr><td><kbd>W</kbd></td><td>切换环绕边界</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>取消选中的结构</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>撤销</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> 或 <kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td>重做</td></tr>
+            <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
+          </table>
+          <p>不选结构时，在棋盘上按住拖动可以直接画 / 擦细胞——按下的那一格决定这一笔是画还是擦。</p>
+          <p>也可以把 <code>.life</code> 文件拖到棋盘上导入，或直接 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴。</p>
+        </div>
+      </details>
     </header>
 
     <section class="panel toolbar-panel">
@@ -34,16 +52,19 @@
         <button class="btn btn-ghost" id="btn-step">单步</button>
         <button class="btn btn-ghost" id="btn-clear">清空</button>
         <button class="btn btn-ghost" id="btn-undo">撤销</button>
+        <button class="btn btn-ghost" id="btn-redo">重做</button>
         <span class="toolbar-label">速度</span>
         <select id="speed" class="select"></select>
         <span class="stat">代数 <b id="stat-gen">0</b></span>
         <span class="stat">存活 <b id="stat-pop">0</b></span>
+        <span class="stat">坐标 <b id="stat-coord">—</b></span>
       </div>
       <div class="toolbar-row">
-        <span class="toolbar-label">Life 1.06</span>
-        <button class="btn btn-ghost btn-sm" id="btn-import">导入</button>
-        <button class="btn btn-ghost btn-sm" id="btn-export">导出</button>
-        <button class="btn btn-ghost btn-sm" id="btn-copy-life">复制</button>
+        <span class="toolbar-label">文件</span>
+        <button class="btn btn-ghost btn-sm" id="btn-import">导入 .life</button>
+        <button class="btn btn-ghost btn-sm" id="btn-export">导出 .life</button>
+        <button class="btn btn-ghost btn-sm" id="btn-copy-life">复制文本</button>
+        <button class="btn btn-ghost btn-sm" id="btn-export-png">导出图片</button>
         <span class="hint" id="life-msg"></span>
       </div>
       <input type="file" id="file-input" accept=".life,.txt,text/plain" hidden>

@@ -6,6 +6,7 @@ import { formatLife, parseLife } from './life-format.js';
 import { Palette } from './palette.js';
 import { Interaction } from './interaction.js';
 import { Simulator } from './simulator.js';
+import { saveState, loadState } from './persist.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,16 +27,20 @@ const dom = {
   btnStep: $('btn-step'),
   btnClear: $('btn-clear'),
   btnUndo: $('btn-undo'),
+  btnRedo: $('btn-redo'),
   speed: $('speed'),
   statGen: $('stat-gen'),
   statPop: $('stat-pop'),
+  statCoord: $('stat-coord'),
   paletteList: $('palette-list'),
   paletteHint: $('palette-hint'),
   btnImport: $('btn-import'),
   btnExport: $('btn-export'),
   btnCopyLife: $('btn-copy-life'),
+  btnExportPng: $('btn-export-png'),
   lifeMsg: $('life-msg'),
   fileInput: $('file-input'),
+  help: $('page-help'),
   btnRotate: $('btn-rotate'),
   btnFlipH: $('btn-flip-h'),
   btnFlipV: $('btn-flip-v'),
@@ -50,7 +55,9 @@ const state = {
   flipH: false,
   flipV: false,
   undo: [],
+  redo: [],
   drawPending: false,
+  popAtPlayStart: 0,
 };
 
 const app = {
@@ -110,22 +117,42 @@ function updateStatsThrottled() {
 function afterEdit() {
   requestDraw();
   updateStats();
+  scheduleSave();
+}
+
+function syncHistoryButtons() {
+  dom.btnUndo.disabled = state.undo.length === 0;
+  dom.btnRedo.disabled = state.redo.length === 0;
 }
 
 function pushUndo() {
   if (!app.board) return;
   state.undo.push(app.board.snapshot());
   if (state.undo.length > CONFIG.undoLimit) state.undo.shift();
-  dom.btnUndo.disabled = false;
+  state.redo.length = 0; // 有了新的改动，原来的重做链就作废了
+  syncHistoryButtons();
+}
+
+/** 应用一份快照。快照里可能带着不同的棋盘尺寸，所以要走一遍 layout() */
+function applySnapshot(snap) {
+  app.board.restore(snap);
+  syncHistoryButtons();
+  layout();
+  afterEdit();
 }
 
 function undo() {
   const snap = state.undo.pop();
   if (!snap) return;
-  app.board.restore(snap);
-  dom.btnUndo.disabled = state.undo.length === 0;
-  layout(); // 撤销可能把棋盘尺寸也还原了
-  afterEdit();
+  state.redo.push(app.board.snapshot());
+  applySnapshot(snap);
+}
+
+function redo() {
+  const snap = state.redo.pop();
+  if (!snap) return;
+  state.undo.push(app.board.snapshot());
+  applySnapshot(snap);
 }
 
 // ---------------------------------------------------------------- 待放置结构
@@ -326,17 +353,33 @@ async function readLifeFile(file) {
   }
 }
 
-function exportLifeFile() {
-  const blob = new Blob([currentLifeText()], { type: 'text/plain;charset=utf-8' });
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `life-${app.board.cols}x${app.board.rows}.life`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function exportLifeFile() {
+  const blob = new Blob([currentLifeText()], { type: 'text/plain;charset=utf-8' });
+  downloadBlob(blob, `life-${app.board.cols}x${app.board.rows}.life`);
   setLifeMsg(`已导出 ${app.board.population} 个细胞到 .life 文件`);
+}
+
+/** 直接存画布，所见即所得（含网格线） */
+function exportPng() {
+  app.renderer.canvas.toBlob((blob) => {
+    if (!blob) {
+      setLifeMsg('导出图片失败', true);
+      return;
+    }
+    downloadBlob(blob, `life-${app.board.cols}x${app.board.rows}.png`);
+    setLifeMsg('已导出 PNG 图片');
+  }, 'image/png');
 }
 
 async function copyLifeText() {
@@ -356,6 +399,7 @@ function bindLifeIo() {
   dom.btnImport.addEventListener('click', () => dom.fileInput.click());
   dom.btnExport.addEventListener('click', exportLifeFile);
   dom.btnCopyLife.addEventListener('click', copyLifeText);
+  dom.btnExportPng.addEventListener('click', exportPng);
 
   dom.fileInput.addEventListener('change', async () => {
     const file = dom.fileInput.files && dom.fileInput.files[0];
@@ -399,6 +443,100 @@ function bindLifeIo() {
     if (!text || !text.includes('#Life 1.06')) return;
     ev.preventDefault();
     importLifeText(text, '剪贴板');
+  });
+}
+
+// ---------------------------------------------------------------- 刷新不丢状态
+
+const SAVE_DELAY = 600;
+let saveTimer = 0;
+
+function collectState() {
+  return {
+    presetId: state.presetId,
+    wrap: state.wrap,
+    speed: Number(dom.speed.value),
+    initialContent: dom.initialContent.value,
+    density: Number(dom.density.value),
+    board: app.board
+      ? {
+          cols: app.board.cols,
+          rows: app.board.rows,
+          generation: app.board.generation,
+          cells: app.board.cells,
+          age: app.board.age,
+        }
+      : null,
+  };
+}
+
+/**
+ * 播放时刻意不存：每帧都序列化 76KB 会掉帧。
+ * 只在编辑之后、暂停时、以及关页面时存。
+ */
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveState(collectState()), SAVE_DELAY);
+}
+
+/**
+ * 把存档应用回去。成功返回 true。
+ * 存档只恢复「内容」和设置；棋盘尺寸仍按当前预设算，这样「自适应窗口」才真的跟着窗口走。
+ */
+function restoreSavedState() {
+  const saved = loadState();
+  if (!saved) return false;
+
+  if (typeof saved.wrap === 'boolean') state.wrap = saved.wrap;
+  if (CONFIG.boardPresets.some((p) => p.id === saved.presetId)) state.presetId = saved.presetId;
+  if (CONFIG.speeds.includes(saved.speed)) dom.speed.value = String(saved.speed);
+  if (saved.initialContent) {
+    dom.initialContent.value = saved.initialContent;
+    // 存档里的结构可能已经不存在了，这时 value 会变成空串
+    if (!dom.initialContent.value) dom.initialContent.value = '__empty';
+  }
+  if (Number.isFinite(saved.density)) dom.density.value = String(saved.density);
+
+  dom.densityValue.textContent = `${dom.density.value}%`;
+  syncWrapButton();
+  updateDensityVisibility();
+
+  const b = saved.board;
+  const usable =
+    b && b.cells instanceof Uint8Array && b.cells.length === b.cols * b.rows && b.cols > 0 && b.rows > 0;
+  if (usable) {
+    const preset = CONFIG.boardPresets.find((p) => p.id === state.presetId) || CONFIG.boardPresets[0];
+    const { cols, rows } = computeBoardSize(preset);
+
+    app.board = new Board(b.cols, b.rows, state.wrap);
+    let pop = 0;
+    for (let i = 0; i < b.cells.length; i++) if (b.cells[i]) pop++;
+    app.board.restore({
+      cols: b.cols,
+      rows: b.rows,
+      cells: b.cells,
+      age: b.age,
+      population: pop,
+      generation: b.generation || 0,
+    });
+    // 尺寸没变时 resize() 直接返回；变了就居中保留，和手动切尺寸的行为一致
+    app.board.resize(cols, rows);
+
+    syncPresetButtons();
+    layout();
+    afterEdit();
+  } else {
+    createBoard(state.presetId, false);
+    applyInitialContent();
+  }
+  return true;
+}
+
+function bindPersistence() {
+  // 播放中直接关掉标签页时，靠这两个事件补一次同步保存
+  window.addEventListener('pagehide', () => saveState(collectState()));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveState(collectState());
   });
 }
 
@@ -460,6 +598,24 @@ function updateDensityVisibility() {
 function updatePlayButton() {
   dom.btnPlay.textContent = simulator.playing ? '⏸ 暂停' : '▶ 播放';
   dom.btnPlay.classList.toggle('is-playing', simulator.playing);
+  scheduleSave(); // 播放状态也一并存下来
+}
+
+function togglePlay() {
+  simulator.toggle();
+  // 记下开播时的种群数：本来就是空棋盘的话，就别自动暂停来打扰
+  if (simulator.playing) state.popAtPlayStart = app.board.population;
+  updatePlayButton();
+}
+
+/** 棋盘被跑空了就停下来，别让它空转 */
+function maybeAutoPause() {
+  if (!simulator.playing) return;
+  if (state.popAtPlayStart === 0) return;
+  if (app.board.population > 0) return;
+  simulator.pause();
+  updatePlayButton();
+  setLifeMsg('棋盘已空，已自动暂停');
 }
 
 // ---------------------------------------------------------------- 事件绑定
@@ -484,10 +640,7 @@ function bindEvents() {
     applyInitialContent();
   });
 
-  dom.btnPlay.addEventListener('click', () => {
-    simulator.toggle();
-    updatePlayButton();
-  });
+  dom.btnPlay.addEventListener('click', togglePlay);
 
   dom.btnStep.addEventListener('click', () => {
     simulator.pause();
@@ -502,6 +655,7 @@ function bindEvents() {
   });
 
   dom.btnUndo.addEventListener('click', undo);
+  dom.btnRedo.addEventListener('click', redo);
 
   dom.speed.addEventListener('change', () => {
     simulator.setSpeed(Number(dom.speed.value));
@@ -513,20 +667,35 @@ function bindEvents() {
   dom.btnFlipV.addEventListener('click', flipVertical);
   dom.btnDeselect.addEventListener('click', clearSelection);
 
+  // 鼠标在棋盘上的格子坐标
+  dom.canvas.addEventListener('pointermove', (ev) => {
+    const cell = renderer.cellFromPoint(ev.clientX, ev.clientY);
+    dom.statCoord.textContent = cell ? `${cell.x}, ${cell.y}` : '—';
+  });
+  dom.canvas.addEventListener('pointerleave', () => {
+    dom.statCoord.textContent = '—';
+  });
+
   window.addEventListener('keydown', (ev) => {
     const t = ev.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
 
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z')) {
+    const mod = ev.ctrlKey || ev.metaKey;
+    if (mod && (ev.key === 'z' || ev.key === 'Z')) {
       ev.preventDefault();
-      undo();
+      if (ev.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if (mod && (ev.key === 'y' || ev.key === 'Y')) {
+      ev.preventDefault();
+      redo();
       return;
     }
     switch (ev.key) {
       case ' ':
         ev.preventDefault();
-        simulator.toggle();
-        updatePlayButton();
+        togglePlay();
         break;
       case 'r':
       case 'R':
@@ -550,6 +719,10 @@ function bindEvents() {
         updatePlayButton();
         simulator.stepOnce();
         break;
+      case '?':
+        ev.preventDefault();
+        dom.help.open = !dom.help.open;
+        break;
       case 'Escape':
         clearSelection();
         break;
@@ -564,6 +737,7 @@ function bindEvents() {
   });
 
   bindLifeIo();
+  bindPersistence();
 }
 
 // ---------------------------------------------------------------- 启动
@@ -592,20 +766,24 @@ function init() {
     onAdvance: () => {
       requestDraw();
       updateStatsThrottled();
+      maybeAutoPause();
     },
     maxStepsPerFrame: CONFIG.maxStepsPerFrame,
   });
-  simulator.setSpeed(Number(dom.speed.value));
 
-  dom.btnUndo.disabled = true;
+  syncHistoryButtons();
   syncWrapButton();
   dom.densityValue.textContent = `${dom.density.value}%`;
   setHint(DEFAULT_HINT);
   setLifeMsg(LIFE_HINT);
   updateDensityVisibility();
 
-  createBoard(CONFIG.defaultPreset, false);
-  applyInitialContent();
+  if (!restoreSavedState()) {
+    createBoard(CONFIG.defaultPreset, false);
+    applyInitialContent();
+  }
+  simulator.setSpeed(Number(dom.speed.value));
+
   bindEvents();
   updatePlayButton();
 }
