@@ -98,6 +98,11 @@ app = {
 7. **结构数据是唯一的「手工维护点」。** `patterns.js` 里全部是相对坐标数组，
    模块加载时统一归一化到包围盒左上角并补上 `width/height`，加结构时不用自己算。
 
+8. **配色分两处，边界要清楚。** 页面颜色在 `global.css` / `style.css` 的 CSS 变量里；
+   **画布**颜色在 `config.js` 的 `themes.light` / `themes.dark` 里。canvas 读不到 CSS 变量，
+   硬要读就得走 `getComputedStyle`，而它在绘制循环里会强制样式计算、明显掉帧。
+   代价是加新颜色时要想清楚归哪边——像棋盘底色这种两边都沾的，要一起改。
+
 ## 常见改动
 
 ### 加一个经典结构
@@ -147,6 +152,7 @@ app = {
 | `node conway-life-game/tools/test-life-format.mjs` | Life 1.06 读写单测：往返一致、BOM/CRLF 容错、各类坏输入 |
 | `node conway-life-game/tools/test-share.mjs` | URL 分享编解码单测：往返一致、边界格子、截断与坏链接容错 |
 | `node conway-life-game/tools/test-custom.mjs` | 框选取细胞 + 自定义结构库单测：归一化、增删查、上限、坏存档降级 |
+| `node conway-life-game/tools/check-css-classes.mjs` | 全站扫描：找出「CSS 里写了、但页面上没有这个 class」的选择器 |
 | `node conway-life-game/tools/bench-board.mjs` | 演化性能基准（30% 随机填充，最坏情况） |
 | 浏览器打开 `tools/bench-render.html` | 渲染 / 整帧性能基准，同时覆盖 `step()` 与 `draw()` |
 
@@ -223,6 +229,18 @@ app = {
 
 存档只恢复「内容」，棋盘尺寸仍按当前预设算——这样「自适应窗口」才真的跟着窗口走。
 窗口变了刷新后棋盘会重新适配，内容居中保留（走的是和手动切尺寸同一条 `resize()` 路径）。
+
+### 深色模式
+
+右上角有个圆钮切换，选择记在 `localStorage`（key 是 `site-theme`）；**没手动切过就跟着系统走**。
+主题系统是全站共用的，实现在 `../global.css` + `../global.js`，本页只负责让它认识画布。
+
+**画布颜色不受 CSS 管**——它是 JS 画进 canvas 的。所以切主题时 `global.js` 会发一个
+`themechange` 事件，`main.js` 收到后把新配色推给 `renderer` 和结构面板、再重画一遍。
+少了这一步就会出现「页面黑了、棋盘还白着」。
+
+年龄配色在深色下**方向是反的**：浅色下老细胞最深、深色下老细胞最亮——两种都是让稳定结构的
+对比度最高，一眼能看出哪里在动、哪里是静物。
 
 ### 导出
 
@@ -308,6 +326,8 @@ app = {
 
 - 没有缩放 / 平移。
 - 框选区域不能拖动挪位，也不能原地旋转翻转（要旋转就先复制，再 `R`）。
+- 冷启动时深色用户可能看到一帧白底：`global.css` 是渲染阻塞的，在它到达之前浏览器只能用
+  默认白底。要彻底消掉得在每页 `<head>` 里塞一段内联样式，代价是颜色值重复一份，暂时不做。
 - 结构库是相对坐标数组，没有 RLE 解析（需要时再加，`life-format.js` 已经是个可参考的纯解析模块）。
 - 移动端结构面板不响应拖拽（见「关键设计决策」第 6 条）。
 - `board.step()` 是全量扫描，见上面「性能」一节。

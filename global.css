@@ -10,18 +10,70 @@
 }
 
 :root {
+  color-scheme: light;
   --bg: #f8f9fa;
   --card-bg: #ffffff;
   --text: #2d3436;
   --text-secondary: #636e72;
   --accent: #0984e3;
   --accent-hover: #0767b3;
+  /* 填在 --accent 上的文字色。深色主题下 accent 变亮，这里要跟着变深 */
+  --on-accent: #fff;
+  --danger: #d63031;
   --border: #e9ecef;
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --shadow-hover: 0 10px 30px rgba(0,0,0,.1);
   --radius: 12px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+}
+
+/* === 深色模式 === */
+/* data-theme 由 global.js 在首次绘制之前写在 <html> 上。
+   只在 :root 这一层换变量，下面所有组件样式都不用改。
+   加了 :root 前缀是为了让特异度高于上面的 :root 块，不依赖书写顺序。 */
+:root[data-theme="dark"] {
+  color-scheme: dark; /* 让 select / range / 滚动条这些原生控件也变深色 */
+  --bg: #0f1115;
+  --card-bg: #171a21;
+  --text: #e6e9ee;
+  --text-secondary: #98a2b3;
+  /* 深色底上原来的 #0984e3 偏闷，提亮一档；随之而来的问题是白字在亮蓝上
+     对比度不够（约 2.4:1），所以 --on-accent 反过来用近黑色 */
+  --accent: #4dabf7;
+  --accent-hover: #74c0fc;
+  --on-accent: #0b0e13;
+  --danger: #ff6b6b;
+  --border: #272c36;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-hover: 0 10px 30px rgba(0, 0, 0, .55);
+}
+
+/* === 主题切换按钮 === */
+/* 固定右上角：这样 5 个页面都不用改自己的骨架，加一行 script 就够了 */
+.theme-toggle {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 50;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s;
+}
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 body {
@@ -156,6 +208,12 @@ a:hover {
   justify-content: center;
   font-size: 20px;
 }
+/* 卡片图标是行内写死的浅色底 + emoji，深色下那几块粉彩会亮得刺眼。
+   用 inset 阴影盖一层暗色——它画在背景之上、内容之下，正好只压暗底色，
+   不动里面的 emoji（直接加 filter 会把 emoji 也一起弄暗）。 */
+:root[data-theme="dark"] .card-icon {
+  box-shadow: inset 0 0 0 100px rgba(15, 17, 21, .78);
+}
 .card-body h3 {
   font-size: 15px;
   font-weight: 600;
@@ -250,7 +308,7 @@ a:hover {
 }
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn-primary:hover {
   background: var(--accent-hover);

@@ -264,6 +264,31 @@ function syncWrapButton() {
   dom.btnWrap.setAttribute('aria-pressed', String(state.wrap));
 }
 
+// ---------------------------------------------------------------- 主题
+
+/** 当前主题。global.js 把它写在 <html data-theme> 上 */
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function currentPalette() {
+  return CONFIG.themes[currentTheme()] || CONFIG.themes.light;
+}
+
+/**
+ * 主题切换后重新取色。
+ *
+ * 棋盘和缩略图都是画进 canvas 的，CSS 变量管不到它们——光换样式表会出现
+ * 「页面黑了、棋盘还白着」。所以切主题时要主动把颜色推给渲染层再重画一遍。
+ */
+function applyTheme() {
+  const p = currentPalette();
+  renderer.setPalette(p);
+  palette.setColors(p);
+  palette.render(customPatterns.all()); // 缩略图是位图，只能重建
+  requestDraw();
+}
+
 // ---------------------------------------------------------------- 棋盘
 
 function availSpace() {
@@ -1004,6 +1029,9 @@ function bindEvents() {
     resizeTimer = setTimeout(layout, 120);
   });
 
+  // global.js 切主题后会发这个事件
+  window.addEventListener('themechange', applyTheme);
+
   bindLifeIo();
   bindPersistence();
 }
@@ -1012,6 +1040,7 @@ function bindEvents() {
 
 function init() {
   renderer = new Renderer(dom.canvas);
+  renderer.setPalette(currentPalette()); // 构造函数里默认是浅色，这里按实际主题覆盖
   app.renderer = renderer;
 
   buildToolbar();
@@ -1026,6 +1055,7 @@ function init() {
     },
     onDragStart: () => interaction.beginPaletteDrag(),
     onDeleteCustom: deleteCustomPattern,
+    colors: currentPalette(),
   });
   palette.render(customPatterns.all());
 

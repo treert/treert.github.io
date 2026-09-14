@@ -1,5 +1,26 @@
 /* Conway 生命游戏页面样式。基础变量、按钮、面板都复用 ../global.css */
 
+:root {
+  /* 「浅色强调底」这类底色。深色下不能只是换个色值，得换成半透明的，
+     否则会比卡片底还亮。 */
+  --accent-soft: #e7f2fd;
+  --drop-bg: #f2f8fe;
+  --drop-ring: rgba(9, 132, 227, .18);
+  --flash-ring: rgba(9, 132, 227, .22);
+  --scroll-thumb: #d7dde3;
+  --scroll-thumb-hover: #c2cad2;
+  --pop-shadow: 0 4px 14px rgba(0, 0, 0, .16);
+}
+:root[data-theme="dark"] {
+  --accent-soft: rgba(77, 171, 247, .18);
+  --drop-bg: rgba(77, 171, 247, .1);
+  --drop-ring: rgba(77, 171, 247, .25);
+  --flash-ring: rgba(77, 171, 247, .35);
+  --scroll-thumb: #2f3640;
+  --scroll-thumb-hover: #3d4550;
+  --pop-shadow: 0 4px 14px rgba(0, 0, 0, .55);
+}
+
 .btn-sm {
   padding: 5px 12px;
   font-size: 13px;
@@ -138,11 +159,11 @@
 }
 .seg-btn.is-active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-toggle.is-on {
-  background: #e7f2fd;
+  background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -172,14 +193,14 @@
   color: var(--text-secondary);
 }
 .hint.is-error {
-  color: #d63031;
+  color: var(--danger);
 }
 
 /* 把 .life 文件拖到棋盘上导入 */
 .board-wrap.is-dropping {
   border-color: var(--accent);
-  background: #f2f8fe;
-  box-shadow: 0 0 0 2px rgba(9, 132, 227, .18) inset;
+  background: var(--drop-bg);
+  box-shadow: 0 0 0 2px var(--drop-ring) inset;
 }
 
 .stat {
@@ -193,7 +214,7 @@
 }
 
 .btn-play.is-playing {
-  background: #d63031;
+  background: var(--danger);
 }
 
 /* === 主区域 === */
@@ -239,7 +260,7 @@
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .16);
+  box-shadow: var(--pop-shadow);
   white-space: nowrap;
 }
 .sel-bar[hidden],
@@ -289,11 +310,11 @@
   width: 8px;
 }
 .palette::-webkit-scrollbar-thumb {
-  background: #d7dde3;
+  background: var(--scroll-thumb);
   border-radius: 4px;
 }
 .palette::-webkit-scrollbar-thumb:hover {
-  background: #c2cad2;
+  background: var(--scroll-thumb-hover);
 }
 
 .palette-head {
@@ -352,10 +373,10 @@
 @keyframes pat-flash {
   0%, 60% {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(9, 132, 227, .22);
+    box-shadow: 0 0 0 3px var(--flash-ring);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(9, 132, 227, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
@@ -377,8 +398,8 @@
   transition: opacity .15s, color .15s, border-color .15s;
 }
 .pat-del:hover {
-  color: #d63031;
-  border-color: #d63031;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 /* 有 hover 能力时才做"悬停才显示"，触屏上没有 hover，藏起来就点不到了 */
 @media (hover: hover) {
@@ -395,7 +416,7 @@
 }
 .pat.is-selected {
   border-color: var(--accent);
-  background: #e7f2fd;
+  background: var(--accent-soft);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 .pat:active {
@@ -428,12 +449,6 @@
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
-}
-
-/* 拖拽结构时禁止选中文字 */
-body.is-dragging {
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 /* === 窄屏 === */

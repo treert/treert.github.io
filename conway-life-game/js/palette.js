@@ -1,11 +1,10 @@
-import { CONFIG } from './config.js';
 import { CATEGORIES, patternsOfCategory } from './patterns.js';
 
 const THUMB_MAX = 32;
 const THUMB_PAD = 2;
 
 /** 把一个结构画成小缩略图 */
-function makeThumb(pattern) {
+function makeThumb(pattern, colors) {
   const size = Math.max(2, Math.min(8, Math.floor(THUMB_MAX / Math.max(pattern.width, pattern.height))));
   const canvas = document.createElement('canvas');
   canvas.className = 'pat-thumb';
@@ -14,7 +13,8 @@ function makeThumb(pattern) {
   canvas.draggable = false;
 
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = CONFIG.ageColors[3];
+  // 取年龄色中间那一档：缩略图不表达年龄，只求在深浅两种底色上都看得清
+  ctx.fillStyle = colors.age[3];
   for (const [x, y] of pattern.cells) {
     ctx.fillRect(THUMB_PAD + x * size, THUMB_PAD + y * size, size, size);
   }
@@ -28,15 +28,22 @@ function makeThumb(pattern) {
 export class Palette {
   /**
    * @param {HTMLElement} root
-   * @param {{onPick: (p:object)=>void, onDragStart: (p:object)=>void, onDeleteCustom: (id:string)=>void}} handlers
+   * @param {{onPick:(p:object)=>void, onDragStart:(p:object)=>void, onDeleteCustom:(id:string)=>void, colors:object}} handlers
+   *   colors 是当前主题的画布配色，缩略图要按它画
    */
-  constructor(root, { onPick, onDragStart, onDeleteCustom }) {
+  constructor(root, { onPick, onDragStart, onDeleteCustom, colors }) {
     this.root = root;
     this.onPick = onPick;
     this.onDragStart = onDragStart;
     this.onDeleteCustom = onDeleteCustom;
+    this.colors = colors;
     this.items = new Map();
     this.selectedId = null;
+  }
+
+  /** 换主题时调用；缩略图是按颜色画进 canvas 的，得跟着重建（main.js 会再调一次 render） */
+  setColors(colors) {
+    this.colors = colors;
   }
 
   /**
@@ -80,7 +87,7 @@ export class Palette {
     btn.className = 'pat';
     btn.dataset.id = pattern.id;
     btn.title = pattern.note ? `${pattern.name} · ${pattern.note}` : pattern.name;
-    btn.appendChild(makeThumb(pattern));
+    btn.appendChild(makeThumb(pattern, this.colors));
 
     const name = document.createElement('span');
     name.className = 'pat-name';

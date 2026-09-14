@@ -16,9 +16,11 @@ function packColor(hex, alpha) {
 /**
  * 按 age 直接索引的调色板：索引 0 是透明（死细胞），索引 a>=1 是年龄 a 的活细胞。
  * 有了它，画一格就只是「读 age、查表、写 32 位」——不用读 cells，也不用分支。
+ *
+ * @param {{age:string[]}} palette 当前主题的画布配色
  */
-function buildAgeLut() {
-  const colors = CONFIG.ageColors;
+function buildAgeLut(palette) {
+  const colors = palette.age;
   const last = colors.length - 1;
   const lut = new Uint32Array(256);
   for (let age = 1; age < 256; age++) {
@@ -44,7 +46,15 @@ export class Renderer {
     this.dpr = 1;
     this.imageData = null;
     this.pixels = null; // imageData 的 32 位视图，逐格绘制直接写这里
-    this.ageLut = buildAgeLut();
+    // 由 main.js 按当前主题设进来；这里先给浅色当兜底
+    this.palette = CONFIG.themes.light;
+    this.ageLut = buildAgeLut(this.palette);
+  }
+
+  /** 换主题时调用。年龄查找表是按颜色预计算的，必须跟着重建 */
+  setPalette(palette) {
+    this.palette = palette;
+    this.ageLut = buildAgeLut(palette);
   }
 
   /**
@@ -93,7 +103,7 @@ export class Renderer {
     this._fillOffscreen(board);
     this.offCtx.putImageData(this.imageData, 0, 0);
 
-    ctx.fillStyle = CONFIG.colors.bg;
+    ctx.fillStyle = this.palette.bg;
     ctx.fillRect(0, 0, cssW, cssH);
     ctx.drawImage(this.off, 0, 0, cols, rows, 0, 0, cssW, cssH);
 
@@ -111,9 +121,9 @@ export class Renderer {
     const w = (rect.x1 - rect.x0 + 1) * cellSize;
     const h = (rect.y1 - rect.y0 + 1) * cellSize;
     ctx.save();
-    ctx.fillStyle = CONFIG.colors.marqueeFill;
+    ctx.fillStyle = this.palette.marqueeFill;
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = CONFIG.colors.marqueeBorder;
+    ctx.strokeStyle = this.palette.marqueeBorder;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
@@ -137,7 +147,7 @@ export class Renderer {
   _drawGrid(cssW, cssH) {
     const { ctx, cols, rows, cellSize } = this;
     ctx.save();
-    ctx.strokeStyle = CONFIG.colors.grid;
+    ctx.strokeStyle = this.palette.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let x = 0; x <= cols; x++) {
@@ -156,7 +166,7 @@ export class Renderer {
 
   _drawGhost(ghost) {
     const { ctx, cellSize, cols, rows } = this;
-    const c = CONFIG.colors;
+    const c = this.palette;
     ctx.save();
     ctx.fillStyle = ghost.valid ? c.ghost : c.ghostInvalid;
 
