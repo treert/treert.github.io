@@ -29,6 +29,8 @@ conway-life-game/
 │   ├── patterns.js           经典结构库数据（唯一需要手工维护的数据文件）
 │   ├── life-format.js        Life 1.06 格式的解析与生成。纯逻辑
 │   ├── persist.js            localStorage 存档的序列化。纯逻辑
+│   ├── share.js              URL 分享的编解码。纯逻辑
+│   ├── bytes.js              Uint8Array <-> base64，上面两个模块共用
 │   ├── palette.js            结构面板 UI（缩略图、分类、选中、拖拽源）
 │   ├── interaction.js        棋盘上的指针交互（放置 / 拖拽 / 手绘 / 旋转翻转）
 │   └── simulator.js          播放循环（rAF + 时间累加器）
@@ -140,6 +142,7 @@ app = {
 | `node conway-life-game/tools/verify-patterns.mjs` | 校验结构库（20 个结构），有问题时以非 0 退出码结束 |
 | `node conway-life-game/tools/test-board.mjs` | 棋盘逻辑单测：边界模式、环绕落子、跨接缝邻居、邻居表重建、`age` 不变量 |
 | `node conway-life-game/tools/test-life-format.mjs` | Life 1.06 读写单测：往返一致、BOM/CRLF 容错、各类坏输入 |
+| `node conway-life-game/tools/test-share.mjs` | URL 分享编解码单测：往返一致、边界格子、截断与坏链接容错 |
 | `node conway-life-game/tools/bench-board.mjs` | 演化性能基准（30% 随机填充，最坏情况） |
 | 浏览器打开 `tools/bench-render.html` | 渲染 / 整帧性能基准，同时覆盖 `step()` 与 `draw()` |
 
@@ -204,6 +207,14 @@ app = {
 
 - **导出 .life** / **复制文本**：Life 1.06 格式，见上一节。
 - **导出图片**：直接把画布存成 PNG，所见即所得（含网格线）。
+- **分享链接**：把当前棋盘写进 URL hash 并复制到剪贴板，别人打开就是同一个局面。
+
+分享的编码是「活细胞下标 → 差分 → varint → base64」，用 hash 而不是 query（不会发给服务器）。
+长度差别很大：**一架滑翔机 30 字符**，而 240×160 的 30% 随机填充要 **15530 字符**，
+所以超过 8000 字符时会提示「链接偏长，部分聊天工具可能会截断」。
+
+载入优先级是 **hash > 本地存档 > 默认开局**。载入后立刻把 hash 清掉——否则之后每次刷新
+都会退回这个局面，把用户后来的改动盖掉；想再拿一次链接按「分享链接」就行。
 
 ### 快捷键
 

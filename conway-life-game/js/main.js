@@ -7,6 +7,7 @@ import { Palette } from './palette.js';
 import { Interaction } from './interaction.js';
 import { Simulator } from './simulator.js';
 import { saveState, loadState } from './persist.js';
+import { encodeBoard, decodeBoard } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,6 +39,7 @@ const dom = {
   btnExport: $('btn-export'),
   btnCopyLife: $('btn-copy-life'),
   btnExportPng: $('btn-export-png'),
+  btnShare: $('btn-share'),
   lifeMsg: $('life-msg'),
   fileInput: $('file-input'),
   help: $('page-help'),
@@ -400,6 +402,7 @@ function bindLifeIo() {
   dom.btnExport.addEventListener('click', exportLifeFile);
   dom.btnCopyLife.addEventListener('click', copyLifeText);
   dom.btnExportPng.addEventListener('click', exportPng);
+  dom.btnShare.addEventListener('click', shareBoard);
 
   dom.fileInput.addEventListener('change', async () => {
     const file = dom.fileInput.files && dom.fileInput.files[0];
@@ -444,6 +447,67 @@ function bindLifeIo() {
     ev.preventDefault();
     importLifeText(text, '剪贴板');
   });
+}
+
+// ---------------------------------------------------------------- 分享链接
+
+/** 把当前棋盘写进地址栏并复制链接 */
+async function shareBoard() {
+  const hash = encodeBoard(app.board);
+  const url = `${location.origin}${location.pathname}${location.search}#${hash}`;
+  history.replaceState(null, '', `#${hash}`);
+  try {
+    await navigator.clipboard.writeText(url);
+    // 混沌棋盘编码后会很长，先提醒一句，免得发出去被聊天工具截断还不知道
+    const tooLong = url.length > 8000;
+    setLifeMsg(`链接已复制（${url.length} 字符）${tooLong ? '；偏长，部分聊天工具可能会截断' : ''}`, tooLong);
+  } catch {
+    setLifeMsg('棋盘已写进地址栏，但复制失败，请手动复制', true);
+  }
+}
+
+/**
+ * 链接里带着棋盘就直接用它，优先级高于本地存档。
+ *
+ * 载入后立刻把 hash 清掉：否则之后每次刷新都会退回这个局面，
+ * 把用户后来的改动盖掉。想再拿一次链接按「分享链接」就行。
+ */
+function loadSharedBoard() {
+  const shared = decodeBoard(location.hash);
+  if (!shared) return false;
+
+  state.wrap = shared.wrap;
+  const preset = CONFIG.boardPresets.find((p) => p.cols === shared.cols && p.rows === shared.rows);
+  state.presetId = preset ? preset.id : null; // 尺寸对不上任何预设时，就不高亮任何按钮
+
+  // age 必须跟着 cells 一起给：渲染层依赖「age === 0 严格等价于死细胞」这条不变量
+  const age = new Uint8Array(shared.cells.length);
+  let pop = 0;
+  for (let i = 0; i < shared.cells.length; i++) {
+    if (shared.cells[i]) {
+      age[i] = 1;
+      pop++;
+    }
+  }
+
+  app.board = new Board(shared.cols, shared.rows, shared.wrap);
+  app.board.restore({
+    cols: shared.cols,
+    rows: shared.rows,
+    cells: shared.cells,
+    age,
+    population: pop,
+    generation: 0,
+  });
+
+  syncPresetButtons();
+  syncWrapButton();
+  layout();
+  afterEdit();
+  setLifeMsg(`已从链接载入棋盘（${shared.cols}×${shared.rows}，${pop} 个细胞）`);
+
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
 }
 
 // ---------------------------------------------------------------- 刷新不丢状态
@@ -778,7 +842,8 @@ function init() {
   setLifeMsg(LIFE_HINT);
   updateDensityVisibility();
 
-  if (!restoreSavedState()) {
+  // 优先顺序：链接里的棋盘 > 本地存档 > 默认开局
+  if (!loadSharedBoard() && !restoreSavedState()) {
     createBoard(CONFIG.defaultPreset, false);
     applyInitialContent();
   }

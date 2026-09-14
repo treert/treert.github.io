@@ -5,35 +5,15 @@
  * 读的时候拿到同样形状的对象。任何一步出错（隐私模式禁用了 localStorage、配额满、
  * 存档格式过期）都静默降级成"没有存档"，不能让页面起不来。
  */
+import { toBase64, fromBase64 } from './bytes.js';
 
 const KEY = 'conway-life-game/v1';
 
-/**
- * Uint8Array -> base64。
- * 分块是因为 String.fromCharCode.apply 的参数个数有上限，38KB 一次性传进去会撑爆调用栈。
- */
-function encodeBytes(arr) {
-  const CHUNK = 0x8000;
-  let s = '';
-  for (let i = 0; i < arr.length; i += CHUNK) {
-    s += String.fromCharCode.apply(null, arr.subarray(i, i + CHUNK));
-  }
-  return btoa(s);
-}
-
-/** @returns {Uint8Array|null} 解不开或长度对不上就返回 null，让调用方把整份存档判为不可用 */
-function decodeBytes(str, length) {
-  if (typeof str !== 'string') return null;
-  let bin;
-  try {
-    bin = atob(str);
-  } catch {
-    return null;
-  }
-  if (bin.length !== length) return null;
-  const out = new Uint8Array(length);
-  for (let i = 0; i < length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+/** 解不开或长度对不上就返回 null，让调用方把整份存档判为不可用 */
+function decodeFixed(str, length) {
+  const bytes = fromBase64(str);
+  if (!bytes || bytes.length !== length) return null;
+  return bytes;
 }
 
 /**
@@ -48,8 +28,8 @@ export function saveState(data) {
         cols: data.board.cols,
         rows: data.board.rows,
         generation: data.board.generation,
-        cells: encodeBytes(data.board.cells),
-        age: encodeBytes(data.board.age),
+        cells: toBase64(data.board.cells),
+        age: toBase64(data.board.age),
       };
     }
     localStorage.setItem(KEY, JSON.stringify(payload));
@@ -67,8 +47,8 @@ export function loadState() {
     const data = JSON.parse(raw);
     if (data.board && typeof data.board.cols === 'number' && typeof data.board.rows === 'number') {
       const size = data.board.cols * data.board.rows;
-      const cells = decodeBytes(data.board.cells, size);
-      const age = decodeBytes(data.board.age, size);
+      const cells = decodeFixed(data.board.cells, size);
+      const age = decodeFixed(data.board.age, size);
       if (!cells || !age) return null; // 棋盘数据坏了，整份存档作废
       data.board.cells = cells;
       data.board.age = age;
