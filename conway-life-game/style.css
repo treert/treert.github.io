@@ -5,27 +5,32 @@
   font-size: 13px;
 }
 
-/* 页面头部比默认紧凑一点，给棋盘留出更多纵向空间 */
+/* 首页那种大留白在工具页没必要，上下都收一点，给棋盘让出纵向空间 */
+.container {
+  padding-top: 36px;
+  padding-bottom: 48px;
+}
 .back-link {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .page-header {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 /* === 工具栏 === */
 .toolbar-panel {
-  padding: 16px 18px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
 }
 .toolbar-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .toolbar-row + .toolbar-row {
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 .toolbar-label {
@@ -91,6 +96,16 @@
 .hint {
   font-size: 13px;
   color: var(--text-secondary);
+}
+.hint.is-error {
+  color: #d63031;
+}
+
+/* 把 .life 文件拖到棋盘上导入 */
+.board-wrap.is-dropping {
+  border-color: var(--accent);
+  background: #f2f8fe;
+  box-shadow: 0 0 0 2px rgba(9, 132, 227, .18) inset;
 }
 
 .stat {

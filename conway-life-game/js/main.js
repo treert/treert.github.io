@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import { Board } from './board.js';
 import { Renderer } from './renderer.js';
 import { getPattern, transformCells, classicPatterns } from './patterns.js';
+import { formatLife, parseLife } from './life-format.js';
 import { Palette } from './palette.js';
 import { Interaction } from './interaction.js';
 import { Simulator } from './simulator.js';
@@ -30,6 +31,11 @@ const dom = {
   statPop: $('stat-pop'),
   paletteList: $('palette-list'),
   paletteHint: $('palette-hint'),
+  btnImport: $('btn-import'),
+  btnExport: $('btn-export'),
+  btnCopyLife: $('btn-copy-life'),
+  lifeMsg: $('life-msg'),
+  fileInput: $('file-input'),
   btnRotate: $('btn-rotate'),
   btnFlipH: $('btn-flip-h'),
   btnFlipV: $('btn-flip-v'),
@@ -255,6 +261,147 @@ function applyInitialContent() {
   afterEdit();
 }
 
+// ---------------------------------------------------------------- Life 1.06 导入导出
+
+const LIFE_HINT = 'Life 1.06 格式：也可把 .life 文件拖到棋盘上，或直接 Ctrl+V 粘贴';
+let lifeMsgTimer = 0;
+
+function setLifeMsg(text, isError) {
+  dom.lifeMsg.textContent = text;
+  dom.lifeMsg.classList.toggle('is-error', Boolean(isError));
+  clearTimeout(lifeMsgTimer);
+  if (text !== LIFE_HINT) {
+    lifeMsgTimer = setTimeout(() => {
+      dom.lifeMsg.textContent = LIFE_HINT;
+      dom.lifeMsg.classList.remove('is-error');
+    }, 5000);
+  }
+}
+
+function currentLifeText() {
+  return formatLife(app.board.liveCells());
+}
+
+/**
+ * 把解析出来的细胞放进棋盘。
+ * 坐标全落在棋盘内时原样保留位置（这样"导出 → 导入"能精确还原）；
+ * 否则整体平移居中——Life 1.06 文件本身不带棋盘尺寸，不能指望它一定放得下。
+ */
+function importLifeCells(result, label) {
+  const b = app.board;
+  const box = result.bounds;
+  const fits = box.minX >= 0 && box.minY >= 0 && box.maxX < b.cols && box.maxY < b.rows;
+  const dx = fits ? 0 : Math.floor((b.cols - box.width) / 2) - box.minX;
+  const dy = fits ? 0 : Math.floor((b.rows - box.height) / 2) - box.minY;
+
+  pushUndo();
+  b.clear();
+  let clipped = 0;
+  for (const [x, y] of result.cells) {
+    if (!b.set(x + dx, y + dy, 1)) clipped++;
+  }
+  afterEdit();
+
+  const parts = [`已从${label}导入 ${result.cells.length} 个细胞`];
+  if (!fits) parts.push('原坐标超出棋盘，已居中放置');
+  if (result.duplicates) parts.push(`忽略 ${result.duplicates} 个重复坐标`);
+  if (clipped) parts.push(`${clipped} 个超出棋盘被裁掉`);
+  setLifeMsg(parts.join('；'), clipped > 0);
+}
+
+function importLifeText(text, label) {
+  const result = parseLife(text);
+  if (!result.ok) {
+    setLifeMsg(`导入失败：${result.error}`, true);
+    return;
+  }
+  importLifeCells(result, label);
+}
+
+async function readLifeFile(file) {
+  try {
+    importLifeText(await file.text(), `「${file.name}」`);
+  } catch {
+    setLifeMsg(`读取「${file.name}」失败`, true);
+  }
+}
+
+function exportLifeFile() {
+  const blob = new Blob([currentLifeText()], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `life-${app.board.cols}x${app.board.rows}.life`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setLifeMsg(`已导出 ${app.board.population} 个细胞到 .life 文件`);
+}
+
+async function copyLifeText() {
+  try {
+    await navigator.clipboard.writeText(currentLifeText());
+    setLifeMsg(`已复制 ${app.board.population} 个细胞到剪贴板`);
+  } catch {
+    setLifeMsg('复制失败，浏览器拒绝了剪贴板访问', true);
+  }
+}
+
+function isFileDrag(ev) {
+  return Boolean(ev.dataTransfer && Array.from(ev.dataTransfer.types || []).includes('Files'));
+}
+
+function bindLifeIo() {
+  dom.btnImport.addEventListener('click', () => dom.fileInput.click());
+  dom.btnExport.addEventListener('click', exportLifeFile);
+  dom.btnCopyLife.addEventListener('click', copyLifeText);
+
+  dom.fileInput.addEventListener('change', async () => {
+    const file = dom.fileInput.files && dom.fileInput.files[0];
+    if (file) await readLifeFile(file);
+    dom.fileInput.value = ''; // 清空，方便连续选同一个文件
+  });
+
+  // 把 .life 文件拖到棋盘上
+  const zone = dom.boardWrap;
+  let dragDepth = 0;
+  zone.addEventListener('dragenter', (ev) => {
+    if (!isFileDrag(ev)) return;
+    dragDepth++;
+    zone.classList.add('is-dropping');
+  });
+  zone.addEventListener('dragover', (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'copy';
+  });
+  zone.addEventListener('dragleave', () => {
+    if (--dragDepth <= 0) {
+      dragDepth = 0;
+      zone.classList.remove('is-dropping');
+    }
+  });
+  zone.addEventListener('drop', async (ev) => {
+    dragDepth = 0;
+    zone.classList.remove('is-dropping');
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    const file = ev.dataTransfer.files[0];
+    if (file) await readLifeFile(file);
+  });
+
+  // Ctrl+V 粘贴文本。只在内容确实像 Life 1.06 时才接管，不干扰正常粘贴
+  window.addEventListener('paste', (ev) => {
+    const t = ev.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+    const text = ev.clipboardData && ev.clipboardData.getData('text');
+    if (!text || !text.includes('#Life 1.06')) return;
+    ev.preventDefault();
+    importLifeText(text, '剪贴板');
+  });
+}
+
 // ---------------------------------------------------------------- 工具栏
 
 function buildToolbar() {
@@ -415,6 +562,8 @@ function bindEvents() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(layout, 120);
   });
+
+  bindLifeIo();
 }
 
 // ---------------------------------------------------------------- 启动
@@ -452,6 +601,7 @@ function init() {
   syncWrapButton();
   dom.densityValue.textContent = `${dom.density.value}%`;
   setHint(DEFAULT_HINT);
+  setLifeMsg(LIFE_HINT);
   updateDensityVisibility();
 
   createBoard(CONFIG.defaultPreset, false);

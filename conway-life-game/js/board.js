@@ -180,6 +180,19 @@ export class Board {
     this.generation++;
   }
 
+  /** 收集所有活细胞坐标（行优先），导出时用 */
+  liveCells() {
+    const { cols, rows, cells } = this;
+    const out = [];
+    for (let y = 0; y < rows; y++) {
+      const base = y * cols;
+      for (let x = 0; x < cols; x++) {
+        if (cells[base + x]) out.push([x, y]);
+      }
+    }
+    return out;
+  }
+
   /** @returns {{minX:number,minY:number,maxX:number,maxY:number,width:number,height:number}|null} */
   liveBounds() {
     if (this.population === 0) return null;
