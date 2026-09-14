@@ -51,5 +51,10 @@ export const CONFIG = {
     ghostBorder: 'rgba(9, 132, 227, 0.85)',
     ghostInvalid: 'rgba(214, 48, 49, 0.3)',
     ghostInvalidBorder: 'rgba(214, 48, 49, 0.85)',
+    // 框选区域。刻意用中性深色而不是主题蓝：幽灵预览的外框也是蓝的，
+    // 两者同时出现（选了结构又框选）时，同色会让人分不清哪个是哪个。
+    // 填充要够淡，否则盖住底下的细胞就看不清选了什么。
+    marqueeFill: 'rgba(45, 52, 54, 0.09)',
+    marqueeBorder: 'rgba(45, 52, 54, 0.8)',
   },
 };

@@ -1,8 +1,10 @@
 /**
- * 棋盘上的指针交互。两种模式：
+ * 棋盘上的指针交互。三种模式：
  *   1. 放置：结构面板选中了某个结构 -> 鼠标移动显示幽灵预览，点击落子；
  *      也可以直接从面板拖到棋盘上松手落子。
  *   2. 手绘：没有选中结构 -> 按住拖动直接画 / 擦细胞。
+ *   3. 框选：Shift + 拖拽 -> 拉出一个矩形，松手后由 main.js 弹出操作条。
+ *      不做成"模式开关"是因为多个模式就意味着要记得切回来；Shift 是唯一还没用上的修饰键。
  *
  * 拖拽用的是 Pointer Events（鼠标/触屏/手写笔统一），不用 HTML5 drag-and-drop，
  * 后者在触屏上根本不工作。
@@ -21,6 +23,7 @@ export class Interaction {
    * @param {HTMLCanvasElement} canvas
    * @param {object} app 由 main.js 提供的应用上下文
    *   app.board / app.renderer / app.getPlacement() / app.setGhost() / app.pushUndo() / app.afterEdit()
+   *   app.marquee / app.setMarquee()
    */
   constructor(canvas, app) {
     this.canvas = canvas;
@@ -29,6 +32,7 @@ export class Interaction {
     this.painting = null; // 1 画 / 0 擦 / null 不在绘制
     this.lastCell = null;
     this.dragFromPalette = false;
+    this.marqueeDrag = false;
     this.pointer = null;
 
     this._onCanvasDown = this._onCanvasDown.bind(this);
@@ -64,6 +68,21 @@ export class Interaction {
     const cell = this.app.renderer.cellFromPoint(ev.clientX, ev.clientY);
     if (!cell) return;
 
+    // Shift + 拖拽 = 框选，优先级最高
+    if (ev.shiftKey) {
+      this.marqueeDrag = true;
+      this.app.setMarquee({ x0: cell.x, y0: cell.y, x1: cell.x, y1: cell.y });
+      this._capture(ev);
+      return;
+    }
+
+    // 已经框了一块时，点一下先把框收掉、不落笔。操作条就浮在棋盘上，
+    // 用户点棋盘多半就是想把它关掉；顺带避免误画。
+    if (this.app.marquee) {
+      this.app.setMarquee(null);
+      return;
+    }
+
     const placement = this.app.getPlacement();
     if (placement) {
       this._place(cell, placement);
@@ -75,15 +94,16 @@ export class Interaction {
     this.app.pushUndo();
     this.lastCell = cell;
     this._paintCell(cell);
-    // 捕获指针，拖到画布外面也能继续画；合成事件下可能抛错，忽略即可
-    try {
-      this.canvas.setPointerCapture(ev.pointerId);
-    } catch {
-      /* 忽略 */
-    }
+    this._capture(ev);
   }
 
   _onCanvasMove(ev) {
+    if (this.marqueeDrag) {
+      // 拖出棋盘外时夹到边界，别把整个拖拽丢掉
+      const cell = this.app.renderer.cellFromPointClamped(ev.clientX, ev.clientY);
+      this.app.setMarquee({ ...this.app.marquee, x1: cell.x, y1: cell.y });
+      return;
+    }
     if (this.painting === null) return;
     const cell = this.app.renderer.cellFromPoint(ev.clientX, ev.clientY);
     if (!cell) return;
@@ -92,6 +112,10 @@ export class Interaction {
   }
 
   _onCanvasUp(ev) {
+    if (this.marqueeDrag) {
+      this._finishMarquee();
+      return;
+    }
     if (this.painting !== null) {
       this.painting = null;
       this.lastCell = null;
@@ -113,6 +137,30 @@ export class Interaction {
 
   _onWindowUp() {
     this.dragFromPalette = false;
+    // 指针在画布外松开（捕获失败时走这条路），框选也要收尾
+    if (this.marqueeDrag) this._finishMarquee();
+  }
+
+  /** 框选收尾：把反向拖出来的矩形归一化成 x0 <= x1 / y0 <= y1 */
+  _finishMarquee() {
+    this.marqueeDrag = false;
+    const m = this.app.marquee;
+    if (!m) return;
+    this.app.setMarquee({
+      x0: Math.min(m.x0, m.x1),
+      y0: Math.min(m.y0, m.y1),
+      x1: Math.max(m.x0, m.x1),
+      y1: Math.max(m.y0, m.y1),
+    });
+  }
+
+  /** 捕获指针，拖到画布外面也能继续；合成事件下可能抛错，忽略即可 */
+  _capture(ev) {
+    try {
+      this.canvas.setPointerCapture(ev.pointerId);
+    } catch {
+      /* 忽略 */
+    }
   }
 
   _place(cell, placement) {

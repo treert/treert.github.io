@@ -1,7 +1,8 @@
 import { CONFIG } from './config.js';
 import { Board } from './board.js';
 import { Renderer } from './renderer.js';
-import { getPattern, transformCells, classicPatterns } from './patterns.js';
+import { getPattern, transformCells, classicPatterns, normalizeCells, extractCells } from './patterns.js';
+import * as customPatterns from './custom-patterns.js';
 import { formatLife, parseLife } from './life-format.js';
 import { Palette } from './palette.js';
 import { Interaction } from './interaction.js';
@@ -11,11 +12,26 @@ import { encodeBoard, decodeBoard } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 
-const DEFAULT_HINT = '点选结构后点击棋盘放置，也可以直接拖过去；不选结构时可在棋盘上按住拖动涂画';
+const DEFAULT_HINT = '点选结构后点击棋盘放置，也可以直接拖过去；不选结构时可在棋盘上按住拖动涂画；Shift + 拖拽可框选';
+
+/** 框选复制出来的结构用这个 id 挂在 sessionPatterns 里 */
+const CLIPBOARD_ID = 'clipboard';
 
 const dom = {
   canvas: $('board'),
   boardWrap: $('board-wrap'),
+  boardHolder: $('board-holder'),
+  selBar: $('sel-bar'),
+  selActions: $('sel-actions'),
+  selNaming: $('sel-naming'),
+  selInfo: $('sel-info'),
+  selName: $('sel-name'),
+  btnSelCopy: $('btn-sel-copy'),
+  btnSelSave: $('btn-sel-save'),
+  btnSelDelete: $('btn-sel-delete'),
+  btnSelCancel: $('btn-sel-cancel'),
+  btnSelConfirm: $('btn-sel-confirm'),
+  btnSelCancelName: $('btn-sel-cancel-name'),
   palette: document.querySelector('.palette'),
   boardPresets: $('board-presets'),
   btnWrap: $('btn-wrap'),
@@ -60,15 +76,32 @@ const state = {
   redo: [],
   drawPending: false,
   popAtPlayStart: 0,
+  // 框选区域内的活细胞。矩形本身放在 app.marquee，这里只缓存抠出来的结果，
+  // 免得每次重绘都扫一遍区域
+  marqueeCells: null,
 };
+
+/**
+ * 框选复制出来的结构：只活在当前会话，不进结构库也不进存档。
+ * 下一次复制会 clear() 掉，所以不会无限增长。
+ */
+const sessionPatterns = new Map();
 
 const app = {
   board: null,
   renderer: null,
   ghost: null,
+  marquee: null,
   getPlacement,
   setGhost(g) {
     app.ghost = g;
+    requestDraw();
+  },
+  /** rect 为 null 表示取消框选 */
+  setMarquee(rect) {
+    app.marquee = rect;
+    state.marqueeCells = rect ? extractCells(app.board, rect) : null;
+    syncSelectionBar();
     requestDraw();
   },
   pushUndo,
@@ -100,7 +133,7 @@ function requestDraw() {
   state.drawPending = true;
   requestAnimationFrame(() => {
     state.drawPending = false;
-    renderer.draw(app.board, app.ghost);
+    renderer.draw(app.board, app.ghost, app.marquee);
   });
 }
 
@@ -138,6 +171,7 @@ function pushUndo() {
 /** 应用一份快照。快照里可能带着不同的棋盘尺寸，所以要走一遍 layout() */
 function applySnapshot(snap) {
   app.board.restore(snap);
+  app.setMarquee(null); // 快照可能换了尺寸，框选留着就可能越界
   syncHistoryButtons();
   layout();
   afterEdit();
@@ -159,12 +193,22 @@ function redo() {
 
 // ---------------------------------------------------------------- 待放置结构
 
+/** 结构 id -> 结构。剪贴板（本次会话）> 自定义结构库 > 内置结构库 */
+function findPattern(id) {
+  return sessionPatterns.get(id) || customPatterns.get(id) || getPattern(id);
+}
+
+/** 结构内容变了（比如刚复制了新东西），让下次 getPlacement() 重算缓存 */
+function invalidatePlacement() {
+  placementKey = '';
+}
+
 function getPlacement() {
   if (!state.selectedId) return null;
   const key = `${state.selectedId}|${state.rot}|${state.flipH}|${state.flipV}`;
   if (key !== placementKey) {
     placementKey = key;
-    const p = getPattern(state.selectedId);
+    const p = findPattern(state.selectedId);
     if (!p) {
       placementCache = null;
     } else {
@@ -252,6 +296,7 @@ function layout() {
   } else {
     dom.palette.style.maxHeight = '';
   }
+  positionSelectionBar(); // 格子尺寸变了，操作条要跟着挪
   requestDraw();
 }
 
@@ -270,6 +315,7 @@ function createBoard(presetId, keepContent) {
   else app.board = new Board(cols, rows, state.wrap);
   app.board.wrap = state.wrap;
 
+  app.setMarquee(null); // 尺寸变了，旧的框选坐标可能已经越界
   syncPresetButtons();
   layout();
 }
@@ -288,6 +334,147 @@ function applyInitialContent() {
     }
   }
   afterEdit();
+}
+
+// ---------------------------------------------------------------- 框选与自定义结构
+
+/** 把框选区域抠成一个结构（自动裁到活细胞的包围盒） */
+function marqueeToPattern() {
+  const cells = state.marqueeCells;
+  if (!cells || !cells.length) return null;
+  const n = normalizeCells(cells);
+  return { cells: n.cells, width: n.width, height: n.height };
+}
+
+function syncSelectionBar() {
+  const m = app.marquee;
+  if (!m) {
+    dom.selBar.hidden = true;
+    return;
+  }
+  const cells = state.marqueeCells || [];
+  const w = m.x1 - m.x0 + 1;
+  const h = m.y1 - m.y0 + 1;
+  const has = cells.length > 0;
+
+  dom.selInfo.textContent = has ? `${w}×${h} · ${cells.length} 细胞` : `${w}×${h} · 空`;
+  dom.btnSelCopy.disabled = !has;
+  dom.btnSelSave.disabled = !has || customPatterns.isFull();
+  dom.btnSelSave.title = customPatterns.isFull() ? `结构库已满（上限 ${customPatterns.MAX} 个）` : '';
+  // 每次同步都退回按钮那一屏，命名屏只在点「存为结构」之后出现
+  dom.selActions.hidden = false;
+  dom.selNaming.hidden = true;
+  dom.selBar.hidden = false;
+  positionSelectionBar();
+}
+
+/** 操作条默认贴在选区下边；下面放不下就翻到上边，左右夹在棋盘内 */
+function positionSelectionBar() {
+  const m = app.marquee;
+  if (!m || dom.selBar.hidden) return;
+
+  const bar = dom.selBar;
+  const cs = renderer.cellSize;
+  const bw = bar.offsetWidth;
+  const bh = bar.offsetHeight;
+  const holderW = dom.boardHolder.clientWidth;
+  const holderH = dom.boardHolder.clientHeight;
+
+  let left = ((m.x0 + m.x1 + 1) / 2) * cs - bw / 2;
+  const maxLeft = holderW - bw - 4;
+  left = maxLeft < 4 ? 4 : clamp(left, 4, maxLeft);
+
+  let top = (m.y1 + 1) * cs + 8;
+  if (top + bh > holderH - 4) top = m.y0 * cs - bh - 8;
+  top = clamp(top, 4, Math.max(4, holderH - bh - 4));
+
+  bar.style.left = `${Math.round(left)}px`;
+  bar.style.top = `${Math.round(top)}px`;
+}
+
+/** 动作做完就收掉框：操作条浮在棋盘上，留着会挡掉下一次点击 */
+function closeMarquee() {
+  app.setMarquee(null);
+  setHint(DEFAULT_HINT);
+}
+
+/** 复制：把区域变成"待放置结构"，复用现有的幽灵预览 + 点击落子 */
+function copySelection() {
+  const p = marqueeToPattern();
+  if (!p) return;
+
+  sessionPatterns.clear();
+  sessionPatterns.set(CLIPBOARD_ID, { id: CLIPBOARD_ID, name: '剪贴板', ...p });
+
+  state.selectedId = CLIPBOARD_ID;
+  state.rot = 0;
+  state.flipH = false;
+  state.flipV = false;
+  invalidatePlacement();
+  palette.setSelected(null); // 剪贴板结构不在面板里，别留一个对不上的高亮
+  closeMarquee();
+  interaction.refreshGhost();
+  setHint(`已复制 ${p.cells.length} 个细胞：点击棋盘放置（R 旋转 / Esc 取消）`);
+}
+
+function beginSaveSelection() {
+  if (!marqueeToPattern()) return;
+  dom.selName.value = `自定义 ${customPatterns.count() + 1}`;
+  dom.selActions.hidden = true;
+  dom.selNaming.hidden = false;
+  positionSelectionBar(); // 换了一屏，宽度变了要重新定位
+  dom.selName.focus();
+  dom.selName.select();
+}
+
+function confirmSaveSelection() {
+  const p = marqueeToPattern();
+  if (!p) return;
+  const saved = customPatterns.add(dom.selName.value, p.cells);
+  if (!saved) {
+    setHint(`结构库已满（上限 ${customPatterns.MAX} 个），先删掉几个`, true);
+    return;
+  }
+  closeMarquee();
+  palette.render(customPatterns.all());
+  dom.paletteList.scrollTop = 0; // 新结构在"我的结构"里，滚到顶才看得见
+  flashPattern(saved.id);
+  setHint(`已把「${saved.name}」存进结构库，共 ${customPatterns.count()} 个`);
+}
+
+function deleteSelection() {
+  const m = app.marquee;
+  if (!m) return;
+  pushUndo();
+  let n = 0;
+  for (let y = m.y0; y <= m.y1; y++) {
+    for (let x = m.x0; x <= m.x1; x++) {
+      if (app.board.set(x, y, 0)) n++;
+    }
+  }
+  closeMarquee();
+  afterEdit();
+  setHint(`已删掉区域内的 ${n} 个细胞`);
+}
+
+function deleteCustomPattern(id) {
+  const p = customPatterns.get(id);
+  if (!p) return;
+  // 删了找不回来，而且结构库没有撤销，所以问一句
+  if (!confirm(`删除自定义结构「${p.name}」？删掉就找不回来了。`)) return;
+
+  customPatterns.remove(id);
+  if (state.selectedId === id) clearSelection();
+  palette.render(customPatterns.all());
+  setHint(`已删除「${p.name}」，还剩 ${customPatterns.count()} 个自定义结构`);
+}
+
+/** 新存的结构闪一下，免得在一堆缩略图里找不着 */
+function flashPattern(id) {
+  const btn = palette.items.get(id);
+  if (!btn) return;
+  btn.classList.add('is-flash');
+  setTimeout(() => btn.classList.remove('is-flash'), 900);
 }
 
 // ---------------------------------------------------------------- Life 1.06 导入导出
@@ -725,6 +912,22 @@ function bindEvents() {
     simulator.setSpeed(Number(dom.speed.value));
   });
 
+  dom.btnSelCopy.addEventListener('click', copySelection);
+  dom.btnSelSave.addEventListener('click', beginSaveSelection);
+  dom.btnSelDelete.addEventListener('click', deleteSelection);
+  dom.btnSelConfirm.addEventListener('click', confirmSaveSelection);
+  dom.btnSelCancelName.addEventListener('click', syncSelectionBar); // 退回按钮那一屏
+  dom.btnSelCancel.addEventListener('click', closeMarquee);
+  dom.selName.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      confirmSaveSelection();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      syncSelectionBar();
+    }
+  });
+
   dom.btnWrap.addEventListener('click', toggleWrap);
   dom.btnRotate.addEventListener('click', rotate);
   dom.btnFlipH.addEventListener('click', flipHorizontal);
@@ -789,6 +992,7 @@ function bindEvents() {
         break;
       case 'Escape':
         clearSelection();
+        app.setMarquee(null);
         break;
       default:
         break;
@@ -816,12 +1020,14 @@ function init() {
     onPick: (pattern) => {
       state.selectedId = pattern.id;
       palette.setSelected(pattern.id);
+      app.setMarquee(null); // 选了结构就是要放置，先把框收掉，免得第一次点击被吃掉
       setHint(`已选「${pattern.name}」：点击棋盘放置（R 旋转 / H 翻转 / Esc 取消）`);
       interaction.refreshGhost();
     },
     onDragStart: () => interaction.beginPaletteDrag(),
+    onDeleteCustom: deleteCustomPattern,
   });
-  palette.render();
+  palette.render(customPatterns.all());
 
   interaction = new Interaction(dom.canvas, app);
 

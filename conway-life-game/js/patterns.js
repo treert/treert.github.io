@@ -297,7 +297,12 @@ const RAW = [
   },
 ];
 
-function normalize(cells) {
+/**
+ * 把一组坐标平移到包围盒左上角为 (0,0)，并算出 width / height。
+ * @param {number[][]} cells
+ * @returns {{cells:number[][], width:number, height:number}}
+ */
+export function normalizeCells(cells) {
   let minX = Infinity;
   let minY = Infinity;
   for (let i = 0; i < cells.length; i++) {
@@ -317,8 +322,22 @@ function normalize(cells) {
   return { cells: out, width: maxX + 1, height: maxY + 1 };
 }
 
+/**
+ * 从棋盘的某个矩形区域里抠出活细胞（保持棋盘坐标，未归一化）。
+ * 区域里没有活细胞时返回空数组，由调用方决定怎么提示。
+ */
+export function extractCells(board, rect) {
+  const cells = [];
+  for (let y = rect.y0; y <= rect.y1; y++) {
+    for (let x = rect.x0; x <= rect.x1; x++) {
+      if (board.get(x, y)) cells.push([x, y]);
+    }
+  }
+  return cells;
+}
+
 export const PATTERNS = RAW.map((p) => {
-  const n = normalize(p.cells);
+  const n = normalizeCells(p.cells);
   return { ...p, cells: n.cells, width: n.width, height: n.height };
 });
 
@@ -346,7 +365,7 @@ export function classicPatterns() {
  * @returns {{cells:number[][], width:number, height:number}}
  */
 export function transformCells(cells, rot = 0, flipH = false, flipV = false) {
-  const b = normalize(cells);
+  const b = normalizeCells(cells);
   let pts = b.cells;
   let w = b.width;
   let h = b.height;

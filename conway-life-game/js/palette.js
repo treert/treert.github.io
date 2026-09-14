@@ -28,41 +28,53 @@ function makeThumb(pattern) {
 export class Palette {
   /**
    * @param {HTMLElement} root
-   * @param {{onPick: (p:object)=>void, onDragStart: (p:object)=>void}} handlers
+   * @param {{onPick: (p:object)=>void, onDragStart: (p:object)=>void, onDeleteCustom: (id:string)=>void}} handlers
    */
-  constructor(root, { onPick, onDragStart }) {
+  constructor(root, { onPick, onDragStart, onDeleteCustom }) {
     this.root = root;
     this.onPick = onPick;
     this.onDragStart = onDragStart;
+    this.onDeleteCustom = onDeleteCustom;
     this.items = new Map();
     this.selectedId = null;
   }
 
-  render() {
+  /**
+   * @param {object[]} customList 自定义结构，排在所有内置分类前面
+   */
+  render(customList = []) {
     this.root.textContent = '';
     this.items.clear();
+    const keep = this.selectedId;
+    this.selectedId = null; // 重建之后旧的 DOM 引用已经失效，重新应用一次
 
+    // 自己刚存的结构放最上面，不然得往下翻半天才找得到
+    if (customList.length) this._appendGroup('我的结构', customList, true);
     for (const cat of CATEGORIES) {
       const list = patternsOfCategory(cat.id);
-      if (!list.length) continue;
-
-      const group = document.createElement('section');
-      group.className = 'palette-group';
-
-      const title = document.createElement('h3');
-      title.className = 'palette-group-title';
-      title.textContent = cat.name;
-
-      const grid = document.createElement('div');
-      grid.className = 'palette-grid';
-      for (const p of list) grid.appendChild(this._makeItem(p));
-
-      group.append(title, grid);
-      this.root.appendChild(group);
+      if (list.length) this._appendGroup(cat.name, list, false);
     }
+
+    if (keep) this.setSelected(keep);
   }
 
-  _makeItem(pattern) {
+  _appendGroup(title, list, deletable) {
+    const group = document.createElement('section');
+    group.className = 'palette-group';
+
+    const h = document.createElement('h3');
+    h.className = 'palette-group-title';
+    h.textContent = title;
+
+    const grid = document.createElement('div');
+    grid.className = 'palette-grid';
+    for (const p of list) grid.appendChild(this._makeItem(p, deletable));
+
+    group.append(h, grid);
+    this.root.appendChild(group);
+  }
+
+  _makeItem(pattern, deletable) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'pat';
@@ -83,8 +95,30 @@ export class Palette {
       }
     });
 
+    if (deletable) btn.appendChild(this._makeDelete(pattern));
+
     this.items.set(pattern.id, btn);
     return btn;
+  }
+
+  /**
+   * 删除按钮。用 span 而不是 button——父节点本身就是 <button>，嵌 button 是非法 HTML。
+   * pointerdown 要拦下来，否则会连带触发父节点的"选中 + 开始拖拽"。
+   */
+  _makeDelete(pattern) {
+    const del = document.createElement('span');
+    del.className = 'pat-del';
+    del.textContent = '×';
+    del.title = `删除「${pattern.name}」`;
+    del.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    });
+    del.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.onDeleteCustom(pattern.id);
+    });
+    return del;
   }
 
   _onItemDown(ev, pattern) {

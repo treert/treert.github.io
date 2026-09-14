@@ -217,11 +217,59 @@
   overflow: auto;
 }
 
+/* 框选操作条的定位基准。跟画布同尺寸，所以坐标就是格子坐标 */
+.board-holder {
+  position: relative;
+}
+
 #board {
   display: block;
   cursor: crosshair;
   border-radius: 4px;
   touch-action: none;
+}
+
+/* === 框选操作条 === */
+.sel-bar {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding: 5px 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .16);
+  white-space: nowrap;
+}
+.sel-bar[hidden],
+.sel-panel[hidden] {
+  display: none;
+}
+.sel-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sel-info {
+  padding: 0 3px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.sel-name {
+  width: 132px;
+  padding: 5px 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.sel-name:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* === 结构面板 === */
@@ -282,6 +330,7 @@
 }
 
 .pat {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -296,6 +345,49 @@
   user-select: none;
   -webkit-user-select: none;
   transition: border-color .15s, background .15s, transform .15s;
+}
+.pat.is-flash {
+  animation: pat-flash .9s ease-out;
+}
+@keyframes pat-flash {
+  0%, 60% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(9, 132, 227, .22);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(9, 132, 227, 0);
+  }
+}
+
+/* 自定义结构的删除角标 */
+.pat-del {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: opacity .15s, color .15s, border-color .15s;
+}
+.pat-del:hover {
+  color: #d63031;
+  border-color: #d63031;
+}
+/* 有 hover 能力时才做"悬停才显示"，触屏上没有 hover，藏起来就点不到了 */
+@media (hover: hover) {
+  .pat-del {
+    opacity: 0;
+  }
+  .pat:hover .pat-del {
+    opacity: 1;
+  }
 }
 .pat:hover {
   border-color: var(--accent);

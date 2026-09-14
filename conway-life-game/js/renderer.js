@@ -83,8 +83,9 @@ export class Renderer {
   /**
    * @param {import('./board.js').Board} board
    * @param {{cells:number[][],ox:number,oy:number,width:number,height:number,valid:boolean}|null} ghost
+   * @param {{x0:number,y0:number,x1:number,y1:number}|null} marquee 框选区域（含端点）
    */
-  draw(board, ghost) {
+  draw(board, ghost, marquee) {
     const { ctx, cols, rows, cellSize } = this;
     const cssW = cols * cellSize;
     const cssH = rows * cellSize;
@@ -99,6 +100,24 @@ export class Renderer {
     // 格子太小的时候网格线会糊成一片，不如不画
     if (cellSize >= 5) this._drawGrid(cssW, cssH);
     if (ghost) this._drawGhost(ghost);
+    if (marquee) this._drawMarquee(marquee);
+  }
+
+  /** 框选：淡填充 + 虚线边框 */
+  _drawMarquee(rect) {
+    const { ctx, cellSize } = this;
+    const x = rect.x0 * cellSize;
+    const y = rect.y0 * cellSize;
+    const w = (rect.x1 - rect.x0 + 1) * cellSize;
+    const h = (rect.y1 - rect.y0 + 1) * cellSize;
+    ctx.save();
+    ctx.fillStyle = CONFIG.colors.marqueeFill;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = CONFIG.colors.marqueeBorder;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.restore();
   }
 
   /**
@@ -174,5 +193,16 @@ export class Renderer {
     const y = Math.floor((clientY - r.top) / this.cellSize);
     if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) return null;
     return { x, y };
+  }
+
+  /** 同上，但超出棋盘时夹到边界。框选拖到棋盘外面时用，免得整个拖拽被丢掉 */
+  cellFromPointClamped(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    const x = Math.floor((clientX - r.left) / this.cellSize);
+    const y = Math.floor((clientY - r.top) / this.cellSize);
+    return {
+      x: Math.min(Math.max(x, 0), this.cols - 1),
+      y: Math.min(Math.max(y, 0), this.rows - 1),
+    };
   }
 }
