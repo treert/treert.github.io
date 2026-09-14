@@ -20,6 +20,13 @@ export const CONFIG = {
   ],
   defaultPreset: 'auto',
 
+  /**
+   * 默认开局。「初始内容」下拉的初值：'__empty' 空棋盘 / '__random' 随机填充 / 结构 id。
+   * 默认给 Gosper 枪——一进页面就有东西在跑，比一块空板子说明问题。
+   * 只在没有本地存档时生效，用户自己选过就以存档为准。
+   */
+  defaultInitialContent: 'gosper-gun',
+
   // 默认边界模式：false = 硬边界（飞出棋盘的细胞直接消失），true = 环绕（从对面出来）
   defaultWrap: false,
 

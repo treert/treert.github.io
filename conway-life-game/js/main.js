@@ -899,6 +899,9 @@ function buildToolbar() {
   group.label = '经典结构';
   dom.initialContent.appendChild(group);
   for (const p of classicPatterns()) addOption(p.id, p.name, group);
+  // 默认开局。结构被改名 / 删掉时 value 会落空，退回空棋盘
+  dom.initialContent.value = CONFIG.defaultInitialContent;
+  if (!dom.initialContent.value) dom.initialContent.value = '__empty';
 
   // 速度档位
   CONFIG.speeds.forEach((s) => {
