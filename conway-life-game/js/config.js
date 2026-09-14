@@ -23,6 +23,22 @@ export const CONFIG = {
   // 默认边界模式：false = 硬边界（飞出棋盘的细胞直接消失），true = 环绕（从对面出来）
   defaultWrap: false,
 
+  /**
+   * 手绘（不选结构时在棋盘上拖动）的行为。
+   *   auto  —— 按下的那一格决定这一笔是画还是擦
+   *   draw  —— 只画不擦
+   *   erase —— 只擦不画
+   *
+   * auto 看着聪明，但"贴着已有细胞起笔"时会反着来：想往外接一块，结果一按就把
+   * 落笔那格擦掉了，整笔也跟着变成擦。所以给一个显式开关，让人自己定。
+   */
+  paintModes: [
+    { id: 'auto', name: '自动', title: '按下的那一格决定这一笔是画还是擦' },
+    { id: 'draw', name: '画笔', title: '拖动只画，不会擦掉已有细胞' },
+    { id: 'erase', name: '橡皮', title: '拖动只擦，不会画出新细胞' },
+  ],
+  defaultPaintMode: 'auto',
+
   // 「自适应窗口」时列数/行数的上下限
   boardLimit: { minCols: 20, maxCols: 240, minRows: 15, maxRows: 160 },
 

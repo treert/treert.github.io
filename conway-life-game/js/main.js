@@ -34,6 +34,7 @@ const dom = {
   btnSelCancelName: $('btn-sel-cancel-name'),
   palette: document.querySelector('.palette'),
   boardPresets: $('board-presets'),
+  paintModes: $('paint-modes'),
   btnWrap: $('btn-wrap'),
   initialContent: $('initial-content'),
   densityLabel: $('density-label'),
@@ -68,6 +69,7 @@ const dom = {
 const state = {
   presetId: CONFIG.defaultPreset,
   wrap: CONFIG.defaultWrap,
+  paintMode: CONFIG.defaultPaintMode,
   selectedId: null,
   rot: 0,
   flipH: false,
@@ -93,6 +95,7 @@ const app = {
   ghost: null,
   marquee: null,
   getPlacement,
+  getPaintMode: () => state.paintMode,
   setGhost(g) {
     app.ghost = g;
     requestDraw();
@@ -262,6 +265,33 @@ function toggleWrap() {
 function syncWrapButton() {
   dom.btnWrap.classList.toggle('is-on', state.wrap);
   dom.btnWrap.setAttribute('aria-pressed', String(state.wrap));
+}
+
+// ---------------------------------------------------------------- 涂画模式
+
+/**
+ * 手绘这一笔是画还是擦。
+ *   auto  —— 按下的那一格决定（老行为）
+ *   draw  —— 只画
+ *   erase —— 只擦
+ * 只有"没选中结构、在棋盘上拖动"时才用得上，选中结构时走的是放置。
+ */
+function setPaintMode(id) {
+  if (!CONFIG.paintModes.some((m) => m.id === id)) return;
+  state.paintMode = id;
+  syncPaintModeButtons();
+  scheduleSave();
+}
+
+function cyclePaintMode() {
+  const ids = CONFIG.paintModes.map((m) => m.id);
+  setPaintMode(ids[(ids.indexOf(state.paintMode) + 1) % ids.length]);
+}
+
+function syncPaintModeButtons() {
+  for (const btn of dom.paintModes.children) {
+    btn.classList.toggle('is-active', btn.dataset.id === state.paintMode);
+  }
 }
 
 // ---------------------------------------------------------------- 主题
@@ -736,6 +766,7 @@ function collectState() {
   return {
     presetId: state.presetId,
     wrap: state.wrap,
+    paintMode: state.paintMode,
     speed: Number(dom.speed.value),
     initialContent: dom.initialContent.value,
     density: Number(dom.density.value),
@@ -769,6 +800,7 @@ function restoreSavedState() {
   if (!saved) return false;
 
   if (typeof saved.wrap === 'boolean') state.wrap = saved.wrap;
+  if (CONFIG.paintModes.some((m) => m.id === saved.paintMode)) state.paintMode = saved.paintMode;
   if (CONFIG.boardPresets.some((p) => p.id === saved.presetId)) state.presetId = saved.presetId;
   if (CONFIG.speeds.includes(saved.speed)) dom.speed.value = String(saved.speed);
   if (saved.initialContent) {
@@ -780,6 +812,7 @@ function restoreSavedState() {
 
   dom.densityValue.textContent = `${dom.density.value}%`;
   syncWrapButton();
+  syncPaintModeButtons();
   updateDensityVisibility();
 
   const b = saved.board;
@@ -839,6 +872,18 @@ function buildToolbar() {
       applyInitialContent();
     });
     dom.boardPresets.appendChild(btn);
+  }
+
+  // 涂画模式
+  for (const mode of CONFIG.paintModes) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn';
+    btn.dataset.id = mode.id;
+    btn.textContent = mode.name;
+    btn.title = mode.title;
+    btn.addEventListener('click', () => setPaintMode(mode.id));
+    dom.paintModes.appendChild(btn);
   }
 
   // 初始内容
@@ -1002,6 +1047,10 @@ function bindEvents() {
       case 'W':
         toggleWrap();
         break;
+      case 'p':
+      case 'P':
+        cyclePaintMode();
+        break;
       case 'h':
       case 'H':
         flipHorizontal();
@@ -1078,6 +1127,7 @@ function init() {
 
   syncHistoryButtons();
   syncWrapButton();
+  syncPaintModeButtons();
   dom.densityValue.textContent = `${dom.density.value}%`;
   setHint(DEFAULT_HINT);
   setLifeMsg(LIFE_HINT);

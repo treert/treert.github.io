@@ -2,7 +2,8 @@
  * 棋盘上的指针交互。三种模式：
  *   1. 放置：结构面板选中了某个结构 -> 鼠标移动显示幽灵预览，点击落子；
  *      也可以直接从面板拖到棋盘上松手落子。
- *   2. 手绘：没有选中结构 -> 按住拖动直接画 / 擦细胞。
+ *   2. 手绘：没有选中结构 -> 按住拖动直接画 / 擦细胞，
+ *      这一笔是画还是擦由 app.getPaintMode() 决定（自动 / 画笔 / 橡皮）。
  *   3. 框选：Shift + 拖拽 -> 拉出一个矩形，松手后由 main.js 弹出操作条。
  *      不做成"模式开关"是因为多个模式就意味着要记得切回来；Shift 是唯一还没用上的修饰键。
  *
@@ -89,8 +90,10 @@ export class Interaction {
       return;
     }
 
-    // 手绘：按下时决定这一笔是画还是擦，避免来回抖动
-    this.painting = this.app.board.get(cell.x, cell.y) ? 0 : 1;
+    // 手绘：这一笔是画还是擦在按下时就定死，避免拖到中途来回抖动。
+    // auto 模式看按下那一格的死活（老行为）；画笔 / 橡皮则由用户显式指定。
+    const mode = this.app.getPaintMode();
+    this.painting = mode === 'draw' ? 1 : mode === 'erase' ? 0 : this.app.board.get(cell.x, cell.y) ? 0 : 1;
     this.app.pushUndo();
     this.lastCell = cell;
     this._paintCell(cell);

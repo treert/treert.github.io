@@ -16,7 +16,7 @@
     <header class="page-header">
       <h1>Conway 生命游戏</h1>
       <details class="page-help" id="page-help">
-        <summary>元胞自动机 · 空格播放 / R 旋转 / W 环绕 · 涂画时按下的那一格决定是画还是擦（点这里看全部快捷键）</summary>
+        <summary>元胞自动机 · 空格播放 / R 旋转 / W 环绕 · 涂画可在自动 / 画笔 / 橡皮间切换（点这里看全部快捷键）</summary>
         <div class="page-help-body">
           <table>
             <tr><td><kbd>空格</kbd></td><td>播放 / 暂停</td></tr>
@@ -25,12 +25,13 @@
             <tr><td><kbd>H</kbd></td><td>选中结构水平翻转</td></tr>
             <tr><td><kbd>V</kbd></td><td>选中结构垂直翻转</td></tr>
             <tr><td><kbd>W</kbd></td><td>切换环绕边界</td></tr>
+            <tr><td><kbd>P</kbd></td><td>切换涂画模式：自动 → 画笔 → 橡皮</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>取消选中的结构 / 取消框选</td></tr>
             <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>撤销</td></tr>
             <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> 或 <kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td>重做</td></tr>
             <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
           </table>
-          <p>不选结构时，在棋盘上按住拖动可以直接画 / 擦细胞——按下的那一格决定这一笔是画还是擦。</p>
+          <p>不选结构时，在棋盘上按住拖动可以直接画 / 擦细胞。工具栏的「涂画」决定这一笔的行为：<b>自动</b>（按下的那一格决定是画还是擦）、<b>画笔</b>（只画不擦）、<b>橡皮</b>（只擦不画）。</p>
           <p><kbd>Shift</kbd> + 在棋盘上拖拽可以框选一块区域，松手后会弹出操作条：<b>复制</b>（接着点棋盘放置）、<b>存为结构</b>（进右侧结构库，可删除）、<b>删除</b>（清掉区域内的细胞）。</p>
           <p>也可以把 <code>.life</code> 文件拖到棋盘上导入，或直接 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴。</p>
         </div>
@@ -56,6 +57,8 @@
         <button class="btn btn-ghost" id="btn-clear">清空</button>
         <button class="btn btn-ghost" id="btn-undo">撤销</button>
         <button class="btn btn-ghost" id="btn-redo">重做</button>
+        <span class="toolbar-label">涂画</span>
+        <div class="seg" id="paint-modes"></div>
         <span class="toolbar-label">速度</span>
         <select id="speed" class="select"></select>
         <span class="stat">代数 <b id="stat-gen">0</b></span>
