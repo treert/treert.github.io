@@ -1,0 +1,268 @@
+/* Conway 生命游戏页面样式。基础变量、按钮、面板都复用 ../global.css */
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+/* 页面头部比默认紧凑一点，给棋盘留出更多纵向空间 */
+.back-link {
+  margin-bottom: 14px;
+}
+.page-header {
+  margin-bottom: 16px;
+}
+
+/* === 工具栏 === */
+.toolbar-panel {
+  padding: 16px 18px;
+}
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.toolbar-row + .toolbar-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.toolbar-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg-btn {
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background .15s, color .15s;
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border);
+}
+.seg-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.seg-btn.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.select {
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.range {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.stat {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.stat b {
+  font-family: var(--mono);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.btn-play.is-playing {
+  background: #d63031;
+}
+
+/* === 主区域 === */
+.stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.board-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+#board {
+  display: block;
+  cursor: crosshair;
+  border-radius: 4px;
+  touch-action: none;
+}
+
+/* === 结构面板 === */
+.palette {
+  flex: 0 0 288px;
+  width: 288px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 12px 14px;
+  max-height: 620px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.palette::-webkit-scrollbar {
+  width: 8px;
+}
+.palette::-webkit-scrollbar-thumb {
+  background: #d7dde3;
+  border-radius: 4px;
+}
+.palette::-webkit-scrollbar-thumb:hover {
+  background: #c2cad2;
+}
+
+.palette-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.palette-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.palette-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.palette-group + .palette-group {
+  margin-top: 8px;
+}
+.palette-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.pat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 6px 3px 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: grab;
+  font-family: var(--font);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.pat:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.pat.is-selected {
+  border-color: var(--accent);
+  background: #e7f2fd;
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.pat:active {
+  cursor: grabbing;
+}
+
+.pat-thumb {
+  display: block;
+  image-rendering: pixelated;
+}
+.pat-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.pat.is-selected .pat-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.palette-hint {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* 拖拽结构时禁止选中文字 */
+body.is-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* === 窄屏 === */
+@media (max-width: 900px) {
+  .stage {
+    flex-direction: column;
+  }
+  .board-wrap {
+    width: 100%;
+  }
+  .palette {
+    flex: none;
+    width: 100%;
+    max-height: none;
+  }
+  .palette-grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  }
+}

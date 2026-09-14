@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Conway 生命游戏</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../global.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="container wide">
+    <a class="back-link" href="../index.html">← 返回首页</a>
+
+    <header class="page-header">
+      <h1>Conway 生命游戏</h1>
+      <p>元胞自动机 · 硬边界 · 空格播放 / R 旋转 / Esc 取消选择</p>
+    </header>
+
+    <section class="panel toolbar-panel">
+      <div class="toolbar-row">
+        <span class="toolbar-label">棋盘</span>
+        <div class="seg" id="board-presets"></div>
+        <span class="toolbar-label">初始</span>
+        <select id="initial-content" class="select"></select>
+        <span class="toolbar-label" id="density-label" hidden>密度</span>
+        <input type="range" id="density" class="range" hidden>
+        <span class="hint" id="density-value" hidden>30%</span>
+        <button class="btn btn-ghost btn-sm" id="btn-reset">重置</button>
+      </div>
+      <div class="toolbar-row">
+        <button class="btn btn-primary" id="btn-play">▶ 播放</button>
+        <button class="btn btn-ghost" id="btn-step">单步</button>
+        <button class="btn btn-ghost" id="btn-clear">清空</button>
+        <button class="btn btn-ghost" id="btn-undo">撤销</button>
+        <span class="toolbar-label">速度</span>
+        <select id="speed" class="select"></select>
+        <span class="stat">代数 <b id="stat-gen">0</b></span>
+        <span class="stat">存活 <b id="stat-pop">0</b></span>
+      </div>
+    </section>
+
+    <div class="stage">
+      <div class="board-wrap" id="board-wrap">
+        <canvas id="board"></canvas>
+      </div>
+
+      <aside class="palette">
+        <div class="palette-head">
+          <h2>结构库</h2>
+          <div class="palette-tools">
+            <button class="btn btn-ghost btn-sm" id="btn-rotate" title="顺时针旋转 90°（R）">旋转</button>
+            <button class="btn btn-ghost btn-sm" id="btn-flip-h" title="水平翻转（H）">⇋</button>
+            <button class="btn btn-ghost btn-sm" id="btn-flip-v" title="垂直翻转（V）">⇵</button>
+            <button class="btn btn-ghost btn-sm" id="btn-deselect" title="取消选择（Esc）">✕</button>
+          </div>
+        </div>
+        <div class="palette-list" id="palette-list"></div>
+        <p class="palette-hint" id="palette-hint"></p>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
