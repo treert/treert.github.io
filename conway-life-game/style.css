@@ -457,6 +457,10 @@
     flex-direction: column;
   }
   .board-wrap {
+    /* 竖排之后 flex-basis 作用在**高度**上：留着 .board-wrap 原来的 1 1 0，
+       高度会被压成 0（只剩上下 padding），棋盘整个溢出到滚动区里，
+       屏幕上只剩一条 20px 的缝。这里必须按内容撑开。 */
+    flex: none;
     width: 100%;
   }
   .palette {

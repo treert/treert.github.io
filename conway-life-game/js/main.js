@@ -293,7 +293,12 @@ function applyTheme() {
 
 function availSpace() {
   const wrap = dom.boardWrap;
-  const w = Math.max(CONFIG.viewport.minWidth, wrap.clientWidth || window.innerWidth - 48);
+  // clientWidth 是「内容 + padding」，但画布只能占内容盒。不减掉左右 padding 的话，
+  // 自适应窗口算出来的棋盘会正好宽出 20px，board-wrap 就永远挂着一条横向滚动条。
+  const cs = getComputedStyle(wrap);
+  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const raw = wrap.clientWidth || window.innerWidth - 48;
+  const w = Math.max(CONFIG.viewport.minWidth, raw - padX);
   const h = Math.max(
     CONFIG.viewport.minHeight,
     Math.min(window.innerHeight * CONFIG.viewport.heightRatio, CONFIG.viewport.maxHeight)
