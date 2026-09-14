@@ -167,10 +167,10 @@ export class Interaction {
 
     const { ox, oy } = placementAnchor(cell, placement);
     const board = this.app.board;
-    let valid = true;
+    let fits = true;
     for (let i = 0; i < placement.cells.length; i++) {
       if (!board.inBounds(ox + placement.cells[i][0], oy + placement.cells[i][1])) {
-        valid = false;
+        fits = false;
         break;
       }
     }
@@ -180,7 +180,9 @@ export class Interaction {
       oy,
       width: placement.width,
       height: placement.height,
-      valid,
+      wrap: board.wrap,
+      valid: board.wrap || fits, // 环绕时不存在"放不下"
+      showOutline: fits,
     });
   }
 }

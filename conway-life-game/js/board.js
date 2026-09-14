@@ -10,15 +10,17 @@
  * 坐标约定：x 向右为列，y 向下为行，与屏幕一致。
  */
 export class Board {
-  constructor(cols, rows) {
+  constructor(cols, rows, wrap = false) {
     this.cols = cols;
     this.rows = rows;
+    this.wrap = wrap;
     this.cells = new Uint8Array(cols * rows);
     this.next = new Uint8Array(cols * rows);
     this.age = new Uint8Array(cols * rows);
     this.nextAge = new Uint8Array(cols * rows);
     this.population = 0;
     this.generation = 0;
+    this._tables = null;
   }
 
   index(x, y) {
@@ -35,7 +37,12 @@ export class Board {
 
   /** @returns {boolean} 状态是否真的发生了变化 */
   set(x, y, alive) {
-    if (!this.inBounds(x, y)) return false;
+    if (!this.inBounds(x, y)) {
+      // 环绕模式下落子也环绕：贴着边放结构时，超出部分会从对面接回来，而不是被悄悄裁掉
+      if (!this.wrap) return false;
+      x = ((x % this.cols) + this.cols) % this.cols;
+      y = ((y % this.rows) + this.rows) % this.rows;
+    }
     const i = this.index(x, y);
     const v = alive ? 1 : 0;
     if (this.cells[i] === v) return false;
@@ -84,6 +91,38 @@ export class Board {
     this.population = pop;
   }
 
+  /**
+   * 邻居下标表。左右邻居按列下标算，上下相邻行按行首下标算。
+   * -1 表示"这一侧没有邻居"（硬边界）；环绕模式下全部取模，永远不会出现 -1。
+   * 表只在尺寸或边界模式变化时重建，之后每代演化就是纯数组取值。
+   */
+  _rebuildTables() {
+    const { cols, rows, wrap } = this;
+    const left = new Int32Array(cols);
+    const right = new Int32Array(cols);
+    const up = new Int32Array(rows);
+    const down = new Int32Array(rows);
+
+    for (let x = 0; x < cols; x++) {
+      left[x] = wrap ? (x - 1 + cols) % cols : x > 0 ? x - 1 : -1;
+      right[x] = wrap ? (x + 1) % cols : x < cols - 1 ? x + 1 : -1;
+    }
+    for (let y = 0; y < rows; y++) {
+      up[y] = wrap ? ((y - 1 + rows) % rows) * cols : y > 0 ? (y - 1) * cols : -1;
+      down[y] = wrap ? ((y + 1) % rows) * cols : y < rows - 1 ? (y + 1) * cols : -1;
+    }
+
+    this._tables = { cols, rows, wrap, left, right, up, down };
+  }
+
+  _tablesFor() {
+    const t = this._tables;
+    if (!t || t.cols !== this.cols || t.rows !== this.rows || t.wrap !== this.wrap) {
+      this._rebuildTables();
+    }
+    return this._tables;
+  }
+
   /** 演化一代 */
   step() {
     if (this.population === 0) {
@@ -92,34 +131,35 @@ export class Board {
     }
 
     const { cols, rows, cells, next, age, nextAge } = this;
+    const { left, right, up, down } = this._tablesFor();
     let pop = 0;
 
     for (let y = 0; y < rows; y++) {
       const rowBase = y * cols;
-      const upBase = rowBase - cols;
-      const downBase = rowBase + cols;
-      const hasUp = y > 0;
-      const hasDown = y < rows - 1;
+      const upBase = up[y];
+      const downBase = down[y];
+      const hasUp = upBase >= 0;
+      const hasDown = downBase >= 0;
 
       for (let x = 0; x < cols; x++) {
-        const i = rowBase + x;
-        const hasLeft = x > 0;
-        const hasRight = x < cols - 1;
+        const l = left[x];
+        const r = right[x];
         let n = 0;
 
         if (hasUp) {
-          if (hasLeft) n += cells[upBase + x - 1];
+          if (l >= 0) n += cells[upBase + l];
           n += cells[upBase + x];
-          if (hasRight) n += cells[upBase + x + 1];
+          if (r >= 0) n += cells[upBase + r];
         }
-        if (hasLeft) n += cells[rowBase + x - 1];
-        if (hasRight) n += cells[rowBase + x + 1];
+        if (l >= 0) n += cells[rowBase + l];
+        if (r >= 0) n += cells[rowBase + r];
         if (hasDown) {
-          if (hasLeft) n += cells[downBase + x - 1];
+          if (l >= 0) n += cells[downBase + l];
           n += cells[downBase + x];
-          if (hasRight) n += cells[downBase + x + 1];
+          if (r >= 0) n += cells[downBase + r];
         }
 
+        const i = rowBase + x;
         const alive = cells[i] ? (n === 2 || n === 3 ? 1 : 0) : n === 3 ? 1 : 0;
         next[i] = alive;
         if (alive) {

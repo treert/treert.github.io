@@ -13,13 +13,15 @@
 
     <header class="page-header">
       <h1>Conway 生命游戏</h1>
-      <p>元胞自动机 · 硬边界 · 空格播放 / R 旋转 / Esc 取消选择</p>
+      <p>元胞自动机 · 空格播放 / R 旋转 / W 环绕 / Esc 取消选择</p>
     </header>
 
     <section class="panel toolbar-panel">
       <div class="toolbar-row">
         <span class="toolbar-label">棋盘</span>
         <div class="seg" id="board-presets"></div>
+        <button class="btn btn-ghost btn-sm btn-toggle" id="btn-wrap" aria-pressed="false"
+                title="边界环绕（torus）：飞出棋盘的细胞会从对面出现">环绕边界</button>
         <span class="toolbar-label">初始</span>
         <select id="initial-content" class="select"></select>
         <span class="toolbar-label" id="density-label" hidden>密度</span>

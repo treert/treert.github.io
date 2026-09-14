@@ -15,6 +15,7 @@ const dom = {
   boardWrap: $('board-wrap'),
   palette: document.querySelector('.palette'),
   boardPresets: $('board-presets'),
+  btnWrap: $('btn-wrap'),
   initialContent: $('initial-content'),
   densityLabel: $('density-label'),
   density: $('density'),
@@ -37,6 +38,7 @@ const dom = {
 
 const state = {
   presetId: CONFIG.defaultPreset,
+  wrap: CONFIG.defaultWrap,
   selectedId: null,
   rot: 0,
   flipH: false,
@@ -170,6 +172,19 @@ function flipVertical() {
   interaction.refreshGhost();
 }
 
+function toggleWrap() {
+  state.wrap = !state.wrap;
+  app.board.wrap = state.wrap;
+  syncWrapButton();
+  interaction.refreshGhost(); // 放置是否"放得下"的判定跟着变
+  requestDraw();
+}
+
+function syncWrapButton() {
+  dom.btnWrap.classList.toggle('is-on', state.wrap);
+  dom.btnWrap.setAttribute('aria-pressed', String(state.wrap));
+}
+
 // ---------------------------------------------------------------- 棋盘
 
 function availSpace() {
@@ -217,7 +232,8 @@ function createBoard(presetId, keepContent) {
   const { cols, rows } = computeBoardSize(preset);
 
   if (keepContent && app.board) app.board.resize(cols, rows);
-  else app.board = new Board(cols, rows);
+  else app.board = new Board(cols, rows, state.wrap);
+  app.board.wrap = state.wrap;
 
   syncPresetButtons();
   layout();
@@ -344,6 +360,7 @@ function bindEvents() {
     simulator.setSpeed(Number(dom.speed.value));
   });
 
+  dom.btnWrap.addEventListener('click', toggleWrap);
   dom.btnRotate.addEventListener('click', rotate);
   dom.btnFlipH.addEventListener('click', flipHorizontal);
   dom.btnFlipV.addEventListener('click', flipVertical);
@@ -367,6 +384,10 @@ function bindEvents() {
       case 'r':
       case 'R':
         rotate();
+        break;
+      case 'w':
+      case 'W':
+        toggleWrap();
         break;
       case 'h':
       case 'H':
@@ -428,6 +449,7 @@ function init() {
   simulator.setSpeed(Number(dom.speed.value));
 
   dom.btnUndo.disabled = true;
+  syncWrapButton();
   dom.densityValue.textContent = `${dom.density.value}%`;
   setHint(DEFAULT_HINT);
   updateDensityVisibility();

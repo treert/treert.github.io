@@ -20,6 +20,9 @@ export const CONFIG = {
   ],
   defaultPreset: 'auto',
 
+  // 默认边界模式：false = 硬边界（飞出棋盘的细胞直接消失），true = 环绕（从对面出来）
+  defaultWrap: false,
+
   // 「自适应窗口」时列数/行数的上下限
   boardLimit: { minCols: 20, maxCols: 240, minRows: 15, maxRows: 160 },
 

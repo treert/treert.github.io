@@ -122,22 +122,34 @@ export class Renderer {
   }
 
   _drawGhost(ghost) {
-    const { ctx, cellSize } = this;
+    const { ctx, cellSize, cols, rows } = this;
     const c = CONFIG.colors;
     ctx.save();
     ctx.fillStyle = ghost.valid ? c.ghost : c.ghostInvalid;
+
     const cells = ghost.cells;
     for (let i = 0; i < cells.length; i++) {
-      ctx.fillRect((ghost.ox + cells[i][0]) * cellSize, (ghost.oy + cells[i][1]) * cellSize, cellSize, cellSize);
+      let gx = ghost.ox + cells[i][0];
+      let gy = ghost.oy + cells[i][1];
+      // 环绕模式下预览也跟着绕，跨接缝的结构会显示成"两边各一半"，一眼就能看出来
+      if (ghost.wrap) {
+        gx = ((gx % cols) + cols) % cols;
+        gy = ((gy % rows) + rows) % rows;
+      }
+      ctx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
     }
-    ctx.strokeStyle = ghost.valid ? c.ghostBorder : c.ghostInvalidBorder;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-      ghost.ox * cellSize + 0.5,
-      ghost.oy * cellSize + 0.5,
-      ghost.width * cellSize - 1,
-      ghost.height * cellSize - 1
-    );
+
+    // 跨了接缝就不画外框，否则框的位置会让人误解
+    if (ghost.showOutline) {
+      ctx.strokeStyle = ghost.valid ? c.ghostBorder : c.ghostInvalidBorder;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        ghost.ox * cellSize + 0.5,
+        ghost.oy * cellSize + 0.5,
+        ghost.width * cellSize - 1,
+        ghost.height * cellSize - 1
+      );
+    }
     ctx.restore();
   }
 
