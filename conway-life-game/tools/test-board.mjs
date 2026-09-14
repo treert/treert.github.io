@@ -140,5 +140,31 @@ console.log(`测试 ${relative(process.cwd(), BOARD_PATH)}\n`);
   check('空棋盘演化后代数为 5、种群为 0', [b.generation, b.population], [5, 0]);
 }
 
+// 11. 不变量：age === 0 严格等价于「死细胞」
+//     渲染层靠它做无分支绘制（直接拿 age 查调色板，不读 cells），一旦破坏画面就会出错
+{
+  const b = new Board(30, 30, true);
+  const breaks = () => {
+    let n = 0;
+    for (let i = 0; i < b.cells.length; i++) {
+      if ((b.cells[i] === 0) !== (b.age[i] === 0)) n++;
+    }
+    return n;
+  };
+  b.fillRandom(0.3);
+  check('随机填充后 age 不变量成立', breaks(), 0);
+  b.stamp(GLIDER, 10, 10);
+  check('落子后 age 不变量成立', breaks(), 0);
+  b.set(0, 0, 1);
+  b.set(0, 0, 0);
+  check('set 开与关之后 age 不变量成立', breaks(), 0);
+  for (let i = 0; i < 50; i++) b.step();
+  check('演化 50 代后 age 不变量成立', breaks(), 0);
+  b.resize(40, 40);
+  check('改尺寸后 age 不变量成立', breaks(), 0);
+  b.clear();
+  check('清空后 age 不变量成立', breaks(), 0);
+}
+
 console.log(failed === 0 ? '\n全部通过' : `\n有 ${failed} 项失败`);
 process.exitCode = failed === 0 ? 0 : 1;

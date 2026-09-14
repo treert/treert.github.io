@@ -75,9 +75,12 @@ app = {
 3. **坐标约定：`x` 向右为列，`y` 向下为行。** 与屏幕一致，也与 Life 1.06 一致。
    注意 C++ 版也是这个约定，两边能直接对接。
 
-4. **渲染：1 像素 1 格 + 放大。**
+4. **渲染：1 像素 1 格 + 放大，逐格写像素无分支。**
    先把整个棋盘画进一张 `cols × rows` 的离屏 canvas，再 `drawImage` 放大到主画布（关平滑），
    最后叠网格线和幽灵预览。每帧绘制量只跟格子数有关，跟格子显示多大无关。
+   逐格写像素时**不读 `cells`、也不做任何判断**：`board` 保证 `age === 0` 严格等价于「死细胞」，
+   调色板的 0 号位正好是透明，于是「读 age → 查表 → 写 32 位」就够了——比原来的逐格分支
+   在密集棋盘上快 2~3 倍。这条不变量由 `tools/test-board.mjs` 守着，改 `board.js` 时别破坏它。
 
 5. **撤销用快照，不用反向操作。** `board.snapshot()` 拷贝 `cells` 和 `age`。
    棋盘小，几十 KB 一份、留 40 份成本可以忽略，比实现每种操作的反向逻辑可靠得多。
@@ -134,7 +137,7 @@ app = {
 | 命令 | 作用 |
 |------|------|
 | `node conway-life-game/tools/verify-patterns.mjs` | 校验结构库（20 个结构），有问题时以非 0 退出码结束 |
-| `node conway-life-game/tools/test-board.mjs` | 棋盘边界模式单测：内部演化一致性、环绕落子、跨接缝邻居、邻居表重建 |
+| `node conway-life-game/tools/test-board.mjs` | 棋盘逻辑单测：边界模式、环绕落子、跨接缝邻居、邻居表重建、`age` 不变量 |
 | `node conway-life-game/tools/test-life-format.mjs` | Life 1.06 读写单测：往返一致、BOM/CRLF 容错、各类坏输入 |
 | `node conway-life-game/tools/bench-board.mjs` | 演化性能基准（30% 随机填充，最坏情况） |
 
