@@ -102,7 +102,11 @@ function updateChrome() {
     const who = side === app.game.playerSide ? '你' : 'AI';
     text = `轮到${sideName(side)}（${who}）`;
     if (app.busy && app.pending === 'ai') text = `轮到${sideName(side)} · AI 思考中`;
-    if (G.isReviewing(app.game)) text = `正在回看第 ${app.game.cursor} 步 · ${text}`;
+    // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
+    if (G.isReviewing(app.game)) {
+      const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
+      text = `正在回看${where} · ${text}`;
+    }
   }
   dom.status.textContent = text;
   dom.status.classList.toggle('xq-status--over', over);
