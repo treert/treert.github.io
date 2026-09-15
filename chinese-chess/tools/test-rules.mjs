@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+/**
+ * 规则引擎的行为测试。直接跑 Node，不需要浏览器、不需要装依赖。
+ *
+ * 用法：node chinese-chess/tools/test-rules.mjs
+ *
+ * 这里测的是「改着法生成时最容易悄悄弄坏」的地方：每种棋子的走法约束、
+ * 将帅照面、应将、困毙判负。象棋的 perft 基准值来源不一、容易记错，
+ * 所以不依赖外部数字，改成逐条规则点的断言 —— 失败时能直接指出是哪条规则错了。
+ */
+
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href);
+
+const { CELLS, PIECE_OF_FEN, START_FEN } = await load('config.js');
+const { indexOf, xOf, yOf, inBoard, parseFen, toFen, startPosition, clonePosition, positionSignature } =
+  await load('position.js');
+
+let failed = 0;
+function check(name, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!ok) failed++;
+  const detail = ok
+    ? ''
+    : `\n        期望 ${JSON.stringify(expected)}\n        实际 ${JSON.stringify(actual)}`;
+  console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail}`);
+}
+
+/** 'x,y' -> 下标。测试里到处要用，别在每个块里重复写 */
+const idxOf = (coord) => {
+  const [x, y] = coord.split(',').map(Number);
+  return y * 9 + x;
+};
+
+const coordOf = (idx) => `${xOf(idx)},${yOf(idx)}`;
+
+/** 用「棋子字符 @ x,y」的稀疏描述造局面，比手写 FEN 好核对 */
+function build(specs, side = 'w') {
+  const cells = new Int8Array(CELLS);
+  for (const spec of specs) {
+    const [ch, coord] = spec.split('@');
+    const piece = PIECE_OF_FEN[ch];
+    if (piece === undefined) throw new Error(`build: 无法识别的棋子「${ch}」`);
+    cells[idxOf(coord)] = piece;
+  }
+  return { cells, side: side === 'w' ? 1 : -1 };
+}
+
+console.log('规则引擎测试\n');
+
+// === 以下为各任务追加的测试块 ===
+
+// --- 坐标换算 ---
+{
+  check('indexOf / xOf / yOf 互逆',
+    [0, 8, 9, 40, 44, 89].map((i) => indexOf(xOf(i), yOf(i))),
+    [0, 8, 9, 40, 44, 89]);
+  check('indexOf(4, 4) = 40', indexOf(4, 4), 40);
+  check('idx 0 是黑方左上角', [xOf(0), yOf(0)], [0, 0]);
+  check('idx 89 是红方右下角', [xOf(89), yOf(89)], [8, 9]);
+  check('inBoard 判边界',
+    [inBoard(0, 0), inBoard(8, 9), inBoard(9, 0), inBoard(0, 10), inBoard(-1, 0)],
+    [true, true, false, false, false]);
+}
+
+// --- FEN 读写 ---
+{
+  check('起始局面 FEN 往返一致', toFen(startPosition()), START_FEN);
+  check('起始局面轮走方是红', startPosition().side, 1);
+
+  const egFen = '3aka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1';
+  check('残局示例 FEN 往返一致', toFen(parseFen(egFen)), egFen);
+  check('残局示例：红车在 (0,9)', parseFen(egFen).cells[idxOf('0,9')], 5);
+  check('残局示例：黑将在 (4,0)', parseFen(egFen).cells[idxOf('4,0')], -1);
+
+  const blackFirst = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR b - - 0 1';
+  check('轮走方 b 解析为黑', parseFen(blackFirst).side, -1);
+
+  check('clonePosition 是深拷贝',
+    (() => {
+      const a = startPosition();
+      const b = clonePosition(a);
+      b.cells[0] = 0;
+      return a.cells[0] === -5 && b.cells[0] === 0;
+    })(), true);
+
+  const throws = (name, fn) => {
+    let threw = false;
+    try { fn(); } catch { threw = true; }
+    check(name, threw, true);
+  };
+  throws('FEN 行数不对时报错', () => parseFen('9/9 w'));
+  throws('FEN 轮走方非法时报错', () => parseFen('9/9/9/9/9/9/9/9/9/9 x'));
+  throws('FEN 出现非法字符时报错', () => parseFen('9/9/9/9/9/9/9/9/9/xxx w'));
+  throws('FEN 列数不足时报错', () => parseFen('rnbakabn/9/9/9/9/9/9/9/9/RNBAKABNR w'));
+  throws('FEN 缺字段时报错', () => parseFen('rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR'));
+
+  check('局面签名忽略后三个字段',
+    positionSignature('3aka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1'),
+    positionSignature('3aka3/9/9/9/9/9/9/9/9/R2K5 w - - 7 12'));
+  check('局面签名区分轮走方',
+    positionSignature('3aka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1') ===
+    positionSignature('3aka3/9/9/9/9/9/9/9/9/R2K5 b - - 0 1'), false);
+}
+
+// === 收尾 ===
+console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
+process.exit(failed === 0 ? 0 : 1);
