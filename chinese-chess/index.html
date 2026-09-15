@@ -105,11 +105,9 @@
     </div>
 
     <div class="xq-dialog-body">
-      <label class="xq-field">
-        <span>分类</span>
-        <select id="endgame-category" class="xq-select"></select>
-      </label>
-      <div class="xq-endgame-list" id="endgame-list"></div>
+      <!-- 页签由 main.js 的 renderTabs() 按 CATEGORIES 生成，每个带一个条数徽标 -->
+      <div class="xq-tabs" id="endgame-tabs" role="tablist" aria-label="局面分类"></div>
+      <div class="xq-endgame-list" id="endgame-list" role="tabpanel"></div>
     </div>
 
     <div class="xq-dialog-foot">

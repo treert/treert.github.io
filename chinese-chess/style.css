@@ -393,6 +393,57 @@ kbd {
   color: var(--accent);
 }
 
+/* === 局面分类页签 === */
+/* 原来是下拉框。下拉框的问题是把「内置残局」和「自定义局面」混在同一个列表里，
+   看不出边界；换成页签之后两者是并列的、随时能切。
+   条数徽标让「我存过几条」一眼可见，不用点进去看。 */
+.xq-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.xq-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  /* margin-bottom: -1px 让选中态的 2px 下边框压在容器的 1px 分隔线上，
+     看起来像「页签接上了内容区」 */
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color .2s, border-color .2s;
+}
+.xq-tab:hover {
+  color: var(--text);
+}
+.xq-tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.xq-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.xq-tab-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  opacity: .7;
+}
+.xq-tab[aria-selected="true"] .xq-tab-count {
+  color: var(--accent);
+  opacity: .85;
+}
+
 /* === 残局 / 自定义局面列表 === */
 .xq-endgame-list {
   flex: 1;

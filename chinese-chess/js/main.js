@@ -35,7 +35,7 @@ const dom = {
   picker: document.getElementById('picker'),
   btnOpenPicker: document.getElementById('btn-open-picker'),
   btnClosePicker: document.getElementById('btn-close-picker'),
-  endgameCategory: document.getElementById('endgame-category'),
+  tabs: document.getElementById('endgame-tabs'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
   customName: document.getElementById('custom-name'),
@@ -408,6 +408,85 @@ function refreshCustom() {
   setCustomEndgames(customList);
 }
 
+// === 分类页签 ===
+//
+// 原来是下拉框。下拉框把「内置残局」和「自定义局面」混在同一个列表里，
+// 看不出边界；换成页签之后两者是并列的、随时能切。
+
+/** 每个分类有几条 —— 页签上的徽标用 */
+function countByCategory() {
+  const counts = { all: 0 };
+  for (const eg of endgamesByCategory('all')) {
+    counts.all++;
+    counts[eg.category] = (counts[eg.category] || 0) + 1;
+  }
+  return counts;
+}
+
+/** 建页签。只在初始化时调一次，之后靠 syncTabs 更新选中态和条数 */
+function renderTabs() {
+  dom.tabs.textContent = '';
+
+  // 「全部」不是 CATEGORIES 里的分类，但它是最常用的入口，单独放第一个
+  const items = [['all', '全部'], ...Object.entries(CATEGORIES)];
+  for (const [key, label] of items) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'xq-tab';
+    tab.dataset.filter = key;
+    tab.setAttribute('role', 'tab');
+    tab.textContent = label;
+
+    const count = document.createElement('span');
+    count.className = 'xq-tab-count';
+    tab.appendChild(count);
+
+    tab.addEventListener('click', () => setFilter(key));
+    dom.tabs.appendChild(tab);
+  }
+  syncTabs();
+}
+
+/**
+ * 更新页签的选中态与条数。
+ *
+ * 用 **roving tabindex**（只有选中的那个 `tabIndex = 0`）——
+ * 这是 ARIA tabs 的标准做法：Tab 键整组跳过，组内用左右方向键切换（见 bindTabs）。
+ * 好处是「弹窗里要按几次 Tab 才能到列表」不会随页签数量增长。
+ */
+function syncTabs() {
+  const counts = countByCategory();
+  for (const tab of dom.tabs.children) {
+    const key = tab.dataset.filter;
+    const on = key === endgameFilter;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+    const badge = tab.querySelector('.xq-tab-count');
+    if (badge) badge.textContent = String(counts[key] || 0);
+  }
+}
+
+function setFilter(key) {
+  if (endgameFilter === key) return;
+  endgameFilter = key;
+  syncTabs();
+  syncEndgameList();
+}
+
+function bindTabs() {
+  dom.tabs.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tabs = [...dom.tabs.children];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    const step = e.key === 'ArrowRight' ? 1 : tabs.length - 1;
+    const next = tabs[(i + step) % tabs.length];
+    next.focus();
+    setFilter(next.dataset.filter);
+  });
+}
+
 /** 一局在列表里显示的元信息。自定义局面没有结论和难度 */
 function endgameMeta(eg) {
   return eg.custom ? '自定义' : `${RESULTS[eg.result]}·难度${eg.difficulty}`;
@@ -473,9 +552,14 @@ function renderEndgameList() {
   }
 }
 
-/** 只在列表内容真的可能变了时才重建（选中的局变了、或者自定义条数变了） */
+/** 列表内容取决于三件事：选中的是哪一局、自定义有几条、当前在哪个页签 */
+function listKey() {
+  return `${app.game.endgameId || ''}:${customList.length}:${endgameFilter}`;
+}
+
+/** 只在列表内容真的可能变了时才重建 */
 function syncEndgameList() {
-  const key = `${app.game.endgameId || ''}:${customList.length}`;
+  const key = listKey();
   if (key === renderedListKey) return;
   renderedListKey = key;
   renderEndgameList();
@@ -510,6 +594,7 @@ function deleteCustom(eg) {
     saveSoon(app.game);
   } else {
     renderedListKey = '\u0000';
+    syncTabs();
     syncEndgameList();
     renderPickerButton();
   }
@@ -529,6 +614,7 @@ function openPicker() {
   dom.fenInput.value = '';
   // 强制重建：自定义局面可能在别处被删过
   renderedListKey = '\u0000';
+  syncTabs();
   syncEndgameList();
   if (!dom.picker.open) dom.picker.showModal();
 }
@@ -537,13 +623,13 @@ function closePicker() {
   if (dom.picker.open) dom.picker.close();
 }
 
-/** 存完之后统一收尾：切到「自定义」分类，让用户立刻看到结果 */
+/** 存完之后统一收尾：切到「自定义」页签，让用户立刻看到结果 */
 function afterCustomChanged(entry, prefix) {
   refreshCustom();
   dom.customName.value = '';
   endgameFilter = 'custom';
-  dom.endgameCategory.value = endgameFilter;
   renderedListKey = '\u0000';
+  syncTabs();
   syncEndgameList();
   renderPickerButton();
   setPickerMsg(`${prefix}「${entry.name}」，点它就能开始`);
@@ -641,21 +727,8 @@ function bindPicker() {
 }
 
 function bindEndgames() {
-  const opt = (value, label) => {
-    const o = document.createElement('option');
-    o.value = value;
-    o.textContent = label;
-    return o;
-  };
-  dom.endgameCategory.appendChild(opt('all', '全部'));
-  for (const [key, label] of Object.entries(CATEGORIES)) {
-    dom.endgameCategory.appendChild(opt(key, label));
-  }
-  dom.endgameCategory.value = endgameFilter;
-  dom.endgameCategory.addEventListener('change', () => {
-    endgameFilter = dom.endgameCategory.value;
-    renderEndgameList();
-  });
+  renderTabs();
+  bindTabs();
 
   dom.btnExitEndgame.addEventListener('click', () => {
     if (app.busy) return;
