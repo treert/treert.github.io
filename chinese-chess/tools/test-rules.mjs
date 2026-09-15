@@ -298,6 +298,39 @@ console.log('规则引擎测试\n');
   }
 }
 
+// --- 终局判定 ---
+{
+  const { gameStatus, isThreefoldRepetition } = await load('rules.js');
+
+  check('起始局面是进行中', gameStatus(startPosition()).type, 'playing');
+
+  // 将死：黑将困在九宫角，两个红车分别封住两条逃路
+  {
+    const mate = build(['k@3,0', 'R@3,5', 'R@4,5', 'K@4,9'], 'b');
+    const st = gameStatus(mate);
+    check('将死：类型为 checkmate', st.type, 'checkmate');
+    check('将死：胜方是红', st.winner, 1);
+    check('将死：没有合法着法', st.moves.length, 0);
+  }
+
+  // 困毙：黑将没被将军，但一步也走不了 —— 中国象棋里判负，不是和棋
+  {
+    const stale = build(['k@3,0', 'R@4,5', 'R@0,1', 'K@4,9'], 'b');
+    const st = gameStatus(stale);
+    check('困毙：类型为 stalemate', st.type, 'stalemate');
+    check('困毙：走子方判负（胜方是红）', st.winner, 1);
+  }
+
+  // 三次重复
+  check('三次重复：同一签名出现 3 次判和',
+    isThreefoldRepetition(['A w', 'B b', 'A w', 'B b', 'A w']), true);
+  check('三次重复：只出现 2 次不判和',
+    isThreefoldRepetition(['A w', 'B b', 'A w', 'B b']), false);
+  check('三次重复：轮走方不同算不同局面',
+    isThreefoldRepetition(['A w', 'A b', 'A w']), false);
+  check('三次重复：空序列不判和', isThreefoldRepetition([]), false);
+}
+
 // === 收尾 ===
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

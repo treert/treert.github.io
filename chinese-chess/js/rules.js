@@ -287,3 +287,40 @@ export function generateLegalMoves(pos) {
   }
   return out;
 }
+
+/**
+ * 终局判定。
+ *
+ * 中国象棋与国际象棋不同：困毙（无着法可走但没被将军）也是判负，不是和棋。
+ * 所以两种情况都是走子方负，只有 type 不同 —— 界面要分开显示「将死」和「困毙」。
+ */
+export function gameStatus(pos) {
+  const moves = generateLegalMoves(pos);
+  if (moves.length > 0) return { type: 'playing', winner: null, moves };
+
+  const checked = inCheck(pos.cells, pos.side);
+  return {
+    type: checked ? 'checkmate' : 'stalemate',
+    winner: -pos.side,
+    moves,
+  };
+}
+
+/**
+ * 三次重复判和。
+ *
+ * signatures 是按时间顺序排列的「局面签名」（positionSignature 的输出）。
+ * 必须是签名而不是完整 FEN —— 回合数字段每次都变，用完整 FEN 永远比不出重复。
+ *
+ * 设计文档 §5.3 明确不做中国象棋的循环规则（长将 / 长捉判负），
+ * 这一条是唯一的循环兜底，保证对局不会无限进行下去。
+ */
+export function isThreefoldRepetition(signatures) {
+  const count = new Map();
+  for (const s of signatures) {
+    const n = (count.get(s) || 0) + 1;
+    if (n >= 3) return true;
+    count.set(s, n);
+  }
+  return false;
+}
