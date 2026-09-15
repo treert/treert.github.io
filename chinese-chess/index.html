@@ -60,7 +60,8 @@
           <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
           旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，
           或者粘一段 FEN 把外面弄到的局面收进来。
-          棋盘下方的 <b>复制 FEN</b> 则是把当前局面拿出去。</p>
+          棋盘下方的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
+          前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
         </div>
       </details>
     </header>
@@ -81,6 +82,9 @@
         <!-- 「把当前局面拿出去」——和悔棋 / 翻转同类，都是对当前局面的即时动作 -->
         <button class="btn btn-ghost xq-copy-fen" id="btn-copy-fen"
                 title="把当前局面的 FEN 复制到剪贴板">复制 FEN</button>
+        <!-- 同一件事的另一种形式：FEN 要对方自己找地方粘，链接点开就是 -->
+        <button class="btn btn-ghost xq-copy-fen" id="btn-copy-url"
+                title="复制分享链接 —— 别人打开链接就能直接看到这个局面">复制链接</button>
       </div>
 
       <aside class="xq-side">

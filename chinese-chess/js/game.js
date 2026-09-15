@@ -186,6 +186,26 @@ export function endgameOf(game) {
   return game.endgameId ? findEndgame(game.endgameId) || null : null;
 }
 
+/**
+ * 切到一个**自由局面** —— 起始局面既不是标准开局、也不在残局库里。
+ * 目前唯一的来源是分享链接（share.js）。
+ *
+ * 刻意**不进残局库**：分享来的局面不该自动写进用户的自定义列表
+ * （想留着的话，界面上本来就有「存为自定义局面」）。
+ *
+ * 代价是 `endgameOf` 对它返回 null —— 所以界面层靠
+ * **「endgameId 为空 且 initialFen 不是 START_FEN」** 来认出这种状态
+ * （见 main.js 的 isFreePosition）。这比再存一个标志位好：
+ * 状态只有一个来源，刷新后从存档恢复出来的也照样认得出来。
+ */
+export function startPosition(game, fen) {
+  game.mode = 'endgame';   // mode 只是个标记，没有任何逻辑读它
+  game.endgameId = null;
+  game.initialFen = fen;
+  game.moves = [];
+  game.cursor = 0;
+}
+
 /** 退回普通对局（起始局面回到标准开局，清空着法与残局标记） */
 export function exitEndgame(game) {
   game.mode = 'play';

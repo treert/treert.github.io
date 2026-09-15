@@ -7,7 +7,7 @@
  * 这里不含任何棋类规则：走子合法性、终局判定、记谱全在 game.js / rules.js 里。
  */
 
-import { LEVELS, RED } from './config.js';
+import { LEVELS, RED, START_FEN } from './config.js';
 import { findKing, isAttacked, moveFrom, moveTo, encodeMove } from './rules.js';
 import * as G from './game.js';
 import { createRenderer } from './renderer.js';
@@ -15,6 +15,7 @@ import { attachInteraction } from './interaction.js';
 import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { CATEGORIES, RESULTS, endgamesByCategory, setCustomEndgames } from './endgames.js';
 import { loadCustom, addCustom, removeCustom } from './custom-endgames.js';
+import { shareUrl, readShareFen } from './share.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -31,6 +32,7 @@ const dom = {
   btnFlip: document.getElementById('btn-flip'),
   btnHint: document.getElementById('btn-hint'),
   btnCopyFen: document.getElementById('btn-copy-fen'),
+  btnCopyUrl: document.getElementById('btn-copy-url'),
   help: document.getElementById('page-help'),
   endgameGoal: document.getElementById('endgame-goal'),
   // 局面库弹窗
@@ -142,6 +144,17 @@ function setStatus(...parts) {
   }
 }
 
+/**
+ * 现在是不是处在一个**自由局面**上 —— 起始局面既不是标准开局、也不在残局库里。
+ *
+ * 目前唯一的来源是分享链接（见 applyShareLink）。之所以不另存一个标志位，
+ * 是为了让**从存档恢复出来的也认得出来** —— 刷新前后表现一致，
+ * 因为状态只有一个来源：`game.initialFen`。
+ */
+function isFreePosition() {
+  return !G.endgameOf(app.game) && app.game.initialFen !== START_FEN;
+}
+
 /** 只刷新面板文字与按钮状态，不重绘棋盘 */
 function updateChrome() {
   const st = app.status;
@@ -169,6 +182,7 @@ function updateChrome() {
   // 自定义局面没有结论（程序无从知道那个局面的胜负），所以跳过判定 ——
   // 编一个「达成目标」出来比不判定更糟。
   const eg = G.endgameOf(app.game);
+  const free = isFreePosition();
   if (eg && eg.result && over) {
     // 「胜」局看先手方有没有赢；「和」局看有没有走到判和
     const met = eg.result === 'win' ? st.winner === 1 : st.type === 'repetition';
@@ -178,15 +192,20 @@ function updateChrome() {
   setStatus(...parts);
   dom.status.classList.toggle('xq-status--over', over);
 
-  dom.endgameGoal.hidden = !eg;
+  // 自由局面（分享链接来的）没有元信息，但同样要有一行说明「这是什么、走了几步」，
+  // 也**同样要能退出去** —— 否则用户会卡在一个不知道从哪来的局面上。
+  const showStart = !!(eg || free);
+  dom.endgameGoal.hidden = !showStart;
   if (eg) {
     // 自定义局面没有结论，不要编一个出来
     const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
     dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
+  } else if (free) {
+    dom.endgameGoal.textContent = `分享的局面 · 已走 ${app.game.cursor} 步`;
   }
   // 不在残局里时整条底栏一起隐藏 —— 否则会留一条空的横线
-  dom.btnExitEndgame.hidden = !eg;
-  dom.pickerFoot.hidden = !eg;
+  dom.btnExitEndgame.hidden = !showStart;
+  dom.pickerFoot.hidden = !showStart;
 
   renderMoveList();
   syncEndgameList();
@@ -750,8 +769,28 @@ function importFen() {
 }
 
 // 复制成功的提示做在按钮自己身上（文字短暂变成「已复制」）——
-// 它没有弹窗可以显示提示，而工具栏就在棋盘下方、视线落点上。
-let copyFlashTimer = null;
+// 它们没有弹窗可以显示提示，而工具栏就在棋盘下方、视线落点上。
+// 每个按钮各记一个定时器：连点两个按钮时，不会互相把对方的提示提前收掉。
+const copyFlashTimers = new WeakMap();
+
+function flashCopied(btn, original) {
+  btn.textContent = '已复制';
+  clearTimeout(copyFlashTimers.get(btn));
+  copyFlashTimers.set(btn, setTimeout(() => { btn.textContent = original; }, 1600));
+}
+
+/**
+ * 剪贴板不可用时的退路：把要复制的东西塞进「保存 / 导入」弹窗的文本框，
+ * 让人手动复制。
+ *
+ * 剪贴板 API 要安全上下文（https / localhost）。那个框本来是用来粘贴导入的，
+ * 这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
+ */
+function clipboardFallback(text, label) {
+  dom.fenInput.value = text;
+  openIo();
+  setIoMsg(`剪贴板不可用，${label}已填在下面的框里，手动复制即可`);
+}
 
 /**
  * 把当前局面的 FEN 复制到剪贴板。入口在棋盘下方的工具栏。
@@ -763,18 +802,25 @@ async function copyCurrentFen() {
   const fen = G.currentFen(app.game);
   try {
     await navigator.clipboard.writeText(fen);
-    dom.btnCopyFen.textContent = '已复制';
-    clearTimeout(copyFlashTimer);
-    copyFlashTimer = setTimeout(() => {
-      dom.btnCopyFen.textContent = '复制 FEN';
-    }, 1600);
+    flashCopied(dom.btnCopyFen, '复制 FEN');
   } catch {
-    // 剪贴板要安全上下文（https / localhost）。拿不到就退化成
-    // 「把 FEN 送进「保存 / 导入」弹窗的框里，让人手动复制」。
-    // 那个框本来是用来粘贴导入的，这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
-    dom.fenInput.value = fen;
-    openIo();
-    setIoMsg('剪贴板不可用，FEN 已填在下面的框里，手动复制即可');
+    clipboardFallback(fen, 'FEN ');
+  }
+}
+
+/**
+ * 复制**分享链接** —— 别人打开链接就能直接看到当前这个局面。
+ *
+ * 和复制 FEN 的差别只有一个：FEN 要对方自己找地方粘，链接点开就是。
+ * 两个按钮并列放着，都是「把当前局面拿出去」，只是拿出去的形式不同。
+ */
+async function copyShareUrl() {
+  const url = shareUrl(G.currentFen(app.game), location.href);
+  try {
+    await navigator.clipboard.writeText(url);
+    flashCopied(dom.btnCopyUrl, '复制链接');
+  } catch {
+    clipboardFallback(url, '链接');
   }
 }
 
@@ -786,6 +832,7 @@ async function copyCurrentFen() {
  */
 function renderPickerButton() {
   const eg = G.endgameOf(app.game);
+  const free = isFreePosition();
 
   dom.btnOpenPicker.textContent = '';
 
@@ -798,12 +845,14 @@ function renderPickerButton() {
   sep.textContent = '·';
 
   const name = document.createElement('b');
-  name.textContent = eg ? eg.name : '标准开局';
+  name.textContent = eg ? eg.name : (free ? '分享的局面' : '标准开局');
 
   dom.btnOpenPicker.append(label, sep, name);
   dom.btnOpenPicker.title = eg
     ? `当前：${eg.name}（点击更换）`
-    : '点击选择残局，或把当前局面存起来';
+    : free
+      ? '当前是一个分享来的局面（点击换成残局）'
+      : '点击选择残局，或把当前局面存起来';
 }
 
 function bindPicker() {
@@ -929,6 +978,7 @@ function bindToolbar() {
 
   dom.btnHint.addEventListener('click', requestHint);
   dom.btnCopyFen.addEventListener('click', copyCurrentFen);
+  dom.btnCopyUrl.addEventListener('click', copyShareUrl);
   bindEndgames();
 }
 
@@ -957,6 +1007,27 @@ function bindKeyboard() {
   });
 }
 
+/**
+ * 链接里带了 `?fen=` 就切到那个局面（别人分享来的）。
+ * 返回要报给用户的原因；没有出错就返回空串。
+ *
+ * **参数无论好坏都要立刻抹掉**：留着的话，之后每一次刷新都会把用户
+ * 从「他自己后来选的局面」拽回分享的局面 —— 那看起来很像 bug。
+ * 局面本身马上进存档，刷新照样恢复得回来。
+ */
+function applyShareLink() {
+  const r = readShareFen(location.href);
+  if (!r.found) return '';
+
+  history.replaceState(null, '', location.pathname);
+
+  if (!r.ok) return r.reason;
+  G.startPosition(app.game, r.fen);
+  // 立刻存：地址栏里的参数刚被抹掉，存档是刷新后唯一的退路
+  saveSoon(app.game);
+  return '';
+}
+
 function init() {
   app.renderer = createRenderer(dom.board, dom.boardWrap);
 
@@ -976,6 +1047,10 @@ function init() {
   // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）
   restoreInto(app.game);
 
+  // 分享链接**优先于存档**：用户是主动点开这个链接的，不该被上次的对局盖掉。
+  // 放在 restoreInto 之后，是为了让挡位、执子方这些偏好仍然沿用本地存档。
+  const shareError = applyShareLink();
+
   dom.sideSelect.value = String(app.game.playerSide);
   dom.levelSelect.value = app.game.level;
   dom.twoPlayerToggle.checked = !!app.game.twoPlayer;
@@ -983,6 +1058,9 @@ function init() {
 
   refresh();
   requestAiMove();
+  // 必须放在最后：状态栏在 refresh / requestAiMove 里都会被重写，
+  // 提前设的话这句话立刻就被盖掉了。
+  if (shareError) setStatus(shareError);
 }
 
 init();

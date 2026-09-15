@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+/**
+ * 分享链接测试。直接跑 Node，不需要浏览器、不需要装依赖。
+ *
+ * 用法：node chinese-chess/tools/test-share.mjs
+ *
+ * ## 为什么值得单独测
+ *
+ * 这个模块只有两个函数，但两头都在处理**别人给的输入**：
+ *
+ *   - 生成链接：输入是当前局面，但 `href` 是浏览器给的、可能带着上一次分享留下的参数
+ *   - 读取链接：输入是**任意 URL** —— 别人可以把它改成任何样子
+ *
+ * 后者尤其危险：它直接决定 `initialFen`。一个没校验住的 FEN
+ * 会让对局从一个非法局面开始，而那时候报错的地方离原因已经很远了。
+ *
+ * ## 钉住「比 validateEndgameFen 松」这条刻意的不一致
+ *
+ * `validateEndgameFen` 拒绝「轮走方被将军」的局面，`readShareFen` 接受。
+ * 这是**故意**的（出题 vs 对局中途截图），但很容易被后来的人当成 bug 顺手「修掉」，
+ * 所以这里两边都断言，让不一致变成显式的。
+ */
+
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href);
+
+const S = await load('share.js');
+const C = await load('custom-endgames.js');
+
+let failed = 0;
+function check(name, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!ok) failed++;
+  const detail = ok
+    ? ''
+    : `\n        期望 ${JSON.stringify(expected)}\n        实际 ${JSON.stringify(actual)}`;
+  console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail}`);
+}
+
+const PAGE = 'https://example.com/chinese-chess/';
+
+// 普通局面：黑将 (4,0)、红车 (0,9)、红帅 (3,9)，红先
+const VALID = '4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1';
+
+// 红车在 (4,8) 将军黑将 (4,0)，**黑方正在被将军** —— 分享要接受、出题要拒绝
+const IN_CHECK = '4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1';
+
+console.log('=== 生成链接 ===');
+{
+  const url = S.shareUrl(VALID, PAGE);
+  const u = new URL(url);
+
+  check('带上 fen 参数', u.searchParams.get('fen'), VALID);
+  check('参数只有 fen 一个', [...u.searchParams.keys()], ['fen']);
+  check('原页面路径不变', u.pathname, '/chinese-chess/');
+  check('链接里没有裸空格', url.includes(' '), false);
+  // 空格必须是 %20，不能是 + —— 后者在查询串里的含义取决于解析方
+  check('空格编成 %20 而不是 +', url.includes('+'), false);
+  check('空格确实被编过', url.includes('%20'), true);
+
+  // 上一次分享留下的参数必须被清掉 —— 否则会带出旧局面的残渣
+  const again = S.shareUrl(IN_CHECK, url);
+  check('二次分享覆盖掉旧的 fen', new URL(again).searchParams.get('fen'), IN_CHECK);
+  check('二次分享后仍只有一个参数', [...new URL(again).searchParams.keys()], ['fen']);
+
+  // 调试用的 ?v= 之类也不该被带出去
+  const dirty = S.shareUrl(VALID, 'https://example.com/chinese-chess/?v=123#top');
+  const d = new URL(dirty);
+  check('清掉无关参数', [...d.searchParams.keys()], ['fen']);
+  check('清掉 hash', d.hash, '');
+}
+
+console.log('\n=== 往返 ===');
+{
+  const url = S.shareUrl(VALID, PAGE);
+  const r = S.readShareFen(url);
+  check('往返后 ok', r.ok, true);
+  check('往返后 found', r.found, true);
+  check('往返后 FEN 一致', r.fen, VALID);
+
+  // 空格在 URL 里会被编成 + 或 %20，两种都得能解回来
+  check('手工 %20 编码也能读', S.readShareFen(`${PAGE}?fen=${encodeURIComponent(VALID)}`).fen, VALID);
+}
+
+console.log('\n=== 没带参数（正常情况，不是错误）===');
+{
+  const r = S.readShareFen(PAGE);
+  check('found 为 false', r.found, false);
+  check('ok 为 false', r.ok, false);
+  check('reason 为空 —— 没有错要报', r.reason, '');
+
+  const r2 = S.readShareFen(`${PAGE}?v=123`);
+  check('只有别的参数时同样 found=false', r2.found, false);
+}
+
+console.log('\n=== 带了坏参数（必须报出原因）===');
+{
+  const cases = [
+    ['空字符串', `${PAGE}?fen=`, '空的'],
+    ['只有空格', `${PAGE}?fen=%20%20`, '空的'],
+    ['不是 FEN 的普通文字', `${PAGE}?fen=${encodeURIComponent('你好世界')}`, '解析失败'],
+    ['行数不对（只有 9 行）', `${PAGE}?fen=${encodeURIComponent('4ka3/9/9/9/9/9/9/9/R2K5 w - - 0 1')}`, '解析失败'],
+    ['两将照面', `${PAGE}?fen=${encodeURIComponent('4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1')}`, '不合法'],
+    ['没有黑将', `${PAGE}?fen=${encodeURIComponent('9/9/9/9/9/9/9/9/9/R2K5 w - - 0 1')}`, '不合法'],
+  ];
+
+  for (const [name, url, keyword] of cases) {
+    const r = S.readShareFen(url);
+    check(`${name} → found=true`, r.found, true);
+    check(`${name} → ok=false`, r.ok, false);
+    check(`${name} → 原因里有「${keyword}」`, r.reason.includes(keyword), true);
+  }
+}
+
+console.log('\n=== 刻意比 validateEndgameFen 松 ===');
+{
+  // 「轮走方被将军」：出题局面不接受（不该一上来就被将），
+  // 但对局中途截出来的链接必须接受（你刚走了一步将军）
+  check('出题校验拒绝被将军的局面',
+    C.validateEndgameFen(IN_CHECK).ok, false);
+  check('分享校验接受被将军的局面',
+    S.readShareFen(S.shareUrl(IN_CHECK, PAGE)).ok, true);
+  check('分享校验读回来还是原局面',
+    S.readShareFen(S.shareUrl(IN_CHECK, PAGE)).fen, IN_CHECK);
+
+  // 两边都该拒绝的东西：局面本身不成立
+  const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';
+  check('出题校验拒绝照面', C.validateEndgameFen(FACEOFF).ok, false);
+  check('分享校验也拒绝照面', S.readShareFen(`${PAGE}?fen=${encodeURIComponent(FACEOFF)}`).ok, false);
+}
+
+console.log('\n=== 规范化 ===');
+{
+  // 尾部三个字段写乱、多余空白 —— 读回来应当统一成标准写法
+  const sloppy = '4ka3/9/9/9/9/9/9/9/9/R2K5   w   -   -   0   1';
+  const r = S.readShareFen(`${PAGE}?fen=${encodeURIComponent(sloppy)}`);
+  check('乱写的尾部被规范化', r.fen, VALID);
+}
+
+console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
+process.exit(failed === 0 ? 0 : 1);
