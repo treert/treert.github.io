@@ -116,11 +116,6 @@ function refresh(animate = null) {
   if (animate) app.renderer.drawAnimated(app.pos, highlight, animate.from, animate.to);
   else app.renderer.draw(app.pos, highlight);
 
-  // 轮到谁走：整块棋盘的外框也着色。
-  // 和棋子上的圈用同一个高亮色，但棋子圈要盯着棋盘看才发现，
-  // 外框是**余光就能看到**的那个 —— 两者互补，不是重复。
-  dom.board.classList.toggle('xq-board--turn', app.status.type === 'playing');
-
   updateChrome();
 }
 
