@@ -70,7 +70,7 @@ export function createRenderer(boardEl, wrapEl) {
     }
   }
 
-  function applyHighlights(highlight, animate) {
+  function applyHighlights(pos, highlight, animate) {
     if (highlight.last) {
       // 起点现在是空的，高亮格子；终点被棋子盖住，所以圈画在棋子上
       cells[moveFrom(highlight.last)].classList.add('xq-cell--last');
@@ -88,6 +88,13 @@ export function createRenderer(boardEl, wrapEl) {
       const el = pieceEls.get(highlight.checked);
       if (el) el.classList.add('xq-piece--checked');
     }
+    // 轮到谁走：那一方的**全部**棋子加一道外圈。
+    // 走「全部」而不是只标将帅 —— 满盘棋里找那个小圈太费眼。
+    if (highlight.turn) {
+      for (const [i, el] of pieceEls) {
+        if (Math.sign(pos.cells[i]) === highlight.turn) el.classList.add('xq-piece--turn');
+      }
+    }
   }
 
   /**
@@ -101,6 +108,12 @@ export function createRenderer(boardEl, wrapEl) {
   function draw(pos, highlight = {}, animate = null) {
     const movedEl = animate ? pieceEls.get(animate.from) || null : null;
     const capturedEl = animate ? pieceEls.get(animate.to) || null : null;
+
+    // 复用元素时要把上次的标记清掉 —— 它不会像其它棋子那样被重建，
+    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方」显示出来。
+    if (movedEl) {
+      movedEl.classList.remove('xq-piece--last', 'xq-piece--checked', 'xq-piece--turn');
+    }
 
     // 清掉所有棋子，但要留住正在移动的那一个
     for (const el of pieceEls.values()) {
@@ -126,7 +139,7 @@ export function createRenderer(boardEl, wrapEl) {
     }
 
     clearHighlights();
-    applyHighlights(highlight, animate);
+    applyHighlights(pos, highlight, animate);
   }
 
   /** 走子后的重绘：带移动动画 */

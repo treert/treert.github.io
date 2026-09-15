@@ -314,6 +314,21 @@ kbd {
   box-shadow: 0 0 0 3px var(--danger), var(--shadow);
 }
 
+/* 轮到谁走：那一方的**全部**棋子外圈加一道柔光。
+   三个要点：
+
+   1. 用 currentColor —— 红子的 currentColor 是红、黑子是黑（深色主题下是浅灰），
+      不用为两方各写一套
+   2. 用 outline 而不是 box-shadow —— box-shadow 已经被「上一步」和「被将军」占了
+      （一个元素只能有一条 box-shadow），outline 不参与那套竞争，三者可以共存
+   3. outline 在现代浏览器里会跟随 border-radius，所以画出来是圆的
+
+   只标将帅会太不显眼 —— 满盘棋里找那一个小圈很费眼，所以标一整方。 */
+.xq-piece--turn {
+  outline: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  outline-offset: 2px;
+}
+
 /* === 翻转 === */
 /* 只影响显示：整个棋盘转 180°，棋子文字再转回来。
    因为格子和棋子都在棋盘内部，点击事件跟着 DOM 走，所以 cellAt 不需要任何翻转逻辑。 */
@@ -440,6 +455,19 @@ kbd {
 }
 .xq-status--over {
   color: var(--danger);
+}
+/* 状态栏里的方名按方着色 —— 扫一眼就知道轮到谁 */
+.xq-status--red {
+  color: var(--xq-red);
+}
+.xq-status--black {
+  color: var(--xq-black);
+}
+/* 终局时整行统一走危险色，方名让位。
+   不让的话「将死 · 黑方胜」会变成半红半黑，看着像出了错。 */
+.xq-status--over .xq-status--red,
+.xq-status--over .xq-status--black {
+  color: inherit;
 }
 /* 残局模式下的目标提示 */
 .xq-goal {

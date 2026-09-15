@@ -110,6 +110,8 @@ function refresh(animate = null) {
     selected: app.selected,
     hint: app.hint,
     checked: checkedKingIdx(app.pos),
+    // 终局了就没有「轮到谁」可言，0 表示不画外圈
+    turn: app.status.type === 'playing' ? G.sideToMove(app.game) : 0,
   };
   if (animate) app.renderer.drawAnimated(app.pos, highlight, animate.from, animate.to);
   else app.renderer.draw(app.pos, highlight);
@@ -117,26 +119,50 @@ function refresh(animate = null) {
   updateChrome();
 }
 
+/**
+ * 设置状态栏内容。
+ *
+ * 参数是「片段」：字符串原样输出，`{ side }` 输出**带颜色的**「红方 / 黑方」。
+ *
+ * 为什么不拼字符串 + innerHTML：
+ *   1. 拼成字符串之后就没法只给方名着色了（那是这次要做的效果）
+ *   2. 状态文案里会混进用户输入（残局名、引擎报错），走 innerHTML 有注入风险
+ */
+function setStatus(...parts) {
+  dom.status.textContent = '';
+  for (const p of parts) {
+    if (typeof p === 'string') {
+      dom.status.appendChild(document.createTextNode(p));
+      continue;
+    }
+    const span = document.createElement('span');
+    span.className = p.side === RED ? 'xq-status--red' : 'xq-status--black';
+    span.textContent = sideName(p.side);
+    dom.status.appendChild(span);
+  }
+}
+
 /** 只刷新面板文字与按钮状态，不重绘棋盘 */
 function updateChrome() {
   const st = app.status;
-  let text;
+  let parts;
   let over = false;
 
-  if (st.type === 'checkmate') { text = `将死 · ${sideName(st.winner)}胜`; over = true; }
-  else if (st.type === 'stalemate') { text = `困毙 · ${sideName(st.winner)}胜`; over = true; }
-  else if (st.type === 'repetition') { text = '三次重复 · 判和'; over = true; }
+  if (st.type === 'checkmate') { parts = ['将死 · ', { side: st.winner }, '胜']; over = true; }
+  else if (st.type === 'stalemate') { parts = ['困毙 · ', { side: st.winner }, '胜']; over = true; }
+  else if (st.type === 'repetition') { parts = ['三次重复 · 判和']; over = true; }
   else {
     const side = G.sideToMove(app.game);
     // 双人对弈时不说「你 / AI」—— 两边都是人，标出来反而误导
-    text = app.game.twoPlayer
-      ? `轮到${sideName(side)}`
-      : `轮到${sideName(side)}（${side === app.game.playerSide ? '你' : 'AI'}）`;
-    if (app.busy && app.pending === 'ai') text = `轮到${sideName(side)} · AI 思考中`;
+    const tail = app.game.twoPlayer
+      ? ''
+      : `（${side === app.game.playerSide ? '你' : 'AI'}）`;
+    parts = ['轮到', { side }, tail];
+    if (app.busy && app.pending === 'ai') parts = ['轮到', { side }, ' · AI 思考中'];
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
       const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
-      text = `正在回看${where} · ${text}`;
+      parts = [`正在回看${where} · `, ...parts];
     }
   }
   // 残局模式：给出目标，终局时判定是否达成。
@@ -146,10 +172,10 @@ function updateChrome() {
   if (eg && eg.result && over) {
     // 「胜」局看先手方有没有赢；「和」局看有没有走到判和
     const met = eg.result === 'win' ? st.winner === 1 : st.type === 'repetition';
-    text += met ? ' · 达成目标' : ' · 未达成目标';
+    parts.push(met ? ' · 达成目标' : ' · 未达成目标');
   }
 
-  dom.status.textContent = text;
+  setStatus(...parts);
   dom.status.classList.toggle('xq-status--over', over);
 
   dom.endgameGoal.hidden = !eg;
