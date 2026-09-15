@@ -78,7 +78,14 @@ export function createRenderer(boardEl, wrapEl) {
       const el = pieceEls.get(target);
       if (el) el.classList.add('xq-piece--last');
     }
-    for (const t of highlight.targets || []) cells[t].classList.add('xq-cell--target');
+    for (const t of highlight.targets || []) {
+      // 空格 → 格子上的小圆点；有敌子 → 棋子外面一圈红环。
+      // **必须分开处理**：小圆点画在格子上，而棋子不透明地盖住格子中心，
+      // 所以有子的格子那个点根本看不见。
+      const el = pieceEls.get(t);
+      if (el) el.classList.add('xq-piece--capture');
+      else cells[t].classList.add('xq-cell--target');
+    }
     if (highlight.hint) {
       cells[moveFrom(highlight.hint)].classList.add('xq-cell--hint');
       cells[moveTo(highlight.hint)].classList.add('xq-cell--hint');
@@ -110,9 +117,11 @@ export function createRenderer(boardEl, wrapEl) {
     const capturedEl = animate ? pieceEls.get(animate.to) || null : null;
 
     // 复用元素时要把上次的标记清掉 —— 它不会像其它棋子那样被重建，
-    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方」显示出来。
+    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方 / 可吃」显示出来。
     if (movedEl) {
-      movedEl.classList.remove('xq-piece--last', 'xq-piece--checked', 'xq-piece--turn');
+      movedEl.classList.remove(
+        'xq-piece--last', 'xq-piece--checked', 'xq-piece--turn', 'xq-piece--capture',
+      );
     }
 
     // 清掉所有棋子，但要留住正在移动的那一个
