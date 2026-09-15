@@ -13,6 +13,7 @@ import * as G from './game.js';
 import { createRenderer } from './renderer.js';
 import { attachInteraction } from './interaction.js';
 import { saveSoon, restoreInto } from './persist.js';
+import { CATEGORIES, RESULTS, endgamesByCategory } from './endgames.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -28,6 +29,10 @@ const dom = {
   btnFlip: document.getElementById('btn-flip'),
   btnHint: document.getElementById('btn-hint'),
   help: document.getElementById('page-help'),
+  endgameCategory: document.getElementById('endgame-category'),
+  endgameList: document.getElementById('endgame-list'),
+  btnExitEndgame: document.getElementById('btn-exit-endgame'),
+  endgameGoal: document.getElementById('endgame-goal'),
 };
 
 const app = {
@@ -108,10 +113,26 @@ function updateChrome() {
       text = `正在回看${where} · ${text}`;
     }
   }
+  // 残局模式：给出目标，终局时判定是否达成
+  const eg = G.endgameOf(app.game);
+  if (eg && over) {
+    // 「胜」局看先手方有没有赢；「和」局看有没有走到判和
+    const met = eg.result === 'win' ? st.winner === 1 : st.type === 'repetition';
+    text += met ? ' · 达成目标' : ' · 未达成目标';
+  }
+
   dom.status.textContent = text;
   dom.status.classList.toggle('xq-status--over', over);
 
+  dom.endgameGoal.hidden = !eg;
+  if (eg) {
+    dom.endgameGoal.textContent =
+      `残局「${eg.name}」· 谱载${RESULTS[eg.result]} · 已走 ${app.game.cursor} 步`;
+  }
+  dom.btnExitEndgame.hidden = !eg;
+
   renderMoveList();
+  syncEndgameList();
   updateButtons();
 }
 
@@ -297,6 +318,83 @@ function onWorkerMessage(e) {
   applyMove(encodeMove(msg.move.from, msg.move.to), true);
 }
 
+// === 残局 ===
+
+let endgameFilter = 'all';
+// 记住上次按哪个 endgameId 渲染过列表，避免每次 refresh 都重建 23 个按钮、丢掉滚动位置
+let renderedEndgameId = '\u0000';
+
+function renderEndgameList() {
+  dom.endgameList.textContent = '';
+  for (const eg of endgamesByCategory(endgameFilter)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'xq-endgame';
+    if (app.game.endgameId === eg.id) btn.classList.add('xq-endgame--current');
+
+    const name = document.createElement('span');
+    name.className = 'xq-endgame-name';
+    name.textContent = eg.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'xq-endgame-meta';
+    meta.textContent = `${RESULTS[eg.result]}·难度${eg.difficulty}`;
+
+    btn.append(name, meta);
+    btn.title = `${eg.name}（谱载${RESULTS[eg.result]}）\n出处：${eg.source}`
+      + (eg.note ? `\n${eg.note}` : '');
+    btn.addEventListener('click', () => loadEndgame(eg.id));
+    dom.endgameList.appendChild(btn);
+  }
+}
+
+/** 只在选中的残局变了时才重建列表 */
+function syncEndgameList() {
+  const id = app.game.endgameId || '';
+  if (id === renderedEndgameId) return;
+  renderedEndgameId = id;
+  renderEndgameList();
+}
+
+function loadEndgame(id) {
+  if (app.busy) return;
+  app.searchId++; // 作废在飞的响应
+  if (!G.startEndgame(app.game, id)) return;
+  clearSelection();
+  app.hint = 0;
+  refresh();
+  saveSoon(app.game);
+  requestAiMove(); // 残局都是红先，玩家执黑时 AI 先走
+}
+
+function bindEndgames() {
+  const opt = (value, label) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    return o;
+  };
+  dom.endgameCategory.appendChild(opt('all', '全部'));
+  for (const [key, label] of Object.entries(CATEGORIES)) {
+    dom.endgameCategory.appendChild(opt(key, label));
+  }
+  dom.endgameCategory.value = endgameFilter;
+  dom.endgameCategory.addEventListener('change', () => {
+    endgameFilter = dom.endgameCategory.value;
+    renderEndgameList();
+  });
+
+  dom.btnExitEndgame.addEventListener('click', () => {
+    if (app.busy) return;
+    app.searchId++;
+    G.exitEndgame(app.game);
+    clearSelection();
+    app.hint = 0;
+    refresh();
+    saveSoon(app.game);
+  });
+}
+
 // === 装配 ===
 
 function bindToolbar() {
@@ -360,6 +458,7 @@ function bindToolbar() {
   });
 
   dom.btnHint.addEventListener('click', requestHint);
+  bindEndgames();
 }
 
 function bindKeyboard() {

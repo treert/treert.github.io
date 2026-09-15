@@ -309,6 +309,70 @@ kbd {
 .xq-status--over {
   color: var(--danger);
 }
+/* 残局模式下的目标提示 */
+.xq-goal {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* === 残局面板 === */
+.xq-endgame-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.xq-endgame {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.xq-endgame:hover {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.xq-endgame--current {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.xq-endgame--current .xq-endgame-meta {
+  color: var(--on-accent);
+  opacity: .8;
+}
+.xq-endgame--current:hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+.xq-endgame-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xq-endgame-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.xq-endgame-exit {
+  width: 100%;
+  margin-top: 12px;
+}
 .xq-thinking {
   margin-top: 6px;
   font-size: 13px;

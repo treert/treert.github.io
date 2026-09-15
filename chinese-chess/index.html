@@ -76,7 +76,18 @@
           </label>
 
           <p class="xq-status" id="status-text">准备开始</p>
+          <p class="xq-goal" id="endgame-goal" hidden></p>
           <p class="xq-thinking" id="thinking" hidden>思考中…</p>
+        </section>
+
+        <section class="panel xq-panel">
+          <h2>残局</h2>
+          <label class="xq-field">
+            <span>分类</span>
+            <select id="endgame-category" class="xq-select"></select>
+          </label>
+          <div class="xq-endgame-list" id="endgame-list"></div>
+          <button class="btn btn-ghost xq-endgame-exit" id="btn-exit-endgame" hidden>退出残局，回到普通对局</button>
         </section>
 
         <section class="panel xq-panel xq-panel--moves">
