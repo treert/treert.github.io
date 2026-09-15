@@ -176,9 +176,16 @@ export class Searcher {
       if (stand >= beta) return beta;
       if (stand > alpha) alpha = stand;
     }
-    if (qdepth <= 0) return alpha;
+
+    // 层数用尽时给一个静态分兜底。
+    // **绝不能返回 alpha** —— 它可能是 -INF，取负之后会变成 +INF，
+    // 而 iterativeDeepen 判断「找到杀棋」的条件是 |score| > MATE - 1000，
+    // 于是会把 -INF 当成杀棋、提前停止加深（表现为挡位突然只搜 1 层）。
+    // 这个 bug 是自对弈冒烟测试发现的。
+    if (qdepth <= 0) return evaluate(this.cells, this.side);
 
     let best = alpha;
+    let legalCount = 0;
     const moves = generateMoves(this.cells, this.side)
       .filter((m) => checked || this.cells[moveTo(m)] !== EMPTY);
 
@@ -188,12 +195,17 @@ export class Searcher {
         this.unmake(move, captured);
         continue;
       }
+      legalCount++;
       const score = -this.quiesce(-beta, -best, ply + 1, qdepth - 1);
       this.unmake(move, captured);
 
       if (score > best) best = score;
       if (best >= beta) return best;
     }
+
+    // 被将军且一步都走不了 = 将死。
+    // 不处理的话 best 会停在 alpha（可能是 -INF），同样会被上层误判成杀棋。
+    if (checked && legalCount === 0) return -MATE + ply;
     return best;
   }
 

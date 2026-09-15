@@ -305,12 +305,16 @@ rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1
 { type: 'search', id: number, fen: string, level: string }
 
 // Worker → 主线程
-{ type: 'result', id: number, move: { from, to }, notation: string,
-  score: number, depth: number, nodes: number, timeMs: number }
+{ type: 'result', id: number, move: { from, to } | null,
+  score: number, depth: number, nodes: number, timeMs: number, blundered: boolean }
 { type: 'error',  id: number, message: string }
 ```
 
-Worker 只依赖 `position.js` / `rules.js` / `engine.js` / `config.js`——这几个模块**不得 import 任何 DOM 相关模块**，否则 Worker 里会崩。
+`move` 为 `null` 表示局面已经终局、无着法可走。
+
+**Worker 不返回 `notation`**（初稿设计里有这一项，实现时去掉了）：主线程在把着法记进对局状态时**本来就要调一次 `toNotation`**——玩家自己走的棋也要记谱——Worker 再算一遍是重复劳动，还让 Worker 多依赖一个模块。
+
+Worker 只依赖 `engine.js`（以及它间接依赖的 `config.js` / `position.js` / `rules.js`）——这几个模块**不得 import 任何 DOM 相关模块**，否则 Worker 里会崩。`worker.js` 是本模块唯一允许碰 `self` / `postMessage` 的文件。
 
 ---
 

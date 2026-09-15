@@ -414,5 +414,23 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 回归：quiesce 在「被将军且无着法」时不能返回 -INF ---
+// 不处理的话 best 会停在 alpha（-INF），取负变成 +INF，
+// iterativeDeepen 判断「找到杀棋」的条件是 |score| > MATE - 1000，
+// 于是误判成杀棋、提前停止加深 —— 表现为挡位突然只搜 1 层。
+// 这个 bug 是自对弈冒烟测试（tools/selfplay.mjs）发现的，不是单测发现的。
+{
+  const { search } = await load('engine.js');
+
+  const mateIn1 = '3k5/9/9/9/9/4R4/9/9/9/R3K4 w - - 0 1';
+  const lv = { id: 'r', name: '回归', depth: 4, timeLimitMs: 30000,
+               quiescence: true, noise: 0, blunderRate: 0 };
+  const r = search(mateIn1, lv, { rng: seededRng(1) });
+
+  check('杀棋分值不超过 MATE（不能是 INF 取负的结果）', r.score < 1e6, true);
+  check('找到杀棋后提前停止加深，不必跑满 4 层', r.depth < 4, true);
+  check('深度必须 >= 1，不能因为误判而退化成 0', r.depth >= 1, true);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
