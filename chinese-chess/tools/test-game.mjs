@@ -198,5 +198,76 @@ console.log('对局状态机测试\n');
   check('着法数没有变（只移游标）', g.moves.length, 5);
 }
 
+// --- 存档（persist.js） ---
+// storage 是注入的，所以不需要真的 localStorage。这里重点测**容错**：
+// 存档坏掉导致白屏是最糟糕的体验，宁可丢掉一局棋也不能让页面起不来。
+{
+  const P = await load('persist.js');
+
+  const fakeStorage = (initial = {}) => {
+    const map = new Map(Object.entries(initial));
+    return {
+      getItem: (k) => (map.has(k) ? map.get(k) : null),
+      setItem: (k, v) => map.set(k, String(v)),
+      removeItem: (k) => map.delete(k),
+    };
+  };
+
+  check('存档 key 带模块前缀', P.STORAGE_KEY, 'chinese-chess:state');
+
+  // 往返一致
+  {
+    const g = G.createGame();
+    for (let i = 0; i < 4; i++) G.playMove(g, pickMove(g));
+    const st = fakeStorage();
+    check('保存成功', P.save(st, g), true);
+
+    const g2 = G.createGame();
+    check('恢复成功', P.restoreInto(g2, st), true);
+    check('恢复后着法数一致', g2.moves.length, g.moves.length);
+    check('恢复后游标一致', g2.cursor, g.cursor);
+    check('恢复后当前局面一致', G.currentFen(g2), G.currentFen(g));
+    check('恢复后挡位一致', g2.level, g.level);
+  }
+
+  check('没有存档时恢复失败', P.restoreInto(G.createGame(), fakeStorage()), false);
+
+  // 坏数据一律被拒，且绝不抛异常
+  const cases = [
+    ['不是 JSON', 'not json at all'],
+    ['不是对象', '"hello"'],
+    ['版本号不对', JSON.stringify({ v: 999, initialFen: START_FEN, moves: [], cursor: 0, playerSide: 1 })],
+    ['游标越界', JSON.stringify({ v: 1, initialFen: START_FEN, moves: [], cursor: 5, playerSide: 1 })],
+    ['着法字段缺失', JSON.stringify({ v: 1, initialFen: START_FEN, moves: [{ move: 1 }], cursor: 1, playerSide: 1 })],
+    ['执子方非法', JSON.stringify({ v: 1, initialFen: START_FEN, moves: [], cursor: 0, playerSide: 0 })],
+    ['initialFen 不是字符串', JSON.stringify({ v: 1, initialFen: 42, moves: [], cursor: 0, playerSide: 1 })],
+  ];
+  for (const [name, raw] of cases) {
+    const st = fakeStorage({ [P.STORAGE_KEY]: raw });
+    let result;
+    try {
+      result = P.restoreInto(G.createGame(), st);
+    } catch (e) {
+      result = `抛异常：${e.message}`;
+    }
+    check(`坏存档被拒且不抛异常（${name}）`, result, false);
+  }
+
+  // 写入失败（配额满 / 隐私模式）也不能让页面崩
+  {
+    const st = {
+      getItem: () => null,
+      setItem: () => { throw new Error('QuotaExceededError'); },
+      removeItem: () => {},
+    };
+    let threw = false;
+    let ret = null;
+    try { ret = P.save(st, G.createGame()); } catch { threw = true; }
+    check('存档写入失败时返回 false 而不是抛异常', [threw, ret], [false, false]);
+  }
+
+  check('清空存档', P.clear(fakeStorage({ [P.STORAGE_KEY]: '{}' })), true);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
