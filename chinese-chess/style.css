@@ -21,6 +21,11 @@
   --xq-hl-hint: rgba(253, 203, 110, .60);
   /* 开关的「关」态底色。不能用 --border（太浅，白色滑块在上面看不见） */
   --xq-switch-off: #ccd2d9;
+  /* 走子方的高亮色。红黑两方**统一用这一个黄色**，不用各自的方色 ——
+     「高亮」表达的是「现在轮到这边」，而不是「这是红方的子」（那是棋子本身就有的信息）。
+     顺带省掉「红黑各一套 + 深色主题再各一套」的四份颜色。 */
+  --xq-turn: #f5b301;
+  --xq-turn-soft: rgba(245, 179, 1, .5);
 }
 :root[data-theme="dark"] {
   /* 深色下棋盘不能纯黑，否则棋子边框看不清；用偏暖的深灰 */
@@ -191,6 +196,14 @@ kbd {
   transition: transform .3s;
 }
 
+/* 轮到谁走：整块棋盘的外框也着色。
+   和棋子上的圈是**同一个高亮色**，但作用不同 ——
+   棋子圈要盯着棋盘看才发现，外框是**余光就能看到**的那个。 */
+.xq-board--turn {
+  border-color: var(--xq-turn);
+  box-shadow: 0 0 0 3px var(--xq-turn-soft), var(--shadow);
+}
+
 /* 每个格子画自己的十字线。格子中心就是交叉点，
    所以横线横贯整格、竖线纵贯整格，拼起来正好是完整的棋盘格。
    z-index 让高亮盖住棋盘线 —— 九宫斜线是唯一会伸进格子内部的棋盘线。 */
@@ -315,17 +328,17 @@ kbd {
 }
 
 /* 轮到谁走：那一方的**全部**棋子外圈加一道柔光。
+   只标将帅太不显眼 —— 满盘棋里找那一个小圈很费眼，所以标一整方。
+
    三个要点：
 
-   1. 用 currentColor —— 红子的 currentColor 是红、黑子是黑（深色主题下是浅灰），
-      不用为两方各写一套
-   2. 用 outline 而不是 box-shadow —— box-shadow 已经被「上一步」和「被将军」占了
-      （一个元素只能有一条 box-shadow），outline 不参与那套竞争，三者可以共存
-   3. outline 在现代浏览器里会跟随 border-radius，所以画出来是圆的
-
-   只标将帅会太不显眼 —— 满盘棋里找那一个小圈很费眼，所以标一整方。 */
+   1. 颜色是**统一的黄色**（`--xq-turn`），不是各自的方色。高亮表达的是
+      「现在轮到这边」，而「这是红方的子」棋子本身已经说了
+   2. 用 `outline` 而不是 `box-shadow` —— 后者已经被「上一步」和「被将军」占了
+      （一个元素只能有一条 `box-shadow`），`outline` 不参与那套竞争，三者可以共存
+   3. `outline` 在现代浏览器里会跟随 `border-radius`，所以画出来是圆的 */
 .xq-piece--turn {
-  outline: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  outline: 2px solid var(--xq-turn-soft);
   outline-offset: 2px;
 }
 
