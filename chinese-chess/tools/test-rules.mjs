@@ -217,6 +217,87 @@ console.log('规则引擎测试\n');
   check('初始局面：红方共 44 步', generateMoves(pos.cells, pos.side).length, 44);
 }
 
+// --- 攻击判定 ---
+// isAttacked 只看几何关系，但车 / 炮 / 将这类滑行攻击必须「扫到目标格」才命中，
+// 所以靶子格上必须真的有子。下面统一往目标格塞一个红兵当靶子。
+{
+  const { isAttacked, findKing, inCheck } = await load('rules.js');
+  const attacked = (specs, coord, bySide) =>
+    isAttacked(build([...specs, `P@${coord}`]).cells, idxOf(coord), bySide);
+
+  // 车
+  check('车沿纵线攻击', attacked(['r@4,0'], '4,4', -1), true);
+  check('车被挡住则不攻击', attacked(['r@4,0', 'P@4,3'], '4,4', -1), false);
+  check('车从另一侧也攻击', attacked(['r@4,8'], '4,4', -1), true);
+
+  // 炮
+  check('炮隔一子攻击', attacked(['c@4,0', 'P@4,3'], '4,4', -1), true);
+  check('炮没炮架不攻击', attacked(['c@4,0'], '4,4', -1), false);
+  check('炮隔两子不攻击', attacked(['c@4,0', 'P@4,3', 'P@4,2'], '4,4', -1), false);
+
+  // 马
+  check('马攻击日字目标', attacked(['n@5,2'], '4,4', -1), true);
+  check('马腿被蹩则不攻击', attacked(['n@5,2', 'P@5,3'], '4,4', -1), false);
+
+  // 兵 / 卒
+  check('红兵攻击正前方', attacked(['P@4,5'], '4,4', 1), true);
+  check('红兵未过河不攻击侧面', attacked(['P@5,6'], '4,6', 1), false);
+  check('红兵过河后攻击侧面', attacked(['P@5,4'], '4,4', 1), true);
+  check('黑卒攻击正前方', attacked(['p@4,3'], '4,4', -1), true);
+
+  // 将帅照面：同处一条纵线且中间无子时互相攻击
+  check('将帅照面时互相攻击',
+    isAttacked(build(['K@4,9', 'k@4,0']).cells, idxOf('4,0'), 1), true);
+  check('中间有子则不算照面',
+    isAttacked(build(['K@4,9', 'P@4,5', 'k@4,0']).cells, idxOf('4,0'), 1), false);
+
+  // inCheck / findKing
+  // 注意黑将不能放在纵线 4 上 —— 那会和红帅照面，把「被将军」测成照面
+  check('被将军时 inCheck 为真', inCheck(build(['K@4,9', 'r@4,0', 'k@5,0']).cells, 1), true);
+  check('没被将军时 inCheck 为假', inCheck(build(['K@4,9', 'r@3,0', 'k@5,0']).cells, 1), false);
+  check('只有将帅照面、没有别的攻击子时也算被将军',
+    inCheck(build(['K@4,9', 'k@4,0']).cells, 1), true);
+  check('findKing 能找到红帅', findKing(build(['K@4,9']).cells, 1), idxOf('4,9'));
+  check('findKing 找不到时返回 -1', findKing(build(['K@4,9']).cells, -1), -1);
+}
+
+// --- 合法着法 ---
+{
+  const { generateLegalMoves, moveFrom, moveTo } = await load('rules.js');
+  const legalFrom = (pos, coord) => {
+    const from = idxOf(coord);
+    return generateLegalMoves(pos)
+      .filter((m) => moveFrom(m) === from)
+      .map((m) => coordOf(moveTo(m)))
+      .sort();
+  };
+
+  // 不能把挡在两将中间的炮挪离纵线（否则将帅照面）
+  {
+    const pos = build(['K@4,9', 'C@4,5', 'k@4,0']);
+    check('将帅照面：炮不能挪离纵线',
+      legalFrom(pos, '4,5'), ['4,1', '4,2', '4,3', '4,4', '4,6', '4,7', '4,8']);
+    check('将帅照面：帅可以离开纵线', legalFrom(pos, '4,9'), ['3,9', '4,8', '5,9']);
+    check('将帅照面：红方共 10 个合法着法', generateLegalMoves(pos).length, 10);
+  }
+
+  // 应将：被将军时，不能解的着法全部非法
+  {
+    const pos = build(['K@4,9', 'r@4,5', 'R@0,5', 'k@4,0']);
+    check('被将军时只有 3 个合法着法', generateLegalMoves(pos).length, 3);
+    check('车只能吃掉将军的车', legalFrom(pos, '0,5'), ['4,5']);
+    check('帅只能躲到两侧，不能留在纵线上', legalFrom(pos, '4,9'), ['3,9', '5,9']);
+  }
+
+  // 不能吃被保护的子；躲的方向也要考虑将帅照面
+  {
+    const pos = build(['K@4,9', 'r@4,8', 'c@4,0', 'p@4,4', 'k@3,0']);
+    check('帅不能吃掉被炮保护的子', legalFrom(pos, '4,9').includes('4,8'), false);
+    check('也不能躲到会与黑将照面的纵线', legalFrom(pos, '4,9').includes('3,9'), false);
+    check('唯一的解法是躲到 (5,9)', legalFrom(pos, '4,9'), ['5,9']);
+  }
+}
+
 // === 收尾 ===
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

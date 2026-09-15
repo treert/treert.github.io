@@ -179,3 +179,111 @@ function genAdvisor(out, cells, from, x, y, side) {
     if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
   }
 }
+
+export function findKing(cells, side) {
+  const target = side * K;
+  for (let i = 0; i < CELLS; i++) if (cells[i] === target) return i;
+  return -1;
+}
+
+/**
+ * 判断 idx 这一格是否被 bySide 攻击。
+ *
+ * 用「反向探测」而不是「遍历所有棋子试吃」：每个方向最多扫到第二个子就停，
+ * 成本与棋盘上有多少棋子无关。这个函数在搜索里每试走一步都要调一次，值得写细。
+ *
+ * 注意：车 / 炮 / 将这类滑行攻击是「扫描到第一个子」才命中的，
+ * 所以传进来的 idx 上必须真的有子（实际调用时都是将 / 帅所在格，恒成立）。
+ *
+ * 将帅照面也在这里处理：两将同处一条纵线且中间无子时互相攻击，
+ * 于是「走完之后两将照面」会被合法性检查直接拒掉，不需要额外的规则代码。
+ */
+export function isAttacked(cells, idx, bySide) {
+  const x = xOf(idx), y = yOf(idx);
+  const target = cells[idx];
+
+  // 车 / 炮 / 将：沿四个正交方向
+  for (const [dx, dy] of ORTHO) {
+    let cx = x + dx, cy = y + dy;
+    while (inBoard(cx, cy) && cells[indexOf(cx, cy)] === EMPTY) { cx += dx; cy += dy; }
+    if (!inBoard(cx, cy)) continue;
+
+    const first = cells[indexOf(cx, cy)];
+    if (Math.sign(first) === bySide) {
+      const abs = Math.abs(first);
+      if (abs === R) return true;                                   // 车
+      if (abs === K) {
+        if (Math.abs(cx - x) + Math.abs(cy - y) === 1) return true; // 将贴身
+        if (Math.abs(target) === K) return true;                    // 将帅照面（中间无子）
+      }
+    }
+
+    // 炮：隔一个子才能吃
+    cx += dx; cy += dy;
+    while (inBoard(cx, cy) && cells[indexOf(cx, cy)] === EMPTY) { cx += dx; cy += dy; }
+    if (inBoard(cx, cy)) {
+      const second = cells[indexOf(cx, cy)];
+      if (Math.sign(second) === bySide && Math.abs(second) === C) return true;
+    }
+  }
+
+  // 马：反过来找八个能跳到 idx 的位置
+  for (const [dx, dy, lx, ly] of HORSE) {
+    const kx = x - dx, ky = y - dy;
+    if (!inBoard(kx, ky)) continue;
+    const v = cells[indexOf(kx, ky)];
+    if (Math.sign(v) !== bySide || Math.abs(v) !== N) continue;
+    if (cells[indexOf(kx + lx, ky + ly)] !== EMPTY) continue;       // 蹩马腿
+    return true;
+  }
+
+  // 兵 / 卒：正前方一格 + 过河后的左右一格
+  const py = y + bySide; // 兵所在的行：红方(bySide=1)在下一行，黑方(bySide=-1)在上一行
+  if (inBoard(x, py)) {
+    const v = cells[indexOf(x, py)];
+    if (Math.sign(v) === bySide && Math.abs(v) === P) return true;
+  }
+  const crossed = bySide === RED ? y <= 4 : y >= 5;
+  if (crossed) {
+    for (const dx of [-1, 1]) {
+      const px = x + dx;
+      if (!inBoard(px, y)) continue;
+      const v = cells[indexOf(px, y)];
+      if (Math.sign(v) === bySide && Math.abs(v) === P) return true;
+    }
+  }
+
+  return false;
+}
+
+export function inCheck(cells, side) {
+  const king = findKing(cells, side);
+  return king >= 0 && isAttacked(cells, king, -side);
+}
+
+/**
+ * 合法着法 = 伪合法着法去掉「走完之后己方被将军」的那些。
+ *
+ * 用试走 + 回退而不是在生成时就过滤：只有一处判断逻辑，不容易漏。
+ * 将 / 帅的起点只在循环外找一次；如果这一步走的正好是将 / 帅，则改查它的落点。
+ */
+export function generateLegalMoves(pos) {
+  const { cells, side } = pos;
+  const kingFrom = findKing(cells, side);
+  if (kingFrom < 0) return [];
+
+  const out = [];
+  for (const move of generateMoves(cells, side)) {
+    const from = moveFrom(move), to = moveTo(move);
+    const captured = cells[to];
+    cells[to] = cells[from];
+    cells[from] = EMPTY;
+
+    const kingAt = from === kingFrom ? to : kingFrom;
+    if (!isAttacked(cells, kingAt, -side)) out.push(move);
+
+    cells[from] = cells[to];
+    cells[to] = captured;
+  }
+  return out;
+}
