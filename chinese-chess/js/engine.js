@@ -22,6 +22,14 @@ const TT_UPPER = 2;
 const MAX_QUIESCE_DEPTH = 6;
 
 /**
+ * 超时中断用的哨兵。
+ *
+ * 用抛异常而不是逐层检查标志位：标志位要求每一层递归都判断一次，
+ * 而那个判断在叶节点上的开销会被放大成千上万倍。
+ */
+const TIMEOUT = { timeout: true };
+
+/**
  * 静态评估：只算子力和兵是否过河。
  *
  * 返回**轮走方视角**的分值 —— 负极大值搜索要求「分数总是对当前走子方有利为正」。
@@ -69,6 +77,10 @@ export class Searcher {
     this.tt = new Map();      // key -> { depth, score, flag, move }
     this.killers = [];        // killers[ply] = [move1, move2]
     this.history = new Int32Array(CELLS * CELLS);
+
+    // 时间控制：Date.now() 本身不便宜，所以每 1024 个节点才查一次
+    this.deadline = Infinity;
+    this.checkEvery = 1024;
   }
 
   /**
@@ -189,6 +201,11 @@ export class Searcher {
   negamax(depth, alpha, beta, ply) {
     this.nodes++;
 
+    if (--this.checkEvery <= 0) {
+      this.checkEvery = 1024;
+      if (Date.now() >= this.deadline) throw TIMEOUT;
+    }
+
     const alphaOrig = alpha;
     let ttMove = 0;
     if (this.useTT) {
@@ -280,6 +297,41 @@ export class Searcher {
     if (moves.length === 0) return null;
     return this.searchRootAt(depth, moves, this.level.noise > 0);
   }
+
+  /**
+   * 迭代加深：从 1 层逐层加深，每层用上一层的最优着法排在最前面。
+   *
+   * 好处有两个：时间控制天然生效（超时就丢掉没跑完的那一层），
+   * 以及浅层结果能给深层做很好的着法排序 —— 这是最省事的着法排序来源。
+   *
+   * 超时后**必须保留上一层已经完成的结果**，所以 catch 里是 break 而不是往外抛。
+   * 直接抛出去会让调用方拿到 null，白白浪费已经算出来的着法。
+   */
+  iterativeDeepen() {
+    const moves = generateLegalMoves({ cells: this.cells, side: this.side });
+    if (moves.length === 0) return null;
+    if (moves.length === 1) {
+      return { move: moves[0], score: 0, scores: new Map([[moves[0], 0]]), depth: 1 };
+    }
+
+    let best = null;
+    let ordered = moves;
+
+    for (let depth = 1; depth <= this.level.depth; depth++) {
+      let result;
+      try {
+        result = this.searchRootAt(depth, ordered, this.level.noise > 0);
+      } catch (e) {
+        if (e !== TIMEOUT) throw e;
+        break; // 这一层没跑完，丢掉它，保留上一层的结果
+      }
+      best = { ...result, depth };
+      // 下一层从这一层的最优着法开始搜，剪枝效率更高
+      ordered = [result.move, ...result.scores.keys()].filter((m, i, a) => a.indexOf(m) === i);
+      if (Math.abs(result.score) > MATE - 1000) break; // 已经找到杀棋，不必再深
+    }
+    return best;
+  }
 }
 
 /**
@@ -297,15 +349,31 @@ export function search(fen, level, options = {}) {
   const searcher = new Searcher(pos.cells, pos.side, lv, options.rng || Math.random);
 
   const started = Date.now();
-  const result = searcher.searchRoot(lv.depth);
-  if (!result) return null;
+  searcher.deadline = started + lv.timeLimitMs;
 
+  const result = searcher.iterativeDeepen();
+  if (result) {
+    return {
+      move: result.move,
+      from: moveFrom(result.move),
+      to: moveTo(result.move),
+      score: result.score,
+      depth: result.depth,
+      nodes: searcher.nodes,
+      timeMs: Date.now() - started,
+    };
+  }
+
+  // 走到这里只有两种可能：局面本身已经终局，或者时间限制短到连第 1 层都没跑完。
+  // 后者必须兜底返回一个合法着法 —— 绝不能让上层拿到 null 然后卡死不动。
+  const legal = generateLegalMoves({ cells: searcher.cells, side: searcher.side });
+  if (legal.length === 0) return null;
   return {
-    move: result.move,
-    from: moveFrom(result.move),
-    to: moveTo(result.move),
-    score: result.score,
-    depth: lv.depth,
+    move: legal[0],
+    from: moveFrom(legal[0]),
+    to: moveTo(legal[0]),
+    score: 0,
+    depth: 0,
     nodes: searcher.nodes,
     timeMs: Date.now() - started,
   };

@@ -332,5 +332,39 @@ console.log('AI 层测试\n');
     coordOf(search(fen, careful, { rng: seededRng(3) }).to) === '4,4', false);
 }
 
+// --- 迭代加深与时间控制 ---
+{
+  const { search } = await load('engine.js');
+  const { generateLegalMoves } = await load('rules.js');
+
+  // 时间上限：给 300ms，必须在明显超时之前返回
+  {
+    const lv = { id: 'timed', name: '限时', depth: 64, timeLimitMs: 300,
+                 quiescence: true, noise: 0, blunderRate: 0 };
+    const t0 = Date.now();
+    const r = search(START_FEN, lv, { rng: seededRng(5) });
+    const elapsed = Date.now() - t0;
+    check('限时 300ms 的搜索在 1500ms 内返回', elapsed < 1500, true);
+    check('限时搜索至少完成了一层', r.depth >= 1, true);
+  }
+
+  // 迭代加深：深度给够时，完成的层数应当等于上限
+  {
+    const lv = { id: 'deep', name: '深搜', depth: 4, timeLimitMs: 60000,
+                 quiescence: false, noise: 0, blunderRate: 0 };
+    const r = search(START_FEN, lv, { rng: seededRng(5) });
+    check('迭代加深跑到指定层数', r.depth, 4);
+  }
+
+  // 极短时间限制下也必须返回合法着法（用上一层的结果，绝不能返回半个）
+  {
+    const lv = { id: 'instant', name: '瞬时', depth: 64, timeLimitMs: 1,
+                 quiescence: true, noise: 0, blunderRate: 0 };
+    const r = search(START_FEN, lv, { rng: seededRng(5) });
+    const legal = new Set(generateLegalMoves(parseFen(START_FEN)));
+    check('时间限制极短时仍返回合法着法', legal.has(r.move), true);
+  }
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
