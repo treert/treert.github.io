@@ -136,11 +136,45 @@ function updateChrome() {
   updateButtons();
 }
 
-function renderMoveList() {
-  dom.moveList.textContent = '';
-  const all = app.game.moves;
+// 上次渲染时的着法总数 / 当前着法元素 / 上次滚动到的游标。
+// 三个都是为了让 refresh() 不重复做无谓的工作 —— 见 renderMoveList 的注释。
+let renderedMoveCount = -1;
+let currentMoveEl = null;
+let scrolledCursor = -1;
 
-  if (all.length === 0) {
+function renderMoveList() {
+  const moves = app.game.moves;
+  const cursor = app.game.cursor;
+
+  // 只在「着法列表本身变了」时才重建 DOM。
+  // refresh() 在选中棋子、显示提示、AI 思考状态变化时都会被调到，
+  // 而那些情况下列表一个字都没变 —— 重建会把列表的滚动位置冲回顶部，
+  // 也会白白丢掉所有 span。（syncEndgameList 用的是同一个思路。）
+  if (moves.length !== renderedMoveCount) {
+    renderedMoveCount = moves.length;
+    buildMoveList(moves);
+  }
+
+  // 只挪高亮类，不重建。
+  if (currentMoveEl) currentMoveEl.classList.remove('xq-move--current');
+  currentMoveEl = cursor > 0
+    ? dom.moveList.querySelector(`.xq-move[data-ply="${cursor}"]`)
+    : null;
+  if (currentMoveEl) currentMoveEl.classList.add('xq-move--current');
+
+  // 只在游标真的移动了的时候才滚。
+  // **选中棋子不改游标**，所以不会触发 —— 这正是「点一下棋子、列表就跳到底部」的来源。
+  if (cursor !== scrolledCursor) {
+    scrolledCursor = cursor;
+    scrollCurrentIntoView();
+  }
+}
+
+function buildMoveList(moves) {
+  dom.moveList.textContent = '';
+  currentMoveEl = null;
+
+  if (moves.length === 0) {
     const p = document.createElement('p');
     p.className = 'xq-move-empty';
     p.textContent = '还没有走棋';
@@ -149,8 +183,8 @@ function renderMoveList() {
   }
 
   // 列出**全部**着法（包括游标后面的），这样才能点着法列表往前跳（重做）。
-  // 当前这一步用高亮标出来。
-  for (let i = 0; i < all.length; i += 2) {
+  // 当前这一步的高亮由 renderMoveList 统一处理，这里不打。
+  for (let i = 0; i < moves.length; i += 2) {
     const row = document.createElement('div');
     row.className = 'xq-move-row';
 
@@ -160,18 +194,38 @@ function renderMoveList() {
     row.appendChild(no);
 
     row.appendChild(moveSpan(i));
-    if (all[i + 1]) row.appendChild(moveSpan(i + 1));
+    if (moves[i + 1]) row.appendChild(moveSpan(i + 1));
     dom.moveList.appendChild(row);
   }
+}
 
-  const current = dom.moveList.querySelector('.xq-move--current');
-  if (current) current.scrollIntoView({ block: 'nearest' });
+/**
+ * 把当前着法滚进可见区域。
+ *
+ * **只动着法列表自己的 scrollTop，不用 scrollIntoView** ——
+ * scrollIntoView 会把**所有**可滚动祖先一起滚，包括页面本身，
+ * 于是点一下棋盘整页都会跟着跳。
+ *
+ * 用 getBoundingClientRect 而不是 offsetTop：列表没有 position: relative，
+ * offsetTop 的参照物不确定，rect 则永远是视口坐标，不会算错。
+ */
+function scrollCurrentIntoView() {
+  if (!currentMoveEl) return;
+
+  const listRect = dom.moveList.getBoundingClientRect();
+  const elRect = currentMoveEl.getBoundingClientRect();
+
+  if (elRect.top < listRect.top) {
+    dom.moveList.scrollTop -= listRect.top - elRect.top;
+  } else if (elRect.bottom > listRect.bottom) {
+    dom.moveList.scrollTop += elRect.bottom - listRect.bottom;
+  }
 }
 
 function moveSpan(i) {
   const el = document.createElement('span');
   el.className = 'xq-move';
-  if (app.game.cursor === i + 1) el.classList.add('xq-move--current');
+  el.dataset.ply = String(i + 1);   // renderMoveList 靠它找当前着法
   el.textContent = app.game.moves[i].notation;
   el.title = `跳到第 ${i + 1} 步`;
   el.addEventListener('click', () => {
