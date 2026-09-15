@@ -366,5 +366,53 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 挡位弱化 ---
+{
+  const { search } = await load('engine.js');
+
+  const strong = { id: 's', name: '强', depth: 3, timeLimitMs: 10000,
+                   quiescence: true, noise: 0, blunderRate: 0 };
+
+  // 没有随机性时，结果必须与随机源无关
+  {
+    const a = search(START_FEN, strong, { rng: seededRng(11) });
+    const b = search(START_FEN, strong, { rng: seededRng(22) });
+    check('noise 与 blunderRate 都为 0 时结果与随机源无关', b.move, a.move);
+  }
+
+  // 评分噪声足够大时，着法会随随机源变化 —— 这就是「弱挡位不总是走同一步」的来源
+  {
+    const noisy = { ...strong, noise: 400 };
+    const seen = new Set();
+    for (let seed = 1; seed <= 12; seed++) {
+      seen.add(search(START_FEN, noisy, { rng: seededRng(seed) }).move);
+    }
+    check('噪声足够大时着法会随随机源变化', seen.size > 1, true);
+  }
+
+  // 失误率 1.0：每次都标记为失误，且不走最优着法
+  {
+    const blunder = { ...strong, blunderRate: 1 };
+    const best = search(START_FEN, strong, { rng: seededRng(11) }).move;
+    let blunders = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      if (search(START_FEN, blunder, { rng: seededRng(seed) }).blundered) blunders++;
+    }
+    check('失误率 1.0 时每次都标记为失误', blunders, 8);
+    check('失误率 1.0 时不会返回最优着法',
+      search(START_FEN, blunder, { rng: seededRng(11) }).move === best, false);
+  }
+
+  // 只有一个合法着法时，失误率绝不能触发 —— 否则会走出非法着法
+  {
+    const blunder = { ...strong, blunderRate: 1 };
+    const fen1 = '4k4/3R5/9/9/9/9/9/9/9/3K5 b - - 0 1';
+    const r = search(fen1, blunder, { rng: seededRng(1) });
+    check('只有一个合法着法时失误率不触发', r.blundered, false);
+    check('只有一个合法着法时仍返回那个着法',
+      [coordOf(r.from), coordOf(r.to)], ['4,0', '5,0']);
+  }
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

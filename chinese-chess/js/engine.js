@@ -351,8 +351,32 @@ export function search(fen, level, options = {}) {
   const started = Date.now();
   searcher.deadline = started + lv.timeLimitMs;
 
-  const result = searcher.iterativeDeepen();
+  let result = searcher.iterativeDeepen();
+  let blundered = false;
+
   if (result) {
+    // === 挡位弱化：只在根节点施加，不碰搜索内部 ===
+    const allMoves = generateLegalMoves({ cells: searcher.cells, side: searcher.side });
+
+    // 失误：放弃搜索结果，从「除最优着法之外」的合法着法里随机挑一个。
+    // 只剩一个合法着法时绝不能触发 —— 那会走出非法着法，上层直接崩。
+    if (lv.blunderRate > 0 && allMoves.length > 1 && searcher.rng() < lv.blunderRate) {
+      const others = allMoves.filter((m) => m !== result.move);
+      result = { ...result, move: others[Math.floor(searcher.rng() * others.length)] };
+      blundered = true;
+    } else if (lv.noise > 0 && result.scores.size > 1) {
+      // 噪声：给每个根着法的评分加一个均匀扰动，重新选最优。
+      // 这让弱挡位倾向选次优着，而不是永远走同一个最优着。
+      // 需要精确分值才能比较，所以 searchRootAt 在 noise > 0 时开的是全窗口。
+      let bestMove = result.move;
+      let bestVal = -INF;
+      for (const [move, score] of result.scores) {
+        const noisy = score + (searcher.rng() * 2 - 1) * lv.noise;
+        if (noisy > bestVal) { bestVal = noisy; bestMove = move; }
+      }
+      result = { ...result, move: bestMove };
+    }
+
     return {
       move: result.move,
       from: moveFrom(result.move),
@@ -361,6 +385,7 @@ export function search(fen, level, options = {}) {
       depth: result.depth,
       nodes: searcher.nodes,
       timeMs: Date.now() - started,
+      blundered,
     };
   }
 
@@ -376,5 +401,6 @@ export function search(fen, level, options = {}) {
     depth: 0,
     nodes: searcher.nodes,
     timeMs: Date.now() - started,
+    blundered: false,
   };
 }
