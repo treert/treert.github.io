@@ -18,6 +18,9 @@ const TT_EXACT = 0;
 const TT_LOWER = 1;
 const TT_UPPER = 2;
 
+/** 静态搜索的层数上限。兑子序列可能很长，必须封顶，否则单节点开销失控 */
+const MAX_QUIESCE_DEPTH = 6;
+
 /**
  * 静态评估：只算子力和兵是否过河。
  *
@@ -139,6 +142,49 @@ export class Searcher {
     return king >= 0 && !isAttacked(this.cells, king, this.side);
   }
 
+  /**
+   * 静态搜索：只搜吃子，把「兑子序列没走完就评估」这个水平线效应消掉。
+   *
+   * 被将军时改为搜全部着法 —— 只看吃子的话会漏掉「唯一的应将手段」，
+   * 得出「被将死也没关系」的荒谬结论。顺带这也是「开了静态搜索的挡位在深度 1
+   * 也能发现一步杀」的原因：被将军的节点会生成全部着法，从而发现对方一步都走不了。
+   *
+   * stand-pat（静止分）：如果连一步吃子都不走就已经很好了，就不必再算下去。
+   *
+   * orderMoves 的第三个参数传 0 表示「没有置换表着法」—— 0 这个编码
+   * （from = to = 0）永远不可能是合法着法，当哨兵用是安全的。
+   */
+  quiesce(alpha, beta, ply, qdepth) {
+    this.nodes++;
+
+    const king = findKing(this.cells, this.side);
+    const checked = king >= 0 && isAttacked(this.cells, king, -this.side);
+    if (!checked) {
+      const stand = evaluate(this.cells, this.side);
+      if (stand >= beta) return beta;
+      if (stand > alpha) alpha = stand;
+    }
+    if (qdepth <= 0) return alpha;
+
+    let best = alpha;
+    const moves = generateMoves(this.cells, this.side)
+      .filter((m) => checked || this.cells[moveTo(m)] !== EMPTY);
+
+    for (const move of this.orderMoves(moves, ply, 0)) {
+      const captured = this.make(move);
+      if (!this.leavesKingSafe()) {
+        this.unmake(move, captured);
+        continue;
+      }
+      const score = -this.quiesce(-beta, -best, ply + 1, qdepth - 1);
+      this.unmake(move, captured);
+
+      if (score > best) best = score;
+      if (best >= beta) return best;
+    }
+    return best;
+  }
+
   /** 负极大值形式的 alpha-beta，带置换表与着法排序 */
   negamax(depth, alpha, beta, ply) {
     this.nodes++;
@@ -158,7 +204,11 @@ export class Searcher {
       }
     }
 
-    if (depth <= 0) return evaluate(this.cells, this.side);
+    if (depth <= 0) {
+      return this.level.quiescence
+        ? this.quiesce(alpha, beta, ply, MAX_QUIESCE_DEPTH)
+        : evaluate(this.cells, this.side);
+    }
 
     let best = -INF;
     let bestMove = 0;

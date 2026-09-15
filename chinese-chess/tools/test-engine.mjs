@@ -312,5 +312,25 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 静态搜索 ---
+// 这组断言直接验证 design.md §7.3 的核心设计：**关掉静态搜索是让 AI「像新手」的
+// 最有效开关**。红车可以吃黑卒，但吃完会被黑车吃回：
+//   - 关掉静态搜索的深度 1 只看得到「吃了个卒、赚 100」，于是贪这一口
+//   - 开启静态搜索会把兑子序列走完，看到「赚 100 丢 900」，于是不贪
+{
+  const { search } = await load('engine.js');
+
+  const fen = '4k4/9/9/9/r3p4/4R4/9/9/9/3K5 w - - 0 1';
+
+  const greedy = { id: 'greedy', name: '贪吃', depth: 1, timeLimitMs: 10000,
+                   quiescence: false, noise: 0, blunderRate: 0 };
+  const careful = { ...greedy, quiescence: true };
+
+  check('关掉静态搜索的深度 1 会贪吃卒（这就是「入门」挡位的行为）',
+    coordOf(search(fen, greedy, { rng: seededRng(3) }).to), '4,4');
+  check('开启静态搜索后不去贪吃卒',
+    coordOf(search(fen, careful, { rng: seededRng(3) }).to) === '4,4', false);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
