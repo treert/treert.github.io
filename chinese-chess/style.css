@@ -114,6 +114,9 @@ kbd {
    所以边线上的棋子不会被裁掉，不需要额外 padding。 */
 .xq-board {
   position: relative;
+  /* 建立层叠上下文：让下面那三档 z-index（棋盘线 0 / 格子 1 / 棋子 2）
+     的作用范围就止于棋盘内部，不会漏出去盖住页面上的其他元素。 */
+  isolation: isolate;
   display: grid;
   grid-template-columns: repeat(9, 1fr);
   grid-template-rows: repeat(10, 1fr);
@@ -127,9 +130,11 @@ kbd {
 }
 
 /* 每个格子画自己的十字线。格子中心就是交叉点，
-   所以横线横贯整格、竖线纵贯整格，拼起来正好是完整的棋盘格。 */
+   所以横线横贯整格、竖线纵贯整格，拼起来正好是完整的棋盘格。
+   z-index 让高亮盖住棋盘线 —— 九宫斜线是唯一会伸进格子内部的棋盘线。 */
 .xq-cell {
   position: relative;
+  z-index: 1;
   border: none;
   background: none;
   padding: 0;
@@ -167,11 +172,20 @@ kbd {
 }
 
 /* 九宫斜线：两个伪元素绝对定位在棋盘容器上。
-   注意绝对定位的伪元素不参与 grid 布局，所以不会挤掉格子。 */
+   注意绝对定位的伪元素不参与 grid 布局，所以不会挤掉格子。
+
+   **必须显式写 z-index: 0，不能靠默认绘制顺序。**
+   伪元素在绘制顺序里等同于子元素：::before 是最前一个、::after 是最后一个。
+   而棋子是 draw() 时 appendChild 到棋盘上的，排在 ::after **前面** ——
+   所以不加 z-index 的话，红方九宫的斜线（::after）会画在所有棋子之上，
+   把帅和仕盖住；黑方九宫（::before）却正常地在棋子下面。
+   同一个棋盘两半表现不一致，而且只在红方那半边看得出来。
+   显式分层之后，「棋盘线 → 格子 → 棋子」的顺序就与 DOM 顺序无关了。 */
 .xq-board::before,
 .xq-board::after {
   content: '';
   position: absolute;
+  z-index: 0;
   left: 38.889%;
   width: 22.222%;
   height: 20%;
@@ -203,6 +217,7 @@ kbd {
 /* === 棋子 === */
 .xq-piece {
   position: absolute;
+  z-index: 2;              /* 最高层：盖住棋盘线与格子高亮 */
   width: 10.222%;          /* 棋盘宽度的 1/9 再乘 .92 */
   aspect-ratio: 1;
   transform: translate(-50%, -50%);

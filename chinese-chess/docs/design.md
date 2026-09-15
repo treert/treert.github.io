@@ -483,6 +483,11 @@ Worker 只依赖 `engine.js`（以及它间接依赖的 `config.js` / `position.
 
 - 棋盘用 **CSS Grid** 铺 9×10 个格子按钮（`.xq-cell`），交叉点用伪元素画线
 - 棋子是绝对定位的 `<div>`（`.xq-piece`），`transform: translate(...)` 定位到格子中心
+- **三层显式分层**（`z-index`）：棋盘线 `0` → 格子 `1` → 棋子 `2`；棋盘容器用 `isolation: isolate`
+  把这三档的作用范围锁在棋盘内部。**不能依赖默认绘制顺序** —— 九宫斜线是 `.xq-board` 的伪元素，
+  而伪元素在绘制顺序里等同于子元素（`::before` 最前、`::after` 最后），棋子又是 `appendChild`
+  上去的、排在 `::after` 前面，于是红方九宫的斜线会盖住棋子，黑方却正常。踩坑记录见
+  [`future-work.md`](./future-work.md) E7
 - 移动动画：走子时**复用起点上那个棋子元素**，只改它的 `left` / `top`，让 CSS `transition` 接管补间。
   其余棋子全量重建 —— 因为重建时位置是在插入 DOM **之前**设好的，不会触发过渡，
   所以复盘跳转和悔棋时棋子直接出现在该在的位置，不会满屏乱飞。
