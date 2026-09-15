@@ -272,5 +272,45 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 置换表与着法排序 ---
+{
+  const { Searcher, search } = await load('engine.js');
+  const { generateMoves, moveTo } = await load('rules.js');
+
+  const base = { id: 'test', name: '测试', depth: 4, timeLimitMs: 60000,
+                 quiescence: false, noise: 0, blunderRate: 0 };
+
+  // 置换表不能改变搜索结果，只能省节点
+  {
+    const a = search(START_FEN, { ...base, useTT: false }, { rng: seededRng(7) });
+    const b = search(START_FEN, { ...base, useTT: true }, { rng: seededRng(7) });
+    check('开启置换表后最优着法不变', b.move, a.move);
+    check('开启置换表后分值不变', b.score, a.score);
+    check('开启置换表后访问的节点不增加', b.nodes <= a.nodes, true);
+  }
+
+  // 着法排序：吃子必须排在非吃子前面
+  {
+    const pos = parseFen('4k4/9/9/9/4r4/9/9/9/9/3KR4 w - - 0 1');
+    const s = new Searcher(pos.cells.slice(), pos.side, base);
+    const ordered = s.orderMoves(generateMoves(s.cells, s.side), 0, 0);
+    const isCapture = ordered.map((m) => s.cells[moveTo(m)] !== 0);
+    const lastCapture = isCapture.lastIndexOf(true);
+    const firstQuiet = isCapture.indexOf(false);
+    check('这个局面里红方确实有吃子可走', lastCapture >= 0, true);
+    check('所有吃子都排在非吃子之前', lastCapture < firstQuiet, true);
+  }
+
+  // 置换表命中率：连搜两次同一局面，第二次的节点数应明显更少
+  {
+    const s = new Searcher(parseFen(START_FEN).cells, 1, base);
+    s.searchRoot(3);
+    const first = s.nodes;
+    s.searchRoot(3);
+    const second = s.nodes - first;
+    check('第二次搜同一局面时节点数明显减少', second < first, true);
+  }
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

@@ -13,6 +13,11 @@ const INF = 1e9;
 /** 将死分值。带上「离根多远」，让引擎偏好更快的杀棋、更晚的被杀 */
 const MATE = 100000;
 
+// 置换表条目类型：精确值 / 只证明了下界 / 只证明了上界
+const TT_EXACT = 0;
+const TT_LOWER = 1;
+const TT_UPPER = 2;
+
 /**
  * 静态评估：只算子力和兵是否过河。
  *
@@ -55,6 +60,12 @@ export class Searcher {
     this.level = level;
     this.rng = rng;
     this.nodes = 0;
+
+    // useTT = false 用来做对照实验：验证置换表只省节点、不改结果
+    this.useTT = level.useTT !== false;
+    this.tt = new Map();      // key -> { depth, score, flag, move }
+    this.killers = [];        // killers[ply] = [move1, move2]
+    this.history = new Int32Array(CELLS * CELLS);
   }
 
   /**
@@ -86,6 +97,37 @@ export class Searcher {
   }
 
   /**
+   * 着法排序。顺序直接决定 alpha-beta 的剪枝效率，是引擎里性价比最高的一处优化。
+   * 优先级：置换表着法 > 吃子（MVV-LVA）> 杀手着法 > 历史启发。
+   */
+  orderMoves(moves, ply, ttMove) {
+    const score = (move) => {
+      if (move === ttMove) return 1e7;
+      const victim = this.cells[moveTo(move)];
+      if (victim !== EMPTY) {
+        // MVV-LVA：优先「用小子吃大子」
+        return 1e6 + PIECE_VALUE[Math.abs(victim)] * 10
+                    - PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
+      }
+      const k = this.killers[ply];
+      if (k) {
+        if (k[0] === move) return 9e5;
+        if (k[1] === move) return 8e5;
+      }
+      return this.history[move];
+    };
+    return moves.slice().sort((a, b) => score(b) - score(a));
+  }
+
+  /** 把一个着法记为杀手着法（在同一层造成剪枝的非吃子着法） */
+  recordKiller(move, ply) {
+    const k = this.killers[ply] || (this.killers[ply] = [0, 0]);
+    if (k[0] === move) return;
+    k[1] = k[0];
+    k[0] = move;
+  }
+
+  /**
    * 刚走完的那一方，其将 / 帅是否安全（也就是这一步是否合法）。
    *
    * 注意 make() 已经把 this.side 翻成了**对方**，
@@ -97,16 +139,32 @@ export class Searcher {
     return king >= 0 && !isAttacked(this.cells, king, this.side);
   }
 
-  /** 负极大值形式的 alpha-beta */
+  /** 负极大值形式的 alpha-beta，带置换表与着法排序 */
   negamax(depth, alpha, beta, ply) {
     this.nodes++;
+
+    const alphaOrig = alpha;
+    let ttMove = 0;
+    if (this.useTT) {
+      const e = this.tt.get(this.key);
+      if (e) {
+        ttMove = e.move;
+        if (e.depth >= depth) {
+          if (e.flag === TT_EXACT) return e.score;
+          if (e.flag === TT_LOWER && e.score > alpha) alpha = e.score;
+          else if (e.flag === TT_UPPER && e.score < beta) beta = e.score;
+          if (alpha >= beta) return e.score;
+        }
+      }
+    }
 
     if (depth <= 0) return evaluate(this.cells, this.side);
 
     let best = -INF;
+    let bestMove = 0;
     let legalCount = 0;
 
-    for (const move of generateMoves(this.cells, this.side)) {
+    for (const move of this.orderMoves(generateMoves(this.cells, this.side), ply, ttMove)) {
       const captured = this.make(move);
       if (!this.leavesKingSafe()) {
         this.unmake(move, captured);
@@ -117,13 +175,26 @@ export class Searcher {
       const score = -this.negamax(depth - 1, -beta, -alpha, ply + 1);
       this.unmake(move, captured);
 
-      if (score > best) best = score;
+      if (score > best) { best = score; bestMove = move; }
       if (best > alpha) alpha = best;
-      if (alpha >= beta) break;
+      if (alpha >= beta) {
+        // 只有非吃子才记杀手 / 历史启发：吃子本来就会被优先搜到，再记一遍没意义
+        if (captured === EMPTY) {
+          this.recordKiller(move, ply);
+          this.history[move] += depth * depth;
+        }
+        break;
+      }
     }
 
     // 一步都走不了 = 被将死或困毙，两种情况在中国象棋里都是走子方负
     if (legalCount === 0) return -MATE + ply;
+
+    // 杀棋分值带「离根多远」的信息，换一层深度就不对了，所以不存进置换表
+    if (this.useTT && Math.abs(best) < MATE - 1000) {
+      const flag = best <= alphaOrig ? TT_UPPER : best >= beta ? TT_LOWER : TT_EXACT;
+      this.tt.set(this.key, { depth, score: best, flag, move: bestMove });
+    }
     return best;
   }
 
