@@ -18,7 +18,11 @@
   --xq-board-line: #a08660;
   --xq-hl-last: rgba(9, 132, 227, .30);
   --xq-hl-target: rgba(0, 184, 148, .38);
-  --xq-hl-hint: rgba(253, 203, 110, .60);
+  /* 提示（AI 建议的着法）。同一个琥珀色，圆点用半透明、棋子外圈用实色。
+     从浅黄（#fdcb6e）换成偏深的琥珀：浅黄在米色棋盘上对比太弱 ——
+     和「走子方外圈」踩过的是同一个坑（见 --xq-turn 的注释）。 */
+  --xq-hint: #e8890c;
+  --xq-hl-hint: rgba(232, 137, 12, .42);
   /* 开关的「关」态底色。不能用 --border（太浅，白色滑块在上面看不见） */
   --xq-switch-off: #ccd2d9;
   /* 走子方的高亮色。红黑两方**统一用同一个颜色**，不用各自的方色 ——
@@ -42,7 +46,8 @@
   --xq-board-line: #6b6355;
   --xq-hl-last: rgba(77, 171, 247, .36);
   --xq-hl-target: rgba(0, 184, 148, .42);
-  --xq-hl-hint: rgba(253, 203, 110, .45);
+  --xq-hint: #f0a02a;
+  --xq-hl-hint: rgba(240, 160, 42, .45);
   --xq-switch-off: #3a414d;
 }
 
@@ -358,6 +363,25 @@ kbd {
 .xq-piece--capture {
   outline: 3px solid var(--danger);
   outline-offset: 2px;
+}
+
+/* 提示（AI 建议的着法）：**起点和终点**的棋子各套一道琥珀色外圈。
+   和「可吃子」的红环同理 —— 格子上的圆点会被棋子盖住，所以画在棋子上。
+   （起点一定也有子，所以两头都得这么画，不能只改终点。）
+
+   **用 `::after` 而不是 `outline`**：`outline` 已经被「轮到我方」（紫圈）
+   和「可吃子」（红环）占了，一个元素只有一条。而提示的**起点往往正是「轮到我方」的子** ——
+   用 outline 会把它的紫圈顶掉，16 个紫圈里少 2 个，看起来像渲染出错。
+   `::after` 可以套在紫圈外面，两者共存。
+
+   偏移 6px 是为了让开紫圈（2px 偏移 + 2px 宽 = 4px）和红环（2px + 3px = 5px）。 */
+.xq-piece--hint::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--xq-hint);
+  pointer-events: none;
 }
 
 /* === 翻转 === */

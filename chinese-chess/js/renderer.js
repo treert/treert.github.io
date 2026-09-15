@@ -87,8 +87,16 @@ export function createRenderer(boardEl, wrapEl) {
       else cells[t].classList.add('xq-cell--target');
     }
     if (highlight.hint) {
-      cells[moveFrom(highlight.hint)].classList.add('xq-cell--hint');
-      cells[moveTo(highlight.hint)].classList.add('xq-cell--hint');
+      const from = moveFrom(highlight.hint);
+      const to = moveTo(highlight.hint);
+      // **起点一定也有子**，所以两头都要标在棋子上，不能标在格子上 ——
+      // 格子上的圆点半径只有约 15px，而棋子半径 28.5px，有子的格子那个点完全被盖住。
+      // 终点是空格时才用格子圆点（那种情况下它看得见）。
+      const fromEl = pieceEls.get(from);
+      if (fromEl) fromEl.classList.add('xq-piece--hint');
+      const toEl = pieceEls.get(to);
+      if (toEl) toEl.classList.add('xq-piece--hint');
+      else cells[to].classList.add('xq-cell--hint');
     }
     if (highlight.selected >= 0) cells[highlight.selected].classList.add('xq-cell--selected');
     if (highlight.checked >= 0) {
@@ -117,10 +125,11 @@ export function createRenderer(boardEl, wrapEl) {
     const capturedEl = animate ? pieceEls.get(animate.to) || null : null;
 
     // 复用元素时要把上次的标记清掉 —— 它不会像其它棋子那样被重建，
-    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方 / 可吃」显示出来。
+    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方 / 可吃 / 提示」显示出来。
     if (movedEl) {
       movedEl.classList.remove(
-        'xq-piece--last', 'xq-piece--checked', 'xq-piece--turn', 'xq-piece--capture',
+        'xq-piece--last', 'xq-piece--checked', 'xq-piece--turn',
+        'xq-piece--capture', 'xq-piece--hint',
       );
     }
 
