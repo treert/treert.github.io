@@ -16,9 +16,11 @@
     <header class="page-header">
       <div class="xq-title-row">
         <h1>中国象棋</h1>
-        <!-- 唯一的局面库入口。内容由 main.js 的 renderPickerButton() 填
+        <!-- 内容由 main.js 的 renderPickerButton() 填
              （「局面库 · <当前局面名> ▾」），既是入口也是「我在哪一局」的指示 -->
         <button type="button" class="btn btn-ghost xq-picker-open" id="btn-open-picker"></button>
+        <!-- 「往库里加东西」的入口，和「挑」并列放在标题行 -->
+        <button type="button" class="btn btn-ghost xq-io-open" id="btn-open-io">保存 / 导入</button>
       </div>
 
       <details class="xq-help" id="page-help">
@@ -46,9 +48,10 @@
 
           <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
 
-          <p><b>局面库</b>（标题右边那个按钮，上面会显示你现在在哪一局）：
-          挑一局残局来练，或者把当前下到一半的局面<b>存成自定义局面</b>。
-          也支持直接粘贴 FEN —— 从别的软件或网上弄到的局面都能进来。</p>
+          <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
+          旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，
+          或者粘一段 FEN 把外面弄到的局面收进来。
+          棋盘下方的 <b>复制 FEN</b> 则是把当前局面拿出去。</p>
         </div>
       </details>
     </header>
@@ -66,6 +69,9 @@
         <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
         <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
         <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
+        <!-- 「把当前局面拿出去」——和悔棋 / 翻转同类，都是对当前局面的即时动作 -->
+        <button class="btn btn-ghost xq-copy-fen" id="btn-copy-fen"
+                title="把当前局面的 FEN 复制到剪贴板">复制 FEN</button>
       </div>
 
       <aside class="xq-side">
@@ -88,12 +94,6 @@
           <p class="xq-status" id="status-text">准备开始</p>
           <p class="xq-goal" id="endgame-goal" hidden></p>
           <p class="xq-thinking" id="thinking" hidden>思考中…</p>
-
-          <!-- 「写」操作的入口。和「挑局面」分开：
-               局面库只管挑，这里管把局面存下来 / 拿出去 / 弄进来 -->
-          <button type="button" class="btn btn-ghost xq-io-open" id="btn-open-io">
-            导入 / 导出局面
-          </button>
         </section>
 
         <section class="panel xq-panel xq-panel--moves">
@@ -124,26 +124,24 @@
     </div>
   </dialog>
 
-  <!-- 「写」操作的弹窗：把当前局面存下来 / 拿出去 / 把外部局面弄进来。
-       和「局面库」分开 —— 那边只管挑，这边只管进出。 -->
+  <!-- 「往局面库里加东西」的弹窗。和「挑一局」分开：那边是读，这边是写。
+       「复制 FEN」不在这里 —— 它是「把局面拿出去」，属于对当前局面的即时动作，
+       入口在棋盘下方的工具栏上。 -->
   <dialog class="xq-dialog" id="io-dialog">
     <div class="xq-dialog-head">
-      <h2>导入 / 导出局面</h2>
+      <h2>保存 / 导入局面</h2>
       <button type="button" class="xq-dialog-close" id="btn-close-io" aria-label="关闭">✕</button>
     </div>
 
     <div class="xq-dialog-body xq-dialog-body--form">
       <section class="xq-io-section">
-        <h3>导出当前局面</h3>
+        <h3>存下当前局面</h3>
         <p class="xq-io-hint">起个名字存进局面库的「自定义」页签，之后可以反复拿来练。</p>
         <div class="xq-save">
           <input type="text" class="xq-input" id="custom-name" maxlength="40"
                  placeholder="给这个局面起个名字">
           <button type="button" class="btn btn-ghost" id="btn-save-current">存为自定义局面</button>
         </div>
-        <button type="button" class="btn btn-ghost xq-io-btn" id="btn-export-fen">
-          复制当前局面的 FEN
-        </button>
       </section>
 
       <section class="xq-io-section">

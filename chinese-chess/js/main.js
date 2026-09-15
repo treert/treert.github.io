@@ -29,6 +29,7 @@ const dom = {
   btnReset: document.getElementById('btn-reset'),
   btnFlip: document.getElementById('btn-flip'),
   btnHint: document.getElementById('btn-hint'),
+  btnCopyFen: document.getElementById('btn-copy-fen'),
   help: document.getElementById('page-help'),
   endgameGoal: document.getElementById('endgame-goal'),
   // 局面库弹窗
@@ -40,7 +41,7 @@ const dom = {
   tabs: document.getElementById('endgame-tabs'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
-  // 导入 / 导出弹窗（只管进出）
+  // 保存 / 导入弹窗（只管往库里加）
   ioDialog: document.getElementById('io-dialog'),
   btnOpenIo: document.getElementById('btn-open-io'),
   btnCloseIo: document.getElementById('btn-close-io'),
@@ -49,7 +50,6 @@ const dom = {
   btnSaveCurrent: document.getElementById('btn-save-current'),
   fenInput: document.getElementById('fen-input'),
   btnImportFen: document.getElementById('btn-import-fen'),
-  btnExportFen: document.getElementById('btn-export-fen'),
 };
 
 // localStorage 只取一次。拿不到（隐私模式）时自定义局面存不了，
@@ -611,12 +611,12 @@ function deleteCustom(eg) {
 // === 弹窗 ===
 //
 // 两个弹窗，职责分开：
-//   局面库（picker）      只管「挑」—— 页签 + 列表 + 退出残局
-//   导入 / 导出（io）     只管「进出」—— 存当前局面 / 导入 FEN / 导出 FEN
+//   局面库（picker）   只管「挑」—— 页签 + 列表 + 退出残局
+//   保存 / 导入（io）  只管「往库里加」—— 存当前局面 / 导入 FEN
 //
-// 分家的理由：导出 FEN 是「把局面拿出去」，和「挑一局来下」方向正好相反；
-// 存 / 导入虽然都是往库里加东西，但和「浏览」也是两回事。混在一个弹窗里，
-// 底部那块 FEN 折叠区跟上面的列表毫无呼应。
+// 分家的理由：这三件事的方向根本不一样。「挑」是读，「存 / 导入」是往库里写，
+// 而「复制 FEN」是把当前局面取出去 —— 最后那个还是个即时动作（和悔棋 / 翻转同类），
+// 所以它连弹窗都不要，直接做成棋盘下方工具栏上的按钮（见 copyCurrentFen）。
 
 /** 任意一个模态弹窗开着 —— 全局快捷键要让路 */
 function anyDialogOpen() {
@@ -635,7 +635,7 @@ function setIoMsg(text, isError = false) {
 }
 
 function openPicker() {
-  // 强制重建：自定义局面可能刚在「导入 / 导出」那边加过或删过
+  // 强制重建：自定义局面可能刚在「保存 / 导入」那边加过或删过
   renderedListKey = '\u0000';
   syncTabs();
   syncEndgameList();
@@ -706,15 +706,31 @@ function importFen() {
   afterCustomChanged(r.entry, '已导入并存为');
 }
 
-async function exportCurrentFen() {
+// 复制成功的提示做在按钮自己身上（文字短暂变成「已复制」）——
+// 它没有弹窗可以显示提示，而工具栏就在棋盘下方、视线落点上。
+let copyFlashTimer = null;
+
+/**
+ * 把当前局面的 FEN 复制到剪贴板。入口在棋盘下方的工具栏。
+ *
+ * 它是「对当前局面的即时动作」，和悔棋 / 翻转同类，所以**不需要弹窗** ——
+ * 一点就复制，反馈直接给在按钮上。
+ */
+async function copyCurrentFen() {
   const fen = G.currentFen(app.game);
   try {
     await navigator.clipboard.writeText(fen);
-    setIoMsg('当前局面的 FEN 已复制到剪贴板');
+    dom.btnCopyFen.textContent = '已复制';
+    clearTimeout(copyFlashTimer);
+    copyFlashTimer = setTimeout(() => {
+      dom.btnCopyFen.textContent = '复制 FEN';
+    }, 1600);
   } catch {
     // 剪贴板要安全上下文（https / localhost）。拿不到就退化成
-    // 「填进下面的框、你手动复制」—— 那个框本来是用来粘贴导入的，这里借它当缓冲区。
+    // 「把 FEN 送进「保存 / 导入」弹窗的框里，让人手动复制」。
+    // 那个框本来是用来粘贴导入的，这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
     dom.fenInput.value = fen;
+    openIo();
     setIoMsg('剪贴板不可用，FEN 已填在下面的框里，手动复制即可');
   }
 }
@@ -763,7 +779,6 @@ function bindIo() {
   dom.btnCloseIo.addEventListener('click', closeIo);
   dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
   dom.btnImportFen.addEventListener('click', importFen);
-  dom.btnExportFen.addEventListener('click', exportCurrentFen);
 
   dom.ioDialog.addEventListener('click', (e) => {
     if (e.target === dom.ioDialog) closeIo();
@@ -857,6 +872,7 @@ function bindToolbar() {
   });
 
   dom.btnHint.addEventListener('click', requestHint);
+  dom.btnCopyFen.addEventListener('click', copyCurrentFen);
   bindEndgames();
 }
 
