@@ -187,8 +187,9 @@ console.log('AI 层测试\n');
   // 断言「走完之后黑方一步都走不了」才是稳定的，而且正好测到了引擎该有的能力。
   //
   // 必须用 depth 2：depth <= 0 的节点直接返回静态评估、不生成着法，
-  // 所以**深度 1 发现不了「对方没着法可走」**。这是设计文档 §7.1「不做将军延伸」
-  // 的直接后果，不是 bug。（开了静态搜索的挡位例外：quiesce 在被将军时会搜全部着法。）
+  // 所以**深度 1 发现不了「对方没着法可走」**。这个挡位没开将军延伸
+  // （checkExtension 没写 = 0），所以它是这个样子的，不是 bug。
+  // （开了静态搜索的挡位例外：quiesce 在被将军时会搜全部着法。）
   {
     const fen = '3k5/9/9/9/9/4R4/9/9/9/R3K4 w - - 0 1';
     const r = search(fen, { ...plain, depth: 2 }, { rng: seededRng(1) });
@@ -430,6 +431,114 @@ console.log('AI 层测试\n');
   check('杀棋分值不超过 MATE（不能是 INF 取负的结果）', r.score < 1e6, true);
   check('找到杀棋后提前停止加深，不必跑满 4 层', r.depth < 4, true);
   check('深度必须 >= 1，不能因为误判而退化成 0', r.depth >= 1, true);
+}
+
+// --- 将军延伸 ---
+// 被将军的节点不消耗深度（LEVELS.checkExtension）。这条正面钉住它的价值：
+// 同一个局面、同一个基准深度，开了延伸的看得见杀棋，关掉的看不见。
+//
+// 局面是《适情雅趣》第013局「目视横流」，5 层连杀（红先）。
+// 挑它是因为便宜：基准深度 3 + 延伸就能看完 5 层，几十毫秒。
+{
+  const { search } = await load('engine.js');
+
+  const fen = '4k4/3P2P2/b2N2R2/7r1/2b6/9/9/3n5/4p3r/2R2K3 w - - 0 1';
+  const base = { id: 'e', name: '延伸', depth: 3, timeLimitMs: 20000,
+                 quiescence: true, noise: 0, blunderRate: 0 };
+
+  const off = search(fen, { ...base, checkExtension: 0 });
+  const on = search(fen, { ...base, checkExtension: 8 });
+
+  check('关掉延伸时深度 3 看不见 5 层连杀', Math.abs(off.score) > 99000, false);
+  check('开了延伸时深度 3 能看见杀棋', Math.abs(on.score) > 99000, true);
+  check('延伸看到的是那步 6,2 -> 4,2 的杀着', [coordOf(on.from), coordOf(on.to)], ['6,2', '4,2']);
+}
+
+// --- 连将杀探测 ---
+// 攻击方只走将军着法的强制杀搜索（Searcher.probeMate）。它解决的是
+// 「十几步连杀用常规搜索根本搜不到底」—— 常规搜索要上千万节点，它能降到十几万。
+//
+// 局面：《适情雅趣》第001局「气吞关右」，13 层连杀，正解首着是**平炮抽将**
+// （炮五平九，借纵线上的红车抽将）。这个局面是用户报上来的原始案例：
+// 只加将军延伸时「高级」挡位仍然看不到它。
+{
+  const { search } = await load('engine.js');
+
+  const fen = '2baka3/3P3N1/bN7/7nc/9/4C1P2/P5n1P/B3R3B/4Apr2/2RAK3c w - - 0 1';
+  const lv = { id: 'm', name: '探测', depth: 64, timeLimitMs: 5000,
+               quiescence: true, noise: 0, blunderRate: 0, checkExtension: 6, mateProbePly: 15 };
+  const r = search(fen, lv, { rng: seededRng(1) });
+
+  check('连将杀探测找到正解首着', [coordOf(r.from), coordOf(r.to)], ['4,5', '0,5']);
+  check('分值是被证明的杀棋', Math.abs(r.score) > 99000, true);
+  check('探到的杀棋是 13 层', r.depth, 13);
+
+  // 探测找到的杀棋不能被动摇：杀棋是**证明**，不是评估，「失误」不该把它抹掉。
+  // 否则残局库的「提示」给出的就是错的 —— 那正是要修的问题。
+  const shaky = { ...lv, blunderRate: 1, noise: 200 };
+  check('探测到杀棋时挡位弱化不生效',
+    [coordOf(search(fen, shaky, { rng: seededRng(3) }).from),
+      coordOf(search(fen, shaky, { rng: seededRng(3) }).to)], ['4,5', '0,5']);
+}
+
+// 探测在「没有连杀」的局面里必须几乎不花钱，也不能改变结果。
+// 代价来源是根节点的将军着法：一步都没有时它是 0 个节点。
+{
+  const { search } = await load('engine.js');
+
+  const lv = { id: 'q', name: '安静', depth: 5, timeLimitMs: 30000,
+               quiescence: true, noise: 0, blunderRate: 0, checkExtension: 6 };
+  const off = search(START_FEN, { ...lv, mateProbePly: 0 }, { rng: seededRng(9) });
+  const on = search(START_FEN, { ...lv, mateProbePly: 15 }, { rng: seededRng(9) });
+
+  check('开局没有连杀：开探测与关探测选同一步', on.move, off.move);
+  check('开局没有连杀：开探测与关探测分值相同', on.score, off.score);
+  check('开局没有连杀：探测不额外花时间', on.nodes, off.nodes);
+
+  // 一步杀也不能被它漏掉
+  const mateIn1 = '3k5/9/9/9/9/4R4/9/9/9/R3K4 w - - 0 1';
+  const r = search(mateIn1, { ...lv, mateProbePly: 15 }, { rng: seededRng(1) });
+  check('一步杀：探测也能发现', Math.abs(r.score) > 99000, true);
+}
+
+// --- 回归：超时中断后，searcher 的棋盘必须还原 ---
+// 超时是用抛异常中断的，异常会从 make() / unmake() 中间穿过去，棋盘停在
+// 「走了一半」的状态上。而 search() 之后还要用 searcher.cells 生成根着法
+// 来施加挡位弱化 —— 从一个错乱的棋盘上挑着法会挑出**非法着法**，
+// 上层 playMove 拒掉它，表现成「AI 不动了」（不是报错，是静默卡住）。
+// 修之前用 blunderRate = 1 + 800ms 在这个局面下跑 40 次，有 34 次返回非法着法。
+{
+  const { Searcher, search } = await load('engine.js');
+  const { generateLegalMoves } = await load('rules.js');
+
+  const fen = '2baka3/3P3N1/bN7/7nc/9/4C1P2/P5n1P/B3R3B/4Apr2/2RAK3c w - - 0 1';
+
+  // 直接构造一个「必然超时」的 Searcher，看它的棋盘还在不在
+  {
+    const lv = { id: 'x', name: 'x', depth: 64, timeLimitMs: 300, quiescence: true,
+                 noise: 0, blunderRate: 0 };
+    const pos = parseFen(fen);
+    const before = Array.from(pos.cells);
+    const s = new Searcher(pos.cells, pos.side, lv);
+    s.deadline = Date.now() + 300;
+    s.iterativeDeepen();
+    check('超时之后棋盘还原', Array.from(s.cells), before);
+    check('超时之后轮走方还原', s.side, pos.side);
+  }
+
+  // 放大到 search() 这一层：失误率 1.0 时每次都会从根着法里随机挑，
+  // 棋盘没还原的话挑出来的就是非法着法。
+  {
+    const legal = new Set(generateLegalMoves(parseFen(fen)));
+    const lv = { id: 'b', name: 'b', depth: 64, timeLimitMs: 300, quiescence: true,
+                 noise: 0, blunderRate: 1, checkExtension: 6 };
+    let illegal = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const r = search(fen, lv, { rng: seededRng(seed) });
+      if (!legal.has(r.move)) illegal++;
+    }
+    check('超时 + 失误率 1.0 时返回的着法仍然合法', illegal, 0);
+  }
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

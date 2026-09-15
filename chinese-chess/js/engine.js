@@ -5,7 +5,7 @@
  * 不影响调用方。这是「方便后续优化」的落点。
  */
 
-import { CELLS, EMPTY, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS, LEVELS } from './config.js';
+import { CELLS, EMPTY, K, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS, LEVELS } from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
 import { generateMoves, generateLegalMoves, isAttacked, findKing, moveFrom, moveTo } from './rules.js';
 
@@ -20,6 +20,10 @@ const TT_UPPER = 2;
 
 /** 静态搜索的层数上限。兑子序列可能很长，必须封顶，否则单节点开销失控 */
 const MAX_QUIESCE_DEPTH = 6;
+
+/** 连将杀探测最多能用掉的时间预算：总预算的这么一份，且不超过绝对上限（毫秒） */
+const MATE_PROBE_SHARE = 0.7;
+const MATE_PROBE_MAX_MS = 1400;
 
 /**
  * 超时中断用的哨兵。
@@ -78,9 +82,35 @@ export class Searcher {
     this.killers = [];        // killers[ply] = [move1, move2]
     this.history = new Int32Array(CELLS * CELLS);
 
+    // 将 / 帅的位置，增量维护：kings[0] 是红帅、kings[1] 是黑将，-1 表示已不在盘上。
+    // 搜索里「这一步走完之后己方将还安全吗」每试一个着法都要问一次，
+    // 而 findKing 是 90 格全扫 —— 这是整个引擎最热的一处，值得单独维护。
+    // 顺带也让「当前走子方是否被将军」（将军延伸要用）变成 O(1) 起点 + 一次 isAttacked。
+    this.kings = [findKing(cells, RED), findKing(cells, -RED)];
+
+    // 将军延伸的预算：一条线最多多搜几层。0 = 不延伸（弱挡位用）
+    this.checkExtension = level.checkExtension || 0;
+
     // 时间控制：Date.now() 本身不便宜，所以每 1024 个节点才查一次
     this.deadline = Infinity;
     this.checkEvery = 1024;
+  }
+
+  /**
+   * kings 数组的下标：红 0、黑 1。
+   *
+   * 传阵营（1 / -1）或棋子编码都行 —— 两者都是用符号判色的，
+   * 所以 make() 里可以直接把「走的棋子」「被吃的棋子」丢进来。
+   */
+  static slot(side) { return side === RED ? 0 : 1; }
+
+  /** 某一方的将 / 帅在哪一格；-1 表示已经不在盘上（只可能出现在「吃将」的着法被走出来的那一步） */
+  kingOf(side) { return this.kings[Searcher.slot(side)]; }
+
+  /** 某一方是否正被将军。将已经不在盘上也算（上层会把「一步都走不了」判成被杀） */
+  inCheck(side) {
+    const king = this.kingOf(side);
+    return king < 0 || isAttacked(this.cells, king, -side);
   }
 
   /**
@@ -88,6 +118,10 @@ export class Searcher {
    *
    * 哈希的三个异或项是无条件写的 —— 因为 hashPiece(EMPTY, idx) 恒为 0，
    * 所以「没吃子」这一支不需要特殊处理，make / unmake 两边也就天然对称。
+   *
+   * 将 / 帅的位置同理无条件写：走的是将就更新它，吃的子是将就把那一方的记为 -1。
+   * 后者严格说走不出来（对方被将军时轮不到我们走），但搜索里的伪合法着法
+   * 是有可能吃将的，写全了才不会留下一个指向已空格子的索引。
    */
   make(move) {
     const from = moveFrom(move), to = moveTo(move);
@@ -96,6 +130,8 @@ export class Searcher {
     this.key = (this.key ^ hashPiece(piece, from) ^ hashPiece(piece, to) ^ hashPiece(captured, to)) >>> 0;
     this.cells[to] = piece;
     this.cells[from] = EMPTY;
+    if (Math.abs(piece) === K) this.kings[Searcher.slot(piece)] = to;
+    if (captured !== EMPTY && Math.abs(captured) === K) this.kings[Searcher.slot(captured)] = -1;
     this.side = -this.side;
     this.key = (this.key ^ hashSide()) >>> 0;
     return captured;
@@ -107,6 +143,8 @@ export class Searcher {
     this.key = (this.key ^ hashPiece(piece, to) ^ hashPiece(piece, from) ^ hashPiece(captured, to)) >>> 0;
     this.cells[from] = piece;
     this.cells[to] = captured;
+    if (Math.abs(piece) === K) this.kings[Searcher.slot(piece)] = from;
+    if (captured !== EMPTY && Math.abs(captured) === K) this.kings[Searcher.slot(captured)] = to;
     this.side = -this.side;
     this.key = (this.key ^ hashSide()) >>> 0;
   }
@@ -147,10 +185,12 @@ export class Searcher {
    *
    * 注意 make() 已经把 this.side 翻成了**对方**，
    * 所以要查的是 -this.side 的将、被 this.side 攻击。
+   *
+   * 将的位置直接从 kings 里读，不再 findKing 全盘扫 —— 这里每试一个着法就要问一次，
+   * 是搜索里调用最密的一处。
    */
   leavesKingSafe() {
-    const mover = -this.side;
-    const king = findKing(this.cells, mover);
+    const king = this.kingOf(-this.side);
     return king >= 0 && !isAttacked(this.cells, king, this.side);
   }
 
@@ -169,8 +209,7 @@ export class Searcher {
   quiesce(alpha, beta, ply, qdepth) {
     this.nodes++;
 
-    const king = findKing(this.cells, this.side);
-    const checked = king >= 0 && isAttacked(this.cells, king, -this.side);
+    const checked = this.inCheck(this.side);
     if (!checked) {
       const stand = evaluate(this.cells, this.side);
       if (stand >= beta) return beta;
@@ -209,13 +248,25 @@ export class Searcher {
     return best;
   }
 
-  /** 负极大值形式的 alpha-beta，带置换表与着法排序 */
-  negamax(depth, alpha, beta, ply) {
+  /**
+   * 负极大值形式的 alpha-beta，带置换表、着法排序与将军延伸。
+   *
+   * ext 是「这条线还能延伸几层」的预算（挡位参数 checkExtension）。被将军的节点
+   * 不消耗深度 —— 因为被将军时合法着法往往只有一两个，多搜一层很便宜，
+   * 而**连杀的正解恰恰整条都在将军里**：不延伸就只能在固定深度上横向看，
+   * 十几步的连杀永远看不见。这是「排局提示多半是错的」那个问题的根因。
+   */
+  negamax(depth, alpha, beta, ply, ext = 0) {
     this.nodes++;
 
     if (--this.checkEvery <= 0) {
       this.checkEvery = 1024;
       if (Date.now() >= this.deadline) throw TIMEOUT;
+    }
+
+    if (ext > 0 && this.inCheck(this.side)) {
+      depth++;
+      ext--;
     }
 
     const alphaOrig = alpha;
@@ -251,7 +302,7 @@ export class Searcher {
       }
       legalCount++;
 
-      const score = -this.negamax(depth - 1, -beta, -alpha, ply + 1);
+      const score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, ext);
       this.unmake(move, captured);
 
       if (score > best) { best = score; bestMove = move; }
@@ -291,11 +342,20 @@ export class Searcher {
     let bestScore = -INF;
     const scores = new Map();
 
+    // 根节点也被将军时延伸一次，跟 negamax 内部的规则保持一致。
+    // 边界的将军延伸虽然少见，但不处理的话「被将军的挡位」会莫名其妙少看一层。
+    let childDepth = depth - 1;
+    let ext = this.checkExtension;
+    if (ext > 0 && this.inCheck(this.side)) {
+      childDepth = depth;
+      ext--;
+    }
+
     for (const move of ordered) {
       const captured = this.make(move);
       const score = exact
-        ? -this.negamax(depth - 1, -INF, INF, 1)
-        : -this.negamax(depth - 1, -INF, -bestScore, 1);
+        ? -this.negamax(childDepth, -INF, INF, 1, ext)
+        : -this.negamax(childDepth, -INF, -bestScore, 1, ext);
       this.unmake(move, captured);
 
       scores.set(move, score);
@@ -308,6 +368,126 @@ export class Searcher {
     const moves = generateLegalMoves({ cells: this.cells, side: this.side });
     if (moves.length === 0) return null;
     return this.searchRootAt(depth, moves, this.level.noise > 0);
+  }
+
+  /**
+   * 根节点的着法排序：**将军着法先试**。
+   *
+   * 连杀的正解首着本身就是一步将军（排局尤其如此），而且它一旦被搜到，
+   * alpha 立刻变成杀棋分值，后面几十个着法会在很浅的地方就全部剪掉 ——
+   * 省下的时间正好用来把杀棋那条线搜到底。
+   *
+   * 只在根节点做：这里只有几十个着法，试走一次的开销可以忽略；
+   * 搜索内部每个节点都这么算会把成本翻倍。
+   */
+  orderRootMoves(moves) {
+    const checking = [];
+    const quiet = [];
+    for (const move of moves) {
+      (this.givesCheck(move) ? checking : quiet).push(move);
+    }
+    return [...checking, ...quiet];
+  }
+
+  /** 这一步走完之后，对方是否被将军（试走 + 回退，棋盘不留痕） */
+  givesCheck(move) {
+    const captured = this.make(move);
+    const check = this.inCheck(this.side);
+    this.unmake(move, captured);
+    return check;
+  }
+
+  /**
+   * 跑一段可能抛 TIMEOUT 的搜索，无论结果如何都把棋盘恢复成原样。
+   *
+   * 超时是从 make() / unmake() 中间穿出去的异常，棋盘会停在一个「走了一半」的
+   * 状态上。调用方之后还要用 searcher.cells 生成根着法（见 search() 的挡位弱化），
+   * 从错乱的棋盘上挑着法会挑出非法着法 —— 上层 playMove 拒掉它，表现成「AI 不动了」。
+   * 把回滚收到这一个地方，比在每条超时路径上各写一遍可靠。
+   */
+  guarded(fn) {
+    const snapshot = this.cells.slice();
+    const savedSide = this.side;
+    const savedKey = this.key;
+    const savedKings = this.kings.slice();
+    try {
+      return fn();
+    } finally {
+      this.cells.set(snapshot);
+      this.side = savedSide;
+      this.key = savedKey;
+      this.kings = savedKings;
+    }
+  }
+
+  /**
+   * 连将杀探测：**攻击方只走将军着法**，防守方走全部合法着法。
+   *
+   * 这是排局求解的标准做法，也是「看得见《适情雅趣》那种十几步连杀」的关键。
+   * 同样一条 13 层连杀，常规搜索要 1100 万节点（还搜不到底），
+   * 把攻击方限制在将军着法上只要 15 万节点 —— 因为常规搜索在攻击方的每个节点上
+   * 都要摊开约 40 个着法，而连杀的正解整条都是将军。
+   *
+   * 它是**只证明「有杀」、不证明「没有杀」**的：攻击方的着法被限制过，
+   * 找不到不等于没有（正解里可能有一步闲着）。这个方向恰好安全 ——
+   * 找到的杀一定是真杀，可以直接走；找不到就退回常规搜索，什么也没损失。
+   *
+   * 返回 { move, ply }；ply 是杀棋的总层数（奇数 = 攻击方走最后一步），没有则返回 null。
+   * ply 从 1 开始逐级加深：浅层很便宜（9 层约 1 万节点），
+   * 所以「这个局面没有杀」时它也不会把时间预算吃光。
+   */
+  probeMate(maxPly) {
+    const attacker = this.side;
+    const moves = this.orderRootMoves(generateLegalMoves({ cells: this.cells, side: attacker }))
+      .filter((move) => this.givesCheck(move));
+
+    for (let ply = 1; ply <= maxPly; ply += 2) {
+      for (const move of moves) {
+        const captured = this.make(move);
+        const ok = this.canMateIn(ply - 1, attacker);
+        this.unmake(move, captured);
+        if (ok) return { move, ply };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 「轮 this.side 走时，攻击方能不能在 ply 层内把对方将死」。
+   *
+   * 攻击方节点只要**存在**一步将军能杀（∃）；防守方节点要**所有**合法着法都挡不住（∀）。
+   * 这正是「强制」的含义，也是它比常规搜索便宜两个数量级的原因：
+   * ∀ 只要发现一条撑得住的应手就可以立刻返回 false。
+   */
+  canMateIn(ply, attacker) {
+    this.nodes++;
+    if (--this.checkEvery <= 0) {
+      this.checkEvery = 1024;
+      if (Date.now() >= this.deadline) throw TIMEOUT;
+    }
+
+    const moves = generateLegalMoves({ cells: this.cells, side: this.side });
+    if (moves.length === 0) return this.side !== attacker; // 走子方无着法 = 被将死 / 困毙
+    if (ply <= 0) return false;
+
+    if (this.side === attacker) {
+      for (const move of moves) {
+        if (!this.givesCheck(move)) continue;
+        const captured = this.make(move);
+        const ok = this.canMateIn(ply - 1, attacker);
+        this.unmake(move, captured);
+        if (ok) return true;
+      }
+      return false;
+    }
+
+    for (const move of moves) {
+      const captured = this.make(move);
+      const ok = this.canMateIn(ply - 1, attacker);
+      this.unmake(move, captured);
+      if (!ok) return false; // 找到一条撑得住的应手 → 这不是强制杀
+    }
+    return true;
   }
 
   /**
@@ -327,19 +507,24 @@ export class Searcher {
     }
 
     let best = null;
-    let ordered = moves;
+    let ordered = this.orderRootMoves(moves);
 
     for (let depth = 1; depth <= this.level.depth; depth++) {
       let result;
       try {
-        result = this.searchRootAt(depth, ordered, this.level.noise > 0);
+        // 包一层 guarded：超时是从 make() / unmake() 中间穿出来的异常，
+        // 会把棋盘停在「走了一半」的状态上。回滚了才不会让后面的根着法生成
+        // （search() 里施加挡位弱化时要用）读到一个错乱的棋盘。
+        result = this.guarded(() => this.searchRootAt(depth, ordered, this.level.noise > 0));
       } catch (e) {
         if (e !== TIMEOUT) throw e;
         break; // 这一层没跑完，丢掉它，保留上一层的结果
       }
       best = { ...result, depth };
-      // 下一层从这一层的最优着法开始搜，剪枝效率更高
-      ordered = [result.move, ...result.scores.keys()].filter((m, i, a) => a.indexOf(m) === i);
+      // 下一层从这一层的最优着法开始搜（剪枝效率更高），其余着法里将军的排前面。
+      // 这里必须**重新**排一次：浅层选出来的最优着法往往不是那步将军。
+      const rest = [...result.scores.keys()].filter((m) => m !== result.move);
+      ordered = [result.move, ...this.orderRootMoves(rest)];
       if (Math.abs(result.score) > MATE - 1000) break; // 已经找到杀棋，不必再深
     }
     return best;
@@ -361,22 +546,55 @@ export function search(fen, level, options = {}) {
   const searcher = new Searcher(pos.cells, pos.side, lv, options.rng || Math.random);
 
   const started = Date.now();
-  searcher.deadline = started + lv.timeLimitMs;
+  const limit = lv.timeLimitMs;
 
-  let result = searcher.iterativeDeepen();
+  // === 先做一次连将杀探测 ===
+  // 有连杀就没必要再常规搜索了（连杀的分值是最高的，常规搜索只会用更慢的方式
+  // 找到同一步或者根本找不到）。没连杀的话这一步很便宜：逐级加深到 11 层
+  // 也才几万节点，代价是几毫秒到几十毫秒。
+  const mate = lv.mateProbePly > 0
+    ? searcher.guarded(() => {
+      // 只给它一部分预算：探测没跑完时常规搜索还得有时间
+      searcher.deadline = started + Math.min(limit * MATE_PROBE_SHARE, MATE_PROBE_MAX_MS);
+      try {
+        return searcher.probeMate(lv.mateProbePly);
+      } catch (e) {
+        if (e === TIMEOUT) return null; // 没跑完就当作没找到，退回常规搜索
+        throw e;
+      }
+    })
+    : null;
+
+  // === 常规搜索：用剩下的时间 ===
+  let result;
+  if (mate) {
+    result = {
+      move: mate.move,
+      score: MATE - mate.ply,
+      scores: new Map([[mate.move, MATE - mate.ply]]),
+      depth: mate.ply, // 杀棋的层数，不是常规搜索的层数
+    };
+  } else {
+    searcher.deadline = started + limit;
+    result = searcher.iterativeDeepen();
+  }
   let blundered = false;
 
   if (result) {
     // === 挡位弱化：只在根节点施加，不碰搜索内部 ===
+    //
+    // 探测到连杀时不施加：「失误」是模仿新手看漏，而一个**已经被证明的杀棋**
+    // 不存在看漏 —— 把它换成随手一步，坏掉的不是棋力，是可信度：
+    // 残局库的「提示」会给出错的答案（这正是要修的问题）。
     const allMoves = generateLegalMoves({ cells: searcher.cells, side: searcher.side });
 
     // 失误：放弃搜索结果，从「除最优着法之外」的合法着法里随机挑一个。
     // 只剩一个合法着法时绝不能触发 —— 那会走出非法着法，上层直接崩。
-    if (lv.blunderRate > 0 && allMoves.length > 1 && searcher.rng() < lv.blunderRate) {
+    if (!mate && lv.blunderRate > 0 && allMoves.length > 1 && searcher.rng() < lv.blunderRate) {
       const others = allMoves.filter((m) => m !== result.move);
       result = { ...result, move: others[Math.floor(searcher.rng() * others.length)] };
       blundered = true;
-    } else if (lv.noise > 0 && result.scores.size > 1) {
+    } else if (!mate && lv.noise > 0 && result.scores.size > 1) {
       // 噪声：给每个根着法的评分加一个均匀扰动，重新选最优。
       // 这让弱挡位倾向选次优着，而不是永远走同一个最优着。
       // 需要精确分值才能比较，所以 searchRootAt 在 noise > 0 时开的是全窗口。
