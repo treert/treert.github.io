@@ -106,6 +106,54 @@ console.log('规则引擎测试\n');
     positionSignature('3aka3/9/9/9/9/9/9/9/9/R2K5 b - - 0 1'), false);
 }
 
+// --- 着法生成：车 / 炮 / 兵 / 将 ---
+{
+  const { generateMoves, moveFrom, moveTo } = await load('rules.js');
+
+  const movesFrom = (pos, coord) => {
+    const from = idxOf(coord);
+    return generateMoves(pos.cells, pos.side)
+      .filter((m) => moveFrom(m) === from)
+      .map((m) => coordOf(moveTo(m)))
+      .sort();
+  };
+
+  // 车：四方向直线滑动，遇子停止，遇敌子可吃
+  check('车在空盘正中：17 个落点', movesFrom(build(['R@4,4']), '4,4').length, 17);
+  check('车被己方挡住时停在前面',
+    movesFrom(build(['R@4,4', 'P@4,2']), '4,4').filter((c) => c.startsWith('4,')),
+    ['4,3', '4,5', '4,6', '4,7', '4,8', '4,9']);
+  check('车可以吃敌子，且停在敌子那一格',
+    movesFrom(build(['R@4,4', 'p@4,2']), '4,4').filter((c) => c.startsWith('4,')),
+    ['4,2', '4,3', '4,5', '4,6', '4,7', '4,8', '4,9']);
+
+  // 炮：没有炮架只能走空格，隔一个子才能吃
+  check('炮在空盘正中：17 个落点（与车相同，因为无子可吃）',
+    movesFrom(build(['C@4,4']), '4,4').length, 17);
+  check('炮隔一个子可吃',
+    movesFrom(build(['C@4,4', 'P@4,2', 'r@4,0']), '4,4').filter((c) => c.startsWith('4,')),
+    ['4,0', '4,3', '4,5', '4,6', '4,7', '4,8', '4,9']);
+  check('炮隔两个子不能吃',
+    movesFrom(build(['C@4,4', 'P@4,2', 'P@4,1', 'r@4,0']), '4,4').includes('4,0'), false);
+  check('炮没有炮架时不能吃',
+    movesFrom(build(['C@4,4', 'r@4,0']), '4,4').includes('4,0'), false);
+  check('炮的炮架是己方子也能吃',
+    movesFrom(build(['C@4,4', 'P@4,2', 'r@4,0']), '4,4').includes('4,0'), true);
+
+  // 兵：未过河只能前进，过河后可横走，永不后退
+  check('红兵未过河只能前进一格', movesFrom(build(['P@0,6']), '0,6'), ['0,5']);
+  check('红兵过河后可前进和横走', movesFrom(build(['P@4,4']), '4,4'), ['3,4', '4,3', '5,4']);
+  check('红兵贴边过河只有两个落点', movesFrom(build(['P@0,4']), '0,4'), ['0,3', '1,4']);
+  check('黑卒未过河只能前进一格', movesFrom(build(['p@0,3'], 'b'), '0,3'), ['0,4']);
+  check('黑卒过河后可前进和横走', movesFrom(build(['p@4,5'], 'b'), '4,5'), ['3,5', '4,6', '5,5']);
+
+  // 将 / 帅：四方向一格，不得出九宫
+  check('红帅在底线正中：3 个落点', movesFrom(build(['K@4,9']), '4,9'), ['3,9', '4,8', '5,9']);
+  check('红帅在九宫左边：3 个落点', movesFrom(build(['K@3,8']), '3,8'), ['3,7', '3,9', '4,8']);
+  check('红帅在九宫角：2 个落点', movesFrom(build(['K@3,9']), '3,9'), ['3,8', '4,9']);
+  check('黑将在九宫角：2 个落点', movesFrom(build(['k@5,0'], 'b'), '5,0'), ['4,0', '5,1']);
+}
+
 // === 收尾 ===
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
