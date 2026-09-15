@@ -332,5 +332,48 @@ console.log('规则引擎测试\n');
 }
 
 // === 收尾 ===
+// --- 局面合法性校验（残局库用） ---
+{
+  const { isLegalPosition } = await load('rules.js');
+  const ok = (pos) => isLegalPosition(pos).ok;
+
+  check('起始局面合法', ok(startPosition()), true);
+  check('残局示例局面合法', ok(parseFen('3aka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1')), true);
+
+  // 1. 缺将 / 多将
+  check('缺黑将 → 不合法', ok(build(['K@4,9'])), false);
+  check('两个红帅 → 不合法', ok(build(['K@3,9', 'K@4,9', 'k@4,0'])), false);
+  check('不合法时给出原因', typeof isLegalPosition(build(['K@4,9'])).reason, 'string');
+
+  // 2. 将帅照面
+  check('将帅照面 → 不合法', ok(build(['K@4,9', 'k@4,0'])), false);
+  check('中间有子则合法', ok(build(['K@4,9', 'P@4,5', 'k@4,0'])), true);
+
+  // 3. 棋子出界
+  check('黑士不在九宫斜点 → 不合法', ok(build(['K@3,9', 'k@4,0', 'a@4,0'])), false);
+  check('黑士在九宫斜点 → 合法', ok(build(['K@3,9', 'k@4,0', 'a@5,0'])), true);
+  check('红相过河 → 不合法', ok(build(['K@3,9', 'k@4,0', 'B@4,4'])), false);
+  check('黑象不在象位 → 不合法', ok(build(['K@3,9', 'k@4,0', 'b@3,0'])), false);
+  check('黑象在象位 → 合法', ok(build(['K@3,9', 'k@4,0', 'b@2,0'])), true);
+  check('红帅不在九宫 → 不合法', ok(build(['K@2,9', 'k@4,0'])), false);
+  check('黑将不在九宫 → 不合法', ok(build(['K@3,9', 'k@2,0'])), false);
+
+  // 4. 兵在己方底线
+  check('红兵在己方底线 (y=9) → 不合法', ok(build(['K@3,9', 'k@4,0', 'P@0,9'])), false);
+  check('黑卒在己方底线 (y=0) → 不合法', ok(build(['K@3,9', 'k@4,0', 'p@0,0'])), false);
+  check('红兵在 y=8 → 合法', ok(build(['K@3,9', 'k@4,0', 'P@0,8'])), true);
+
+  // 5. 非轮走方被将军
+  check('非轮走方被将军 → 不合法', ok(build(['K@3,9', 'k@4,0', 'R@4,5'])), false);
+  check('轮走方被将军 → 合法（他正在被将，需要应将）',
+    ok(build(['K@3,9', 'k@4,0', 'R@4,5'], 'b')), true);
+
+  // 6. 子力超限
+  check('三个红车 → 不合法',
+    ok(build(['K@3,9', 'k@4,0', 'R@0,9', 'R@1,9', 'R@2,9'])), false);
+  check('六个红兵 → 不合法',
+    ok(build(['K@3,9', 'k@4,0', 'P@0,5', 'P@1,5', 'P@2,5', 'P@3,5', 'P@4,5', 'P@5,5'])), false);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

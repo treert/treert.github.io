@@ -324,3 +324,97 @@ export function isThreefoldRepetition(signatures) {
   }
   return false;
 }
+
+// 士 / 仕 的五个斜点（黑方视角）
+const ADVISOR_SPOTS_BLACK = [[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]];
+// 象 / 相 的七个象位（黑方视角）
+const ELEPHANT_SPOTS_BLACK = [[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]];
+
+/** 红方的点位是黑方沿 y 轴镜像过来的：y' = 9 - y */
+const mirror = (spots) => spots.map(([x, y]) => [x, 9 - y]);
+const ADVISOR_SPOTS = { [RED]: mirror(ADVISOR_SPOTS_BLACK), [-RED]: ADVISOR_SPOTS_BLACK };
+const ELEPHANT_SPOTS = { [RED]: mirror(ELEPHANT_SPOTS_BLACK), [-RED]: ELEPHANT_SPOTS_BLACK };
+
+const onAnySpot = (spots, x, y) => spots.some(([sx, sy]) => sx === x && sy === y);
+
+/** 各类棋子的理论上限，用来挡住「摆出三个车」这种明显错误的录入 */
+const MAX_COUNT = [[R, 2], [N, 2], [C, 2], [B, 2], [A, 2], [P, 5]];
+
+/**
+ * 局面合法性校验。残局库录入时逐局跑这个。
+ *
+ * 返回 { ok, reason } 而不是布尔值 —— 校验残局库时要能说出
+ * 「第 003 局哪里不合法」，只返回 false 等于让作者自己去猜。
+ *
+ * **不校验胜负结论**：「红先胜」这类标注需要可靠的求解器或权威棋谱，
+ * 本模块的引擎做不到。见 design.md §14。
+ */
+export function isLegalPosition(pos) {
+  const { cells, side } = pos;
+
+  // 1. 双方各恰好一个将 / 帅
+  let redKings = 0, blackKings = 0;
+  for (let i = 0; i < CELLS; i++) {
+    if (cells[i] === K) redKings++;
+    else if (cells[i] === -K) blackKings++;
+  }
+  if (redKings !== 1) return { ok: false, reason: `红方帅的数量是 ${redKings}，应为 1` };
+  if (blackKings !== 1) return { ok: false, reason: `黑方将的数量是 ${blackKings}，应为 1` };
+
+  // 2. 将帅不照面
+  const redKing = findKing(cells, RED);
+  const blackKing = findKing(cells, -RED);
+  if (xOf(redKing) === xOf(blackKing)) {
+    let blocked = false;
+    const lo = Math.min(yOf(redKing), yOf(blackKing)) + 1;
+    const hi = Math.max(yOf(redKing), yOf(blackKing));
+    for (let y = lo; y < hi; y++) {
+      if (cells[indexOf(xOf(redKing), y)] !== EMPTY) { blocked = true; break; }
+    }
+    if (!blocked) return { ok: false, reason: '将帅照面（同一条纵线且中间无子）' };
+  }
+
+  // 3 & 4. 每个棋子都要在自己的合法区域内；顺便统计子力数量
+  const counts = new Map();
+  for (let i = 0; i < CELLS; i++) {
+    const v = cells[i];
+    if (v === EMPTY) continue;
+
+    const s = Math.sign(v);
+    const abs = Math.abs(v);
+    const x = xOf(i), y = yOf(i);
+    const who = s === RED ? '红' : '黑';
+
+    counts.set(v, (counts.get(v) || 0) + 1);
+
+    if (abs === K && !inPalace(x, y, s)) {
+      return { ok: false, reason: `${who}方将/帅在 (${x},${y})，不在九宫内` };
+    }
+    if (abs === A && !onAnySpot(ADVISOR_SPOTS[s], x, y)) {
+      return { ok: false, reason: `${who}方士/仕在 (${x},${y})，不在九宫斜点上` };
+    }
+    if (abs === B && !onAnySpot(ELEPHANT_SPOTS[s], x, y)) {
+      return { ok: false, reason: `${who}方象/相在 (${x},${y})，不在象位上（过河或位置错误）` };
+    }
+    if (abs === P) {
+      // 兵 / 卒不能出现在自己的底线
+      if (s === RED && y === 9) return { ok: false, reason: `红兵在 (${x},${y})，位于己方底线` };
+      if (s === -RED && y === 0) return { ok: false, reason: `黑卒在 (${x},${y})，位于己方底线` };
+    }
+  }
+
+  // 5. 子力数量不超过理论上限
+  for (const [code, max] of MAX_COUNT) {
+    const n = counts.get(code) || 0;
+    const m = counts.get(-code) || 0;
+    if (n > max) return { ok: false, reason: `红方有 ${n} 个同种棋子，超过上限 ${max}` };
+    if (m > max) return { ok: false, reason: `黑方有 ${m} 个同种棋子，超过上限 ${max}` };
+  }
+
+  // 6. 非轮走方不该被将军（那意味着上一步走错了）
+  if (inCheck(cells, -side)) {
+    return { ok: false, reason: '非轮走方正被将军，说明上一步不合法' };
+  }
+
+  return { ok: true };
+}
