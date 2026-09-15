@@ -16,7 +16,9 @@
     <header class="page-header">
       <div class="xq-title-row">
         <h1>中国象棋</h1>
-        <button type="button" class="btn btn-ghost xq-picker-open" id="btn-open-picker">局面库</button>
+        <!-- 唯一的局面库入口。内容由 main.js 的 renderPickerButton() 填
+             （「局面库 · <当前局面名> ▾」），既是入口也是「我在哪一局」的指示 -->
+        <button type="button" class="btn btn-ghost xq-picker-open" id="btn-open-picker"></button>
       </div>
 
       <details class="xq-help" id="page-help">
@@ -44,13 +46,11 @@
 
           <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
 
-          <p><b>局面库</b>（标题右边的按钮，或者点标题下面那行「当前局面」）：
+          <p><b>局面库</b>（标题右边那个按钮，上面会显示你现在在哪一局）：
           挑一局残局来练，或者把当前下到一半的局面<b>存成自定义局面</b>。
           也支持直接粘贴 FEN —— 从别的软件或网上弄到的局面都能进来。</p>
         </div>
       </details>
-
-      <button type="button" class="xq-current" id="current-pos" title="点击打开局面库"></button>
     </header>
 
     <div class="xq-stage">

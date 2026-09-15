@@ -35,7 +35,6 @@ const dom = {
   picker: document.getElementById('picker'),
   btnOpenPicker: document.getElementById('btn-open-picker'),
   btnClosePicker: document.getElementById('btn-close-picker'),
-  currentPos: document.getElementById('current-pos'),
   endgameCategory: document.getElementById('endgame-category'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
@@ -152,7 +151,7 @@ function updateChrome() {
 
   renderMoveList();
   syncEndgameList();
-  renderCurrentPos();
+  renderPickerButton();
   updateButtons();
 }
 
@@ -512,7 +511,7 @@ function deleteCustom(eg) {
   } else {
     renderedListKey = '\u0000';
     syncEndgameList();
-    renderCurrentPos();
+    renderPickerButton();
   }
 }
 
@@ -546,7 +545,7 @@ function afterCustomChanged(entry, prefix) {
   dom.endgameCategory.value = endgameFilter;
   renderedListKey = '\u0000';
   syncEndgameList();
-  renderCurrentPos();
+  renderPickerButton();
   setPickerMsg(`${prefix}「${entry.name}」，点它就能开始`);
 }
 
@@ -592,29 +591,36 @@ async function exportCurrentFen() {
   }
 }
 
-/** 标题下面那行「当前局面」 */
-function renderCurrentPos() {
+/**
+ * 标题右边那个按钮：**既是局面库的唯一入口，也是「我在哪一局」的指示**。
+ *
+ * 原先入口有两个（这个按钮 + 标题下面一行可点的「当前局面」文本），视觉上重复。
+ * 合并成一个之后，「当前局面」这个信息并没有丢 —— 它变成了按钮的正文。
+ */
+function renderPickerButton() {
   const eg = G.endgameOf(app.game);
 
-  dom.currentPos.textContent = '';
-  const lead = document.createElement('span');
-  lead.textContent = '当前局面：';
+  dom.btnOpenPicker.textContent = '';
+
+  const label = document.createElement('span');
+  label.className = 'xq-picker-label';
+  label.textContent = '局面库';
+
+  const sep = document.createElement('span');
+  sep.className = 'xq-picker-sep';
+  sep.textContent = '·';
 
   const name = document.createElement('b');
   name.textContent = eg ? eg.name : '标准开局';
 
-  const tail = document.createElement('span');
-  if (!eg) tail.textContent = ' · 点击选择残局';
-  else if (eg.custom) tail.textContent = ' · 自定义局面';
-  else tail.textContent = ` · 谱载${RESULTS[eg.result]}`;
-
-  dom.currentPos.append(lead, name, tail);
-  dom.currentPos.title = eg ? `当前：${eg.name}（点击打开局面库）` : '点击打开局面库';
+  dom.btnOpenPicker.append(label, sep, name);
+  dom.btnOpenPicker.title = eg
+    ? `当前：${eg.name}（点击更换）`
+    : '点击选择残局，或把当前局面存起来';
 }
 
 function bindPicker() {
   dom.btnOpenPicker.addEventListener('click', openPicker);
-  dom.currentPos.addEventListener('click', openPicker);
   dom.btnClosePicker.addEventListener('click', closePicker);
   dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
   dom.btnImportFen.addEventListener('click', importFen);

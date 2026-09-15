@@ -82,44 +82,51 @@ kbd {
   border-radius: 4px;
 }
 
-/* === 标题行与「当前局面」 === */
+/* === 标题行：局面库入口 === */
 .xq-title-row {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
+
+/* 唯一入口。同时承担两个职责：
+     「局面库」= 这里能点开什么     （弱化）
+     「标准开局」= 我现在在哪一局   （强调） */
 .xq-picker-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(340px, 60vw);
   padding: 5px 12px;
   font-size: 13px;
 }
-
-/* 标题下方那行「当前局面」。看起来是文字，实际是 <button> ——
-   可点、可 Tab、可回车，比给 <span> 挂 click 多花不了几行。 */
-.xq-current {
-  display: block;
-  margin-top: 10px;
-  padding: 0;
-  border: none;
-  background: none;
-  font-family: var(--font);
-  font-size: 13px;
+.xq-picker-label {
   color: var(--text-secondary);
-  text-align: left;
-  cursor: pointer;
   transition: color .2s;
 }
-/* 用伪元素画个小三角，明示「这行能点」 */
-.xq-current::after {
-  content: ' ▾';
-  font-size: 11px;
+.xq-picker-sep {
+  color: var(--text-secondary);
+  opacity: .5;
 }
-.xq-current:hover {
-  color: var(--accent);
-}
-.xq-current b {
-  color: var(--text);
+.xq-picker-open b {
+  min-width: 0;
   font-weight: 600;
+  /* 自定义局面的名字可以有 40 字，不能把标题行撑破 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 小三角，明示「这能点开」 */
+.xq-picker-open::after {
+  content: '▾';
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: color .2s;
+}
+.xq-picker-open:hover .xq-picker-label,
+.xq-picker-open:hover::after {
+  color: var(--accent);
 }
 
 /* === 布局 ===
