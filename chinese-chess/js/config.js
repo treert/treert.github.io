@@ -50,3 +50,21 @@ export const PIECE_VALUE = [0, 0, 200, 200, 400, 900, 450, 100];
 
 // 兵 / 卒过河的额外加分
 export const PASSED_PAWN_BONUS = 50;
+
+// === AI 挡位 ===
+// 每个挡位是一组声明式参数，弱化手段都在这里调，不要散到 engine.js 的 if 里。
+//
+// 四个挡位而不是五个：深度 6 与 7 对普通玩家体感没有差别，耗时却翻倍。
+//
+// quiescence（静态搜索）是让 AI「像新手」最有效的单个开关：
+// 关掉它，AI 会在兑子序列中途停下、以为自己占便宜，结果被吃回 ——
+// 这恰恰是初学者的真实特征，比单纯降深度像得多。
+//
+// depth 是迭代加深的上限，实际由 timeLimitMs 截断。
+// noise 是根节点评分扰动幅度（与评估函数同单位）；blunderRate 是按概率故意走次优着。
+export const LEVELS = [
+  { id: 'novice', name: '入门', depth: 1,  timeLimitMs: 200,  quiescence: false, noise: 120, blunderRate: 0.35 },
+  { id: 'easy',   name: '初级', depth: 3,  timeLimitMs: 400,  quiescence: false, noise: 60,  blunderRate: 0.15 },
+  { id: 'medium', name: '中级', depth: 5,  timeLimitMs: 800,  quiescence: true,  noise: 20,  blunderRate: 0.03 },
+  { id: 'hard',   name: '高级', depth: 64, timeLimitMs: 1500, quiescence: true,  noise: 0,   blunderRate: 0 },
+];

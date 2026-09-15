@@ -171,5 +171,106 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 搜索：negamax + alpha-beta ---
+{
+  const { Searcher, search } = await load('engine.js');
+  const { generateLegalMoves } = await load('rules.js');
+
+  // 深度 1、关掉一切随机性的固定挡位：只验搜索本身
+  const plain = { id: 'test', name: '测试', depth: 1, timeLimitMs: 10000,
+                  quiescence: false, noise: 0, blunderRate: 0 };
+
+  // 一步杀：黑将 (3,0)；红车 (4,5) 封住逃路 (4,0)；红车 (0,9) 平到 (3,9) 沿纵线将军。
+  //
+  // 这条**不能断言「唯一杀着」** —— 这个局面里红方有好几个着法都能让黑方无路可走
+  // （比如车 (4,5) 走到 (4,1) 造成困毙，而困毙在中国象棋里同样判黑方负）。
+  // 断言「走完之后黑方一步都走不了」才是稳定的，而且正好测到了引擎该有的能力。
+  //
+  // 必须用 depth 2：depth <= 0 的节点直接返回静态评估、不生成着法，
+  // 所以**深度 1 发现不了「对方没着法可走」**。这是设计文档 §7.1「不做将军延伸」
+  // 的直接后果，不是 bug。（开了静态搜索的挡位例外：quiesce 在被将军时会搜全部着法。）
+  {
+    const fen = '3k5/9/9/9/9/4R4/9/9/9/R3K4 w - - 0 1';
+    const r = search(fen, { ...plain, depth: 2 }, { rng: seededRng(1) });
+
+    const after = parseFen(fen);
+    after.cells[r.to] = after.cells[r.from];
+    after.cells[r.from] = 0;
+    after.side = -after.side;
+    check('一步杀：走完之后黑方一步都走不了', generateLegalMoves(after).length, 0);
+    check('一步杀：分值显示为必胜（远高于任何子力价值）', r.score > 90000, true);
+  }
+
+  // 吃白送的子：黑车 (4,4) 无人保护，红车 (4,9) 沿纵线 4 直接吃掉
+  {
+    const fen = '5k3/9/9/9/4r4/9/9/9/9/3KR4 w - - 0 1';
+    const r = search(fen, plain, { rng: seededRng(1) });
+    check('吃白送的子：红车吃掉黑车',
+      [coordOf(r.from), coordOf(r.to)], ['4,9', '4,4']);
+  }
+
+  // 救子：黑马 (3,7) 盯着红车 (4,9)，而红车一步之内吃不到马（马不走直线），
+  // 所以红方必须处理，否则丢一个车。需要 depth 2 才看得到对方的应手。
+  //
+  // 红帅特意放在 (5,9) —— 初稿把帅放在 (3,9)，结果帅走到 (3,8) 正好蹩住马腿，
+  // 同样保住了车，于是「红车必须跑」这条断言就不成立了。
+  // 写这类局面时要连带检查：**除了目标解法，还有没有别的着法能达到同样效果**。
+  {
+    const fen = '4k4/9/9/9/9/9/9/3n5/9/4RK3 w - - 0 1';
+    const r = search(fen, { ...plain, depth: 2 }, { rng: seededRng(1) });
+    check('被马盯上的红车必须先跑', coordOf(r.from), '4,9');
+  }
+
+  // 引擎返回的着法必须合法
+  {
+    const r = search(START_FEN, plain, { rng: seededRng(1) });
+    const legal = new Set(generateLegalMoves(parseFen(START_FEN)));
+    check('起始局面的返回着法合法', legal.has(r.move), true);
+  }
+
+  // 增量哈希与全量哈希必须一致 —— 走子 / 回退写错了会静默串味，
+  // 表现为「引擎偶尔走出莫名其妙的着法」，非常难查，所以正面钉住。
+  {
+    const pos = startPosition();
+    const s = new Searcher(pos.cells.slice(), pos.side, plain);
+    const before = zobristKey(s.cells, s.side);
+    check('构造时哈希与全量计算一致', s.key, before);
+
+    const moves = generateLegalMoves({ cells: s.cells, side: s.side }).slice(0, 12);
+    const undo = [];
+    for (const m of moves) undo.push([m, s.make(m)]);
+    check('连续走 12 步后，增量哈希仍与全量一致', s.key, zobristKey(s.cells, s.side));
+    check('连走 12 步后轮走方翻转了 12 次', s.side, pos.side);
+
+    for (let i = undo.length - 1; i >= 0; i--) s.unmake(undo[i][0], undo[i][1]);
+    check('全部回退后哈希还原', s.key, before);
+    check('全部回退后轮走方还原', s.side, pos.side);
+    check('全部回退后棋盘还原', Array.from(s.cells), Array.from(pos.cells));
+  }
+
+  // 只有一个合法着法时必须返回它。
+  // 局面：黑将 (4,0)，红车 (3,1) 同时封住 (3,0) 和 (4,1)，红帅 (3,9)，
+  // 黑方只剩 (5,0) 可走。
+  //
+  // 这个局面对红帅的位置很敏感，改之前先想清楚：
+  //   - 帅放 (4,9)：和黑将同处纵线 4，是照面，局面本身就不合法
+  //   - 帅放 (5,9)：黑将走到 (5,0) 会和帅照面，于是黑方一步都走不了 —— 变成困毙，
+  //                  search 返回 null，这条断言直接崩在「读 null 的 from」上
+  //   - 帅放 (3,9) 才对：(3,0) 因照面非法、(4,1) 被车封死，只剩 (5,0)
+  {
+    const fen = '4k4/3R5/9/9/9/9/9/9/9/3K5 b - - 0 1';
+    const r = search(fen, plain, { rng: seededRng(1) });
+    check('黑方只剩一个着法时返回它', [coordOf(r.from), coordOf(r.to)], ['4,0', '5,0']);
+  }
+
+  // 已经终局的局面返回 null。
+  // 局面：黑将 (3,0) 被红车 (3,5) 沿纵线将军，逃路 (4,0) 又被红车 (4,5) 封住。
+  {
+    const fen = '3k5/9/9/9/9/3RR4/9/9/9/4K4 b - - 0 1';
+    const r = search(fen, { ...plain, depth: 3 }, { rng: seededRng(1) });
+    check('无着法可走时返回 null', r, null);
+  }
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
