@@ -88,6 +88,12 @@
           <p class="xq-status" id="status-text">准备开始</p>
           <p class="xq-goal" id="endgame-goal" hidden></p>
           <p class="xq-thinking" id="thinking" hidden>思考中…</p>
+
+          <!-- 「写」操作的入口。和「挑局面」分开：
+               局面库只管挑，这里管把局面存下来 / 拿出去 / 弄进来 -->
+          <button type="button" class="btn btn-ghost xq-io-open" id="btn-open-io">
+            导入 / 导出局面
+          </button>
         </section>
 
         <section class="panel xq-panel xq-panel--moves">
@@ -110,28 +116,45 @@
       <div class="xq-endgame-list" id="endgame-list" role="tabpanel"></div>
     </div>
 
-    <div class="xq-dialog-foot">
-      <div class="xq-save">
-        <input type="text" class="xq-input" id="custom-name" maxlength="40"
-               placeholder="给当前局面起个名字">
-        <button type="button" class="btn btn-ghost" id="btn-save-current">存当前局面</button>
-      </div>
-
-      <details class="xq-fen">
-        <summary>粘贴 / 复制 FEN</summary>
-        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
-                  placeholder="从别处复制的 FEN 粘到这里，再点「导入」"></textarea>
-        <div class="xq-fen-row">
-          <button type="button" class="btn btn-ghost" id="btn-import-fen">导入</button>
-          <button type="button" class="btn btn-ghost" id="btn-export-fen">填入当前局面</button>
-        </div>
-      </details>
-
-      <p class="xq-picker-msg" id="picker-msg" hidden></p>
-
+    <!-- 不在残局里时整条隐藏（main.js 里和按钮一起切换） -->
+    <div class="xq-dialog-foot" id="picker-foot">
       <button type="button" class="btn btn-ghost xq-endgame-exit" id="btn-exit-endgame" hidden>
         退出残局，回到标准开局
       </button>
+    </div>
+  </dialog>
+
+  <!-- 「写」操作的弹窗：把当前局面存下来 / 拿出去 / 把外部局面弄进来。
+       和「局面库」分开 —— 那边只管挑，这边只管进出。 -->
+  <dialog class="xq-dialog" id="io-dialog">
+    <div class="xq-dialog-head">
+      <h2>导入 / 导出局面</h2>
+      <button type="button" class="xq-dialog-close" id="btn-close-io" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="xq-dialog-body xq-dialog-body--form">
+      <section class="xq-io-section">
+        <h3>导出当前局面</h3>
+        <p class="xq-io-hint">起个名字存进局面库的「自定义」页签，之后可以反复拿来练。</p>
+        <div class="xq-save">
+          <input type="text" class="xq-input" id="custom-name" maxlength="40"
+                 placeholder="给这个局面起个名字">
+          <button type="button" class="btn btn-ghost" id="btn-save-current">存为自定义局面</button>
+        </div>
+        <button type="button" class="btn btn-ghost xq-io-btn" id="btn-export-fen">
+          复制当前局面的 FEN
+        </button>
+      </section>
+
+      <section class="xq-io-section">
+        <h3>导入外部局面</h3>
+        <p class="xq-io-hint">从别的软件、网页或棋谱里复制来的 FEN 粘到下面。</p>
+        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
+                  placeholder="4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1"></textarea>
+        <button type="button" class="btn btn-ghost xq-io-btn" id="btn-import-fen">导入</button>
+      </section>
+
+      <p class="xq-dialog-msg" id="io-msg" hidden></p>
     </div>
   </dialog>
 

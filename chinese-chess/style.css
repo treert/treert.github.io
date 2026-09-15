@@ -601,6 +601,12 @@ kbd {
   padding: 16px 20px;
   border-top: 1px solid var(--border);
 }
+/* **必须显式再写一条。** UA 的 `[hidden] { display: none }` 会被上面那句
+   `display: flex` 覆盖掉（作者样式优先于 UA 样式），于是 el.hidden = true 不起作用。
+   和 E8 那个 dialog margin 的坑是同一类：作者样式压掉了 UA 默认值。 */
+.xq-dialog-foot[hidden] {
+  display: none;
+}
 
 .xq-save {
   display: flex;
@@ -627,35 +633,55 @@ kbd {
   font-size: 13px;
 }
 
-.xq-fen summary {
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
+/* === 「导入 / 导出局面」弹窗 === */
+/* 和局面库那个弹窗不同：这里是普通表单流，不需要「body 吃掉剩余高度、列表自己滚」，
+   而是整块可滚。所以把 flex: 1 / min-height: 0 那套收回来。 */
+.xq-dialog-body--form {
+  flex: none;
+  padding: 16px 20px;
+  gap: 18px;
+  overflow-y: auto;
 }
-.xq-fen summary:hover {
-  color: var(--text);
-}
-.xq-fen textarea {
-  margin-top: 8px;
-  font-size: 12px;
-}
-.xq-fen-row {
+
+.xq-io-section {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
 }
-.xq-fen-row .btn {
+.xq-io-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.xq-io-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+/* 段与段之间画条淡线，把「导出」和「导入」分得更开 */
+.xq-io-section + .xq-io-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.xq-io-btn {
+  align-self: flex-start;
   padding: 6px 12px;
   font-size: 13px;
 }
 
-/* 弹窗里的提示行（存成功 / 校验失败的原因） */
-.xq-picker-msg {
+/* 侧栏「对局」面板底部的入口按钮 */
+.xq-io-open {
+  width: 100%;
+  margin-top: 14px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+/* 弹窗里的提示行（存成功 / 校验失败的原因）。两个弹窗共用 */
+.xq-dialog-msg {
   font-size: 13px;
   color: var(--text-secondary);
 }
-.xq-picker-msg--error {
+.xq-dialog-msg--error {
   color: var(--danger);
 }
 .xq-thinking {

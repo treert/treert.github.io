@@ -32,18 +32,24 @@ const dom = {
   help: document.getElementById('page-help'),
   endgameGoal: document.getElementById('endgame-goal'),
   // 局面库弹窗
+  // 局面库弹窗（只管挑）
   picker: document.getElementById('picker'),
   btnOpenPicker: document.getElementById('btn-open-picker'),
   btnClosePicker: document.getElementById('btn-close-picker'),
+  pickerFoot: document.getElementById('picker-foot'),
   tabs: document.getElementById('endgame-tabs'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
+  // 导入 / 导出弹窗（只管进出）
+  ioDialog: document.getElementById('io-dialog'),
+  btnOpenIo: document.getElementById('btn-open-io'),
+  btnCloseIo: document.getElementById('btn-close-io'),
+  ioMsg: document.getElementById('io-msg'),
   customName: document.getElementById('custom-name'),
   btnSaveCurrent: document.getElementById('btn-save-current'),
   fenInput: document.getElementById('fen-input'),
   btnImportFen: document.getElementById('btn-import-fen'),
   btnExportFen: document.getElementById('btn-export-fen'),
-  pickerMsg: document.getElementById('picker-msg'),
 };
 
 // localStorage 只取一次。拿不到（隐私模式）时自定义局面存不了，
@@ -147,7 +153,9 @@ function updateChrome() {
     const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
     dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
   }
+  // 不在残局里时整条底栏一起隐藏 —— 否则会留一条空的横线
   dom.btnExitEndgame.hidden = !eg;
+  dom.pickerFoot.hidden = !eg;
 
   renderMoveList();
   syncEndgameList();
@@ -601,18 +609,33 @@ function deleteCustom(eg) {
 }
 
 // === 弹窗 ===
+//
+// 两个弹窗，职责分开：
+//   局面库（picker）      只管「挑」—— 页签 + 列表 + 退出残局
+//   导入 / 导出（io）     只管「进出」—— 存当前局面 / 导入 FEN / 导出 FEN
+//
+// 分家的理由：导出 FEN 是「把局面拿出去」，和「挑一局来下」方向正好相反；
+// 存 / 导入虽然都是往库里加东西，但和「浏览」也是两回事。混在一个弹窗里，
+// 底部那块 FEN 折叠区跟上面的列表毫无呼应。
 
-function setPickerMsg(text, isError = false) {
-  dom.pickerMsg.hidden = !text;
-  dom.pickerMsg.textContent = text || '';
-  dom.pickerMsg.classList.toggle('xq-picker-msg--error', !!isError);
+/** 任意一个模态弹窗开着 —— 全局快捷键要让路 */
+function anyDialogOpen() {
+  return dom.picker.open || dom.ioDialog.open;
+}
+
+/** 弹窗底部的提示行。两个弹窗共用一套样式，各用各的元素 */
+function setMsg(el, text, isError = false) {
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.classList.toggle('xq-dialog-msg--error', !!isError);
+}
+
+function setIoMsg(text, isError = false) {
+  setMsg(dom.ioMsg, text, isError);
 }
 
 function openPicker() {
-  setPickerMsg('');
-  dom.customName.value = '';
-  dom.fenInput.value = '';
-  // 强制重建：自定义局面可能在别处被删过
+  // 强制重建：自定义局面可能刚在「导入 / 导出」那边加过或删过
   renderedListKey = '\u0000';
   syncTabs();
   syncEndgameList();
@@ -623,7 +646,25 @@ function closePicker() {
   if (dom.picker.open) dom.picker.close();
 }
 
-/** 存完之后统一收尾：切到「自定义」页签，让用户立刻看到结果 */
+function openIo() {
+  setIoMsg('');
+  dom.customName.value = '';
+  dom.fenInput.value = '';
+  if (!dom.ioDialog.open) dom.ioDialog.showModal();
+  dom.customName.focus(); // 主路径是「起个名字存下来」，直接聚焦省一次点击
+}
+
+function closeIo() {
+  if (dom.ioDialog.open) dom.ioDialog.close();
+}
+
+/**
+ * 存 / 导入成功后的统一收尾。
+ *
+ * 和拆分前不同：现在**看不到列表变化了**（列表在另一个弹窗里，此刻没开），
+ * 所以把页签预先切到「自定义」—— 用户下一步多半就是打开局面库去点它。
+ * 提示文案也把「去哪找」说清楚。
+ */
 function afterCustomChanged(entry, prefix) {
   refreshCustom();
   dom.customName.value = '';
@@ -632,7 +673,7 @@ function afterCustomChanged(entry, prefix) {
   syncTabs();
   syncEndgameList();
   renderPickerButton();
-  setPickerMsg(`${prefix}「${entry.name}」，点它就能开始`);
+  setIoMsg(`${prefix}「${entry.name}」，在局面库的「自定义」页签里`);
 }
 
 function saveCurrentAsCustom() {
@@ -641,7 +682,7 @@ function saveCurrentAsCustom() {
     fen: G.currentFen(app.game),
   });
   if (!r.ok) {
-    setPickerMsg(r.reason, true);
+    setIoMsg(r.reason, true);
     return;
   }
   afterCustomChanged(r.entry, '已存为');
@@ -650,7 +691,7 @@ function saveCurrentAsCustom() {
 function importFen() {
   const text = dom.fenInput.value.trim();
   if (!text) {
-    setPickerMsg('先把 FEN 粘到下面的框里', true);
+    setIoMsg('先把 FEN 粘到下面的框里', true);
     return;
   }
   const r = addCustom(storage, {
@@ -658,7 +699,7 @@ function importFen() {
     fen: text,
   });
   if (!r.ok) {
-    setPickerMsg(r.reason, true);
+    setIoMsg(r.reason, true);
     return;
   }
   dom.fenInput.value = '';
@@ -667,13 +708,14 @@ function importFen() {
 
 async function exportCurrentFen() {
   const fen = G.currentFen(app.game);
-  dom.fenInput.value = fen;
   try {
     await navigator.clipboard.writeText(fen);
-    setPickerMsg('当前局面的 FEN 已复制，也填在下面的框里了');
+    setIoMsg('当前局面的 FEN 已复制到剪贴板');
   } catch {
-    // 剪贴板要安全上下文（https / localhost），拿不到就退化成「已填好，你手动复制」
-    setPickerMsg('当前局面的 FEN 已填在下面的框里，手动复制即可');
+    // 剪贴板要安全上下文（https / localhost）。拿不到就退化成
+    // 「填进下面的框、你手动复制」—— 那个框本来是用来粘贴导入的，这里借它当缓冲区。
+    dom.fenInput.value = fen;
+    setIoMsg('剪贴板不可用，FEN 已填在下面的框里，手动复制即可');
   }
 }
 
@@ -708,16 +750,26 @@ function renderPickerButton() {
 function bindPicker() {
   dom.btnOpenPicker.addEventListener('click', openPicker);
   dom.btnClosePicker.addEventListener('click', closePicker);
-  dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
-  dom.btnImportFen.addEventListener('click', importFen);
-  dom.btnExportFen.addEventListener('click', exportCurrentFen);
 
   // 点遮罩关闭。<dialog> 自身铺满整个遮罩区域，所以「target 就是 dialog」
   // 说明点在了内容之外 —— 这是原生 dialog 的惯用做法。
   dom.picker.addEventListener('click', (e) => {
     if (e.target === dom.picker) closePicker();
   });
+}
 
+function bindIo() {
+  dom.btnOpenIo.addEventListener('click', openIo);
+  dom.btnCloseIo.addEventListener('click', closeIo);
+  dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
+  dom.btnImportFen.addEventListener('click', importFen);
+  dom.btnExportFen.addEventListener('click', exportCurrentFen);
+
+  dom.ioDialog.addEventListener('click', (e) => {
+    if (e.target === dom.ioDialog) closeIo();
+  });
+
+  // 在名字框里按回车直接存
   dom.customName.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -812,7 +864,7 @@ function bindKeyboard() {
   window.addEventListener('keydown', (e) => {
     // 弹窗打开时不响应全局快捷键 —— 否则在里面打字会顺手翻转棋盘、打开说明。
     // Esc 也交给 <dialog> 自己处理（它原生就关弹窗）。
-    if (dom.picker.open) return;
+    if (anyDialogOpen()) return;
 
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
@@ -846,6 +898,7 @@ function init() {
   attachInteraction(dom.board, app);
   bindToolbar();
   bindPicker();
+  bindIo();
   bindKeyboard();
 
   // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）

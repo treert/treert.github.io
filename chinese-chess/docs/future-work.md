@@ -324,3 +324,16 @@
 
 **这条不只影响本模块** —— `global.css` 是全仓库共用的，
 以后哪个模块用 `<dialog>` 都会踩到同一个坑。放在这里当通用记录。
+
+#### E8b. 同一类坑的另一副面孔：作者样式压掉 `[hidden]`
+
+拆分弹窗时又踩到一次。`el.hidden = true` 靠的是 UA 的 `[hidden] { display: none }`，
+但只要作者样式里给同一个元素写了 `display`（比如 `.xq-dialog-foot { display: flex }`），
+**UA 那条就失效了** —— 元素照样显示，`hidden` 变成一句空话。
+
+修法和 E8 一样：显式再写一条 `.xq-dialog-foot[hidden] { display: none }`。
+
+**共同规律**：**UA 样式表的优先级永远低于作者样式**，所以「用 UA 默认值实现的行为」
+（dialog 居中、`[hidden]` 隐藏、`details` 的折叠箭头、`fieldset` 的边框…）
+只要被自己的 CSS 碰过同一个属性，就会静默失效。
+排查手段统一：`getComputedStyle(el)` 看实际生效的值，别猜。
