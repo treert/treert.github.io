@@ -40,6 +40,10 @@
 
           <p><b>走子</b>：点自己的棋子选中，再点目标位置。鼠标可以直接拖拽。</p>
 
+          <p><b>双人对弈</b>（侧栏的开关）：打开后不走 AI，红黑两边都由人点，
+          适合两个人轮流在同一台设备上下。此时「执子」会禁用（没意义了），
+          悔棋也只退一步。</p>
+
           <p><b>悔棋</b>一次退到轮到你走为止，不会出现「悔完立刻又被 AI 走一步」的情况。
           <b>重做</b>可以前进。悔棋只移动游标，着法不会丢——所以你可以悔完再点着法列表跳回去。</p>
 
@@ -89,6 +93,14 @@
               <option value="1">执红（先走）</option>
               <option value="-1">执黑（后走）</option>
             </select>
+          </label>
+
+          <!-- 开关而不是「第五个挡位」：挡位表的语义是「AI 的强度阶梯」，
+               塞一个「无 AI」进去会让人以为它是第五档强度。 -->
+          <label class="xq-field">
+            <span>双人对弈</span>
+            <input type="checkbox" class="xq-switch" id="two-player-toggle"
+                   title="打开后不派发 AI 搜索，红黑两边都由人来点">
           </label>
 
           <p class="xq-status" id="status-text">准备开始</p>

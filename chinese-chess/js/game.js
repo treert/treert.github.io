@@ -30,6 +30,10 @@ export function createGame(options = {}) {
     playerSide: options.playerSide || RED,
     level: options.level || 'medium',
     endgameId: options.endgameId || null,
+    // 双人对弈：两边都由人来点，不派发 AI 搜索。
+    // 开着的时候 playerSide 只在「初始是否翻转棋盘」上还有意义，
+    // 所以界面会把「执子」禁掉（见 main.js 的 updateButtons）。
+    twoPlayer: options.twoPlayer || false,
   };
 }
 
@@ -121,14 +125,20 @@ export function undo(game, steps = 1) {
 }
 
 /**
- * 悔到「轮到玩家走」为止。
+ * 悔棋（界面上的「悔棋」按钮走这里）。
  *
- * 人机对弈时用这个：玩家悔一步棋，如果只退一步就轮到 AI 了，
+ * **人机对弈**：退到「轮到玩家走」为止。玩家悔一步棋，如果只退一步就轮到 AI 了，
  * 玩家会看到 AI 立刻又走一步，体验上等于「悔棋没生效」。
+ *
+ * **双人对弈**：只退一步。两边都是人，没有「AI 马上又走」这回事 ——
+ * 多退一步反而把对手刚走的那手也抹掉了。
  */
 export function undoToPlayer(game) {
   if (!canUndo(game)) return false;
+
   game.cursor--;
+  if (game.twoPlayer) return true;
+
   while (game.cursor > 0 && sideToMove(game) !== game.playerSide) game.cursor--;
   return true;
 }

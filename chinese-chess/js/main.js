@@ -23,6 +23,7 @@ const dom = {
   thinking: document.getElementById('thinking'),
   levelSelect: document.getElementById('level-select'),
   sideSelect: document.getElementById('side-select'),
+  twoPlayerToggle: document.getElementById('two-player-toggle'),
   moveList: document.getElementById('move-list'),
   btnUndo: document.getElementById('btn-undo'),
   btnRedo: document.getElementById('btn-redo'),
@@ -72,9 +73,11 @@ const app = {
   get playerSide() { return this.game.playerSide; },
 
   canAct() {
-    return !this.busy
-      && this.status.type === 'playing'
-      && G.sideToMove(this.game) === this.game.playerSide;
+    if (this.busy) return false;
+    if (this.status.type !== 'playing') return false;
+    // 双人对弈：两边都由人点，不按 playerSide 拦
+    if (this.game.twoPlayer) return true;
+    return G.sideToMove(this.game) === this.game.playerSide;
   },
   ownerOf(idx) {
     const v = this.pos.cells[idx];
@@ -125,8 +128,10 @@ function updateChrome() {
   else if (st.type === 'repetition') { text = '三次重复 · 判和'; over = true; }
   else {
     const side = G.sideToMove(app.game);
-    const who = side === app.game.playerSide ? '你' : 'AI';
-    text = `轮到${sideName(side)}（${who}）`;
+    // 双人对弈时不说「你 / AI」—— 两边都是人，标出来反而误导
+    text = app.game.twoPlayer
+      ? `轮到${sideName(side)}`
+      : `轮到${sideName(side)}（${side === app.game.playerSide ? '你' : 'AI'}）`;
     if (app.busy && app.pending === 'ai') text = `轮到${sideName(side)} · AI 思考中`;
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
@@ -269,14 +274,21 @@ function moveSpan(i) {
 
 function updateButtons() {
   const playing = app.status.type === 'playing';
+  const two = app.game.twoPlayer;
+
   dom.btnUndo.disabled = app.busy || !G.canUndo(app.game);
   dom.btnRedo.disabled = app.busy || !G.isReviewing(app.game);
   dom.btnReset.disabled = app.busy;
   dom.btnFlip.disabled = false;
+  // 双人对弈时两边都能要提示 —— 它是给「当前走棋的人」用的，不专属某一方。
+  // 挡位也照旧可用，因为提示用的就是它。
   dom.btnHint.disabled = app.busy || !playing
-    || G.sideToMove(app.game) !== app.game.playerSide;
+    || (!two && G.sideToMove(app.game) !== app.game.playerSide);
   dom.levelSelect.disabled = app.busy;
-  dom.sideSelect.disabled = app.busy;
+  // 双人模式下「执子」没有意义（两边都是人），禁掉免得让人以为它还有作用。
+  // 想让黑方在下方，用「翻转」。
+  dom.sideSelect.disabled = app.busy || two;
+  dom.twoPlayerToggle.disabled = app.busy;
 }
 
 // === 走子 ===
@@ -305,8 +317,10 @@ function handleCellClick(idx) {
   }
   // 再点一次自己 → 保持选中（不做「再点取消」，那样容易误操作）
   if (app.selected === idx) return;
-  // 点自己的另一个子 → 改选
-  if (app.ownerOf(idx) === app.game.playerSide) {
+  // 点自己这一方的另一个子 → 改选。
+  // **判据是「轮到谁走」，不是 playerSide** —— 双人对弈时两边都得能选子。
+  // 人机模式下 canAct() 已经保证了轮到玩家，两者等价。
+  if (app.ownerOf(idx) === G.sideToMove(app.game)) {
     selectCell(idx);
     return;
   }
@@ -339,6 +353,9 @@ function applyMove(move, animate) {
 function requestAiMove() {
   if (app.busy) return;
   if (app.status.type !== 'playing') return;
+  // 双人对弈：不派发。这里是唯一的派发点，所以挡这一处就够 ——
+  // 而关掉开关时又需要能立刻把 AI 拉回来接着走，那由下面的判断自然处理。
+  if (app.game.twoPlayer) return;
   if (G.sideToMove(app.game) === app.game.playerSide) return;
 
   app.busy = true;
@@ -837,6 +854,19 @@ function bindToolbar() {
     requestAiMove(); // 执黑时 AI 先走
   });
 
+  dom.twoPlayerToggle.addEventListener('change', () => {
+    if (app.busy) return;
+    app.game.twoPlayer = dom.twoPlayerToggle.checked;
+    app.searchId++; // 作废在飞的响应
+    app.hint = 0;
+    updateChrome();
+    saveSoon(app.game);
+    // 两种情况都交给 requestAiMove 自己的前置判断：
+    //   刚打开 —— 可能正轮到「AI」那一方，这时不该再派发搜索；
+    //   刚关掉 —— 可能正轮到 AI，要把它拉回来接着走。
+    requestAiMove();
+  });
+
   dom.btnUndo.addEventListener('click', () => {
     if (app.busy) return;
     // 用 undoToPlayer：只退一步的话，玩家会看到 AI 立刻又走一步，等于「悔棋没生效」
@@ -922,6 +952,7 @@ function init() {
 
   dom.sideSelect.value = String(app.game.playerSide);
   dom.levelSelect.value = app.game.level;
+  dom.twoPlayerToggle.checked = !!app.game.twoPlayer;
   app.renderer.setFlipped(app.game.playerSide === -1); // 执黑默认翻转
 
   refresh();

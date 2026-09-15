@@ -198,6 +198,61 @@ console.log('对局状态机测试\n');
   check('着法数没有变（只移游标）', g.moves.length, 5);
 }
 
+// --- 双人对弈：悔棋只退一步 ---
+// **和上一节的对照才有判别力。** 同一段着法，人机模式退两步、双人模式退一步；
+// 只测一种模式的话，「退两步」和「退一步」都能过，测不出差异。
+{
+  const human = G.createGame({ playerSide: 1 });
+  for (let i = 0; i < 2; i++) G.playMove(human, pickMove(human));
+  check('人机：走 2 步后轮到玩家', G.sideToMove(human), 1);
+  G.undoToPlayer(human);
+  check('人机：从「轮到你」悔棋要退两步（把 AI 那手也退掉）', human.cursor, 0);
+
+  const two = G.createGame({ playerSide: 1, twoPlayer: true });
+  for (let i = 0; i < 2; i++) G.playMove(two, pickMove(two));
+  check('双人：走 2 步后轮到红方', G.sideToMove(two), 1);
+  G.undoToPlayer(two);
+  check('双人：同样的情况只退一步', two.cursor, 1);
+  check('双人：退一步后轮到黑方', G.sideToMove(two), -1);
+  check('双人：着法没被删（只移游标）', two.moves.length, 2);
+}
+
+// --- 双人对弈：开关本身与存档往返 ---
+{
+  check('createGame 默认不是双人', G.createGame().twoPlayer, false);
+  check('createGame 能开双人', G.createGame({ twoPlayer: true }).twoPlayer, true);
+
+  // 中途关掉开关，行为要立刻回到人机那套
+  const g = G.createGame({ twoPlayer: true });
+  g.twoPlayer = false;
+  for (let i = 0; i < 2; i++) G.playMove(g, pickMove(g));
+  G.undoToPlayer(g);
+  check('关掉开关后悔棋恢复人机行为（退两步）', g.cursor, 0);
+
+  // 存档往返
+  const P = await load('persist.js');
+  const mem = new Map();
+  const st = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+
+  P.save(st, G.createGame({ twoPlayer: true }));
+  const back = G.createGame();
+  P.restoreInto(back, st);
+  check('存档能往返双人开关', back.twoPlayer, true);
+
+  // 老存档没有这个字段 → 关，正好是默认值（不需要为它升版本号）
+  P.save(st, G.createGame({ twoPlayer: true }));
+  const raw = JSON.parse(st.getItem(P.STORAGE_KEY));
+  delete raw.twoPlayer;
+  st.setItem(P.STORAGE_KEY, JSON.stringify(raw));
+  const back2 = G.createGame({ twoPlayer: true });
+  P.restoreInto(back2, st);
+  check('老存档缺 twoPlayer 字段时降级为关', back2.twoPlayer, false);
+}
+
 // --- 存档（persist.js） ---
 // storage 是注入的，所以不需要真的 localStorage。这里重点测**容错**：
 // 存档坏掉导致白屏是最糟糕的体验，宁可丢掉一局棋也不能让页面起不来。
