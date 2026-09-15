@@ -41,3 +41,12 @@ export const PIECE_OF_FEN = {
 };
 
 export const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1';
+
+// === 评估 ===
+// 索引 = 棋子编码（1..7）。
+// 帅 / 将 记 0：双方恒各有一个，算进子力只会互相抵消，白增加一次查表。
+export const PIECE_VALUE = [0, 0, 200, 200, 400, 900, 450, 100];
+//                          占位 K   A    B    N    R    C    P
+
+// 兵 / 卒过河的额外加分
+export const PASSED_PAWN_BONUS = 50;

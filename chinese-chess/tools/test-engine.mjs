@@ -134,5 +134,42 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 评估函数 ---
+{
+  const { evaluate } = await load('engine.js');
+
+  check('起始局面完全对称，分值为 0', evaluate(startPosition().cells, 1), 0);
+  check('起始局面黑方视角也是 0', evaluate(startPosition().cells, -1), 0);
+
+  // 红方多一个车
+  {
+    const cells = build(['K@3,9', 'k@5,0', 'R@0,9']).cells;
+    check('红方多一个车：红方视角 +900', evaluate(cells, 1), 900);
+    check('红方多一个车：黑方视角 -900', evaluate(cells, -1), -900);
+  }
+
+  // 兵过河加分
+  {
+    const own = build(['K@3,9', 'k@5,0', 'P@4,6']).cells;
+    const crossed = build(['K@3,9', 'k@5,0', 'P@4,4']).cells;
+    check('红兵未过河记 100', evaluate(own, 1), 100);
+    check('红兵过河记 150', evaluate(crossed, 1), 150);
+  }
+
+  // 黑卒过河同样加分（方向相反）
+  {
+    const own = build(['K@3,9', 'k@5,0', 'p@4,3']).cells;
+    const crossed = build(['K@3,9', 'k@5,0', 'p@4,5']).cells;
+    check('黑卒未过河记 100（黑方视角）', evaluate(own, -1), 100);
+    check('黑卒过河记 150（黑方视角）', evaluate(crossed, -1), 150);
+  }
+
+  // 帅 / 将不计入子力：双方恒各有一个，算进去只会互相抵消
+  {
+    const cells = build(['K@3,9', 'k@5,0']).cells;
+    check('只有两个将时分值为 0', evaluate(cells, 1), 0);
+  }
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
