@@ -154,6 +154,69 @@ console.log('规则引擎测试\n');
   check('黑将在九宫角：2 个落点', movesFrom(build(['k@5,0'], 'b'), '5,0'), ['4,0', '5,1']);
 }
 
+// --- 着法生成：马 / 象 / 士 ---
+{
+  const { generateMoves, moveFrom, moveTo } = await load('rules.js');
+  const movesFrom = (pos, coord) => {
+    const from = idxOf(coord);
+    return generateMoves(pos.cells, pos.side)
+      .filter((m) => moveFrom(m) === from)
+      .map((m) => coordOf(moveTo(m)))
+      .sort();
+  };
+
+  // 马：八个日字目标，四个马腿方向各塞一个挡子试一遍
+  check('马在正中：8 个落点', movesFrom(build(['N@4,4']), '4,4').length, 8);
+  check('蹩马腿（上）：(3,2) 与 (5,2) 都不可达',
+    movesFrom(build(['N@4,4', 'P@4,3']), '4,4').filter((c) => c.endsWith(',2')), []);
+  check('蹩马腿（下）：(3,6) 与 (5,6) 都不可达',
+    movesFrom(build(['N@4,4', 'P@4,5']), '4,4').filter((c) => c.endsWith(',6')), []);
+  check('蹩马腿（左）：(2,3) 与 (2,5) 都不可达',
+    movesFrom(build(['N@4,4', 'P@3,4']), '4,4').filter((c) => c.startsWith('2,')), []);
+  check('蹩马腿（右）：(6,3) 与 (6,5) 都不可达',
+    movesFrom(build(['N@4,4', 'P@5,4']), '4,4').filter((c) => c.startsWith('6,')), []);
+  check('马腿只挡一个方向，其余六个落点照走',
+    movesFrom(build(['N@4,4', 'P@4,3']), '4,4'),
+    ['2,3', '2,5', '3,6', '5,6', '6,3', '6,5']);
+
+  // 象 / 相：田字，塞象眼，不能过河
+  check('红相在底线：2 个落点', movesFrom(build(['B@2,9']), '2,9'), ['0,7', '4,7']);
+  check('塞象眼：象眼有子则该田字不可达',
+    movesFrom(build(['B@2,9', 'P@1,8']), '2,9'), ['4,7']);
+  check('相不能过河', movesFrom(build(['B@2,5']), '2,5'), ['0,7', '4,7']);
+  check('黑象在底线：2 个落点', movesFrom(build(['b@2,0'], 'b'), '2,0'), ['0,2', '4,2']);
+
+  // 士 / 仕：斜走一格，不得出九宫
+  check('红仕在九宫正中：4 个落点',
+    movesFrom(build(['A@4,8']), '4,8'), ['3,7', '3,9', '5,7', '5,9']);
+  check('红仕在九宫角：只有 1 个落点（另一个出九宫）',
+    movesFrom(build(['A@3,9']), '3,9'), ['4,8']);
+  check('黑士在九宫角：只有 1 个落点',
+    movesFrom(build(['a@5,0'], 'b'), '5,0'), ['4,1']);
+}
+
+// --- 初始局面着法数分解 ---
+// 红方共 42 步。拆到每个棋子上，这样失败时能直接看出是哪种棋子错了。
+{
+  const { generateMoves, moveFrom } = await load('rules.js');
+  const pos = startPosition();
+  const perPiece = new Map();
+  for (const m of generateMoves(pos.cells, pos.side)) {
+    const key = coordOf(moveFrom(m));
+    perPiece.set(key, (perPiece.get(key) || 0) + 1);
+  }
+  const counts = (keys) => keys.map((k) => perPiece.get(k));
+
+  check('初始局面：5 个兵各 1 步', counts(['0,6', '2,6', '4,6', '6,6', '8,6']), [1, 1, 1, 1, 1]);
+  check('初始局面：2 个炮各 12 步', counts(['1,7', '7,7']), [12, 12]);
+  check('初始局面：2 个马各 2 步', counts(['1,9', '7,9']), [2, 2]);
+  check('初始局面：2 个车各 2 步', counts(['0,9', '8,9']), [2, 2]);
+  check('初始局面：2 个相各 2 步', counts(['2,9', '6,9']), [2, 2]);
+  check('初始局面：2 个仕各 1 步', counts(['3,9', '5,9']), [1, 1]);
+  check('初始局面：帅 1 步', perPiece.get('4,9'), 1);
+  check('初始局面：红方共 44 步', generateMoves(pos.cells, pos.side).length, 44);
+}
+
 // === 收尾 ===
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

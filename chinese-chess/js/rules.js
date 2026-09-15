@@ -58,9 +58,11 @@ export function generateMoves(cells, side) {
     switch (Math.abs(v)) {
       case R: genRook(out, cells, from, x, y, side); break;
       case C: genCannon(out, cells, from, x, y, side); break;
-      case P: genPawn(out, cells, from, x, y, side); break;
+      case N: genHorse(out, cells, from, x, y, side); break;
+      case B: genElephant(out, cells, from, x, y, side); break;
+      case A: genAdvisor(out, cells, from, x, y, side); break;
       case K: genKing(out, cells, from, x, y, side); break;
-      default: break;
+      case P: genPawn(out, cells, from, x, y, side); break;
     }
   }
   return out;
@@ -135,6 +137,42 @@ function genPawn(out, cells, from, x, y, side) {
 /** 将 / 帅：四方向一格，不得出九宫 */
 function genKing(out, cells, from, x, y, side) {
   for (const [dx, dy] of ORTHO) {
+    const cx = x + dx, cy = y + dy;
+    if (!inPalace(cx, cy, side)) continue;
+    const idx = indexOf(cx, cy);
+    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+  }
+}
+
+/** 马：八个日字目标；马腿（先直走的那一格）有子则该方向全部禁止 */
+function genHorse(out, cells, from, x, y, side) {
+  for (const [dx, dy, lx, ly] of HORSE) {
+    const legX = x + lx, legY = y + ly;
+    // 马腿在棋盘外时，对应的目标也必然在棋盘外，直接跳过
+    if (!inBoard(legX, legY) || cells[indexOf(legX, legY)] !== EMPTY) continue;
+
+    const cx = x + dx, cy = y + dy;
+    if (!inBoard(cx, cy)) continue;
+    const idx = indexOf(cx, cy);
+    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+  }
+}
+
+/** 象 / 相：四个田字目标；象眼（田字中心）有子则禁；不得过河 */
+function genElephant(out, cells, from, x, y, side) {
+  for (const [dx, dy] of ELEPHANT) {
+    const cx = x + dx, cy = y + dy;
+    if (!inBoard(cx, cy)) continue;
+    if (!ownHalf(cy, side)) continue;
+    if (cells[indexOf(x + dx / 2, y + dy / 2)] !== EMPTY) continue; // 塞象眼
+    const idx = indexOf(cx, cy);
+    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+  }
+}
+
+/** 士 / 仕：四个斜向一格；不得出九宫 */
+function genAdvisor(out, cells, from, x, y, side) {
+  for (const [dx, dy] of ADVISOR) {
     const cx = x + dx, cy = y + dy;
     if (!inPalace(cx, cy, side)) continue;
     const idx = indexOf(cx, cy);
