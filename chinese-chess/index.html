@@ -14,7 +14,11 @@
     <a class="back-link" href="../index.html">← 返回首页</a>
 
     <header class="page-header">
-      <h1>中国象棋</h1>
+      <div class="xq-title-row">
+        <h1>中国象棋</h1>
+        <button type="button" class="btn btn-ghost xq-picker-open" id="btn-open-picker">局面库</button>
+      </div>
+
       <details class="xq-help" id="page-help">
         <summary>单机对弈 · 四个挡位 · 中文记谱与复盘（点这里看玩法说明）</summary>
         <div class="xq-help-body">
@@ -39,8 +43,14 @@
           状态栏会提示「正在回看」。此时走新着法会截断后面的分支。</p>
 
           <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
+
+          <p><b>局面库</b>（标题右边的按钮，或者点标题下面那行「当前局面」）：
+          挑一局残局来练，或者把当前下到一半的局面<b>存成自定义局面</b>。
+          也支持直接粘贴 FEN —— 从别的软件或网上弄到的局面都能进来。</p>
         </div>
       </details>
+
+      <button type="button" class="xq-current" id="current-pos" title="点击打开局面库"></button>
     </header>
 
     <div class="xq-stage">
@@ -48,14 +58,14 @@
         <div class="xq-board-wrap" id="board-wrap">
           <div class="xq-board" id="board"></div>
         </div>
+      </div>
 
-        <div class="xq-toolbar">
-          <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
-          <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
-          <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
-          <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
-          <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
-        </div>
+      <div class="xq-toolbar">
+        <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
+        <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
+        <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
+        <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
+        <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
       </div>
 
       <aside class="xq-side">
@@ -80,16 +90,6 @@
           <p class="xq-thinking" id="thinking" hidden>思考中…</p>
         </section>
 
-        <section class="panel xq-panel">
-          <h2>残局</h2>
-          <label class="xq-field">
-            <span>分类</span>
-            <select id="endgame-category" class="xq-select"></select>
-          </label>
-          <div class="xq-endgame-list" id="endgame-list"></div>
-          <button class="btn btn-ghost xq-endgame-exit" id="btn-exit-endgame" hidden>退出残局，回到普通对局</button>
-        </section>
-
         <section class="panel xq-panel xq-panel--moves">
           <h2>着法</h2>
           <div class="xq-move-list" id="move-list"></div>
@@ -97,6 +97,45 @@
       </aside>
     </div>
   </div>
+
+  <dialog class="xq-dialog" id="picker">
+    <div class="xq-dialog-head">
+      <h2>局面库</h2>
+      <button type="button" class="xq-dialog-close" id="btn-close-picker" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="xq-dialog-body">
+      <label class="xq-field">
+        <span>分类</span>
+        <select id="endgame-category" class="xq-select"></select>
+      </label>
+      <div class="xq-endgame-list" id="endgame-list"></div>
+    </div>
+
+    <div class="xq-dialog-foot">
+      <div class="xq-save">
+        <input type="text" class="xq-input" id="custom-name" maxlength="40"
+               placeholder="给当前局面起个名字">
+        <button type="button" class="btn btn-ghost" id="btn-save-current">存当前局面</button>
+      </div>
+
+      <details class="xq-fen">
+        <summary>粘贴 / 复制 FEN</summary>
+        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
+                  placeholder="从别处复制的 FEN 粘到这里，再点「导入」"></textarea>
+        <div class="xq-fen-row">
+          <button type="button" class="btn btn-ghost" id="btn-import-fen">导入</button>
+          <button type="button" class="btn btn-ghost" id="btn-export-fen">填入当前局面</button>
+        </div>
+      </details>
+
+      <p class="xq-picker-msg" id="picker-msg" hidden></p>
+
+      <button type="button" class="btn btn-ghost xq-endgame-exit" id="btn-exit-endgame" hidden>
+        退出残局，回到标准开局
+      </button>
+    </div>
+  </dialog>
 
   <script type="module" src="./js/main.js"></script>
 </body>

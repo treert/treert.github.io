@@ -16,7 +16,13 @@ export const STORAGE_KEY = 'chinese-chess:state';
 // 存档格式版本。将来改了字段结构就 +1，旧存档会被当成损坏丢掉
 const VERSION = 1;
 
-function defaultStorage() {
+/**
+ * 取 localStorage；拿不到就返回 null。
+ *
+ * 导出给 custom-endgames.js 复用 —— 两个模块都是「本地存储层」，
+ * 兜底逻辑（隐私模式 / Node 里没有 window）没必要写两遍。
+ */
+export function defaultStorage() {
   try {
     return window.localStorage;
   } catch {

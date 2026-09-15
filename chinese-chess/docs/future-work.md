@@ -16,20 +16,15 @@
 
 ## A. 设计里写了、但没实现
 
-### A1. FEN 粘贴导入导出
+**目前没有。**
 
-- **设计出处**：`design.md` §1.3。它被列为「唯一的例外」——虽然「存局与分享」整体被排除，
-  但 FEN 解析器反正要有（残局库和存档都在用），再暴露一个粘贴框的边际成本接近零，
-  而且正好解决「从网上弄到的残局怎么进库」。
-- **为什么没做**：执行顺序变了。残局数据最后是从 `kuiba1949/xiangqi-tools` **一次性整理**进
-  `endgames.js` 的，并没有走「网上找到 FEN → 粘贴进页面验证 → 录入」这条路径。
-  既然这条路径没人走，那个输入框就成了没人用的界面元素，按 YAGNI 先不做。
-- **怎么做**：`index.html` 加一个 `textarea` + 「载入」「复制当前局面」两个按钮；
-  `main.js` 里用 `parseFen` 校验、失败时提示，成功后走 `startEndgame` 那条路
-  （需要一个「临时局面」的载体，可以给 `game.js` 加一个 `startCustom(game, fen)`）。
-  导出直接 `toFen(currentPosition(game))` + `navigator.clipboard.writeText`。
-- **多大**：约 30 行 + 一点样式。
-- **前置**：无。随时可做。
+原先唯一的条目是 A1「FEN 粘贴导入导出」，现已实现 —— 而且比当初设想的更进一步：
+不只是「粘一段 FEN 载入」，而是把外部局面和当前对局都收进一个统一的**自定义局面库**
+（`custom-endgames.js` + 局面库弹窗）。设计记在 `design.md` §1.3 与 §8.4。
+
+当初不做它的理由（「残局数据是一次性整理进 `endgames.js` 的，没人走粘贴这条路」）
+在实现后**被推翻了**：真正需要粘贴的场景不是「录入残局库」，
+而是「自己下到一半的局面想留着以后练」—— 这条路径一直在，只是当初没想到。
 
 ---
 
@@ -310,3 +305,22 @@
 
 **教训**：**凡是 `appendChild` 到某个容器上的元素，都可能被该容器的 `::after` 盖住。**
 用伪元素画装饰层时，要么显式指定 `z-index`，要么把装饰层放进独立容器。
+
+### E8. `global.css` 的 `margin: 0` 重置干掉了 `<dialog>` 的原生居中
+
+**症状**：用原生 `<dialog>` + `showModal()` 做的弹窗**贴顶显示**，没有垂直居中。
+
+**根因**：原生 dialog 的居中靠 UA 样式表里的 `position: fixed; inset: 0; margin: auto`。
+而 `global.css` 开头有一条 `*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }`。
+
+`*` 选择器的特异度虽然低，但 **UA 样式表的优先级本来就在作者样式之下** ——
+所以这条重置**无条件**覆盖掉了 `dialog { margin: auto }`。
+实测 `getComputedStyle(dialog).margin` 是 `0px` 而不是 `auto`，一眼就能确认。
+
+**修法**：在 `.xq-dialog` 上显式写 `margin: auto`。
+
+**教训**：`*` 全局重置会静默干掉**所有** UA 默认样式里的 margin / padding。
+用到依赖 UA 默认值的元素（`dialog`、`details`、`summary`、`fieldset`、`hr`…）时要留个心。
+
+**这条不只影响本模块** —— `global.css` 是全仓库共用的，
+以后哪个模块用 `<dialog>` 都会踩到同一个坑。放在这里当通用记录。

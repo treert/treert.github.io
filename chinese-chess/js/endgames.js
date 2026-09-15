@@ -35,9 +35,14 @@
  *   3. 它会把不合法的局面连原因一起打出来
  */
 
+import { CUSTOM_CATEGORY } from './custom-endgames.js';
+
 export const CATEGORIES = {
   practical: '实用残局',
   composed: '经典排局',
+  // 自定义局面不存在这个文件里（它们是 localStorage 里的用户数据），
+  // 但分类枚举得认得它 —— 界面的分类下拉框就是从这个对象生成的
+  [CUSTOM_CATEGORY]: '自定义',
 };
 
 export const RESULTS = {
@@ -163,11 +168,32 @@ export const ENDGAMES = [
   ...COMPOSED.map((e) => ({ ...e, category: 'composed' })),
 ];
 
+// === 自定义局面的注册表 ===
+//
+// 用户存的自定义局面不在这里（它们是 localStorage 里的数据，见 custom-endgames.js），
+// 但 findEndgame / endgamesByCategory 是 game.js 和界面层共用的查询入口 ——
+// 给它们加一个「去哪找自定义局面」的参数会污染一大片调用点。
+// 所以放一个**只写一次**的注册表：main.js 启动时灌一次，其它地方只读。
+//
+// 这样做的直接收益：game.js 的 startEndgame / endgameOf、persist.js 的存档格式
+// 全都不需要知道有「自定义」这回事。
+let customEndgames = [];
+
+export function setCustomEndgames(list) {
+  customEndgames = Array.isArray(list) ? list : [];
+}
+
+/** 静态库 + 自定义库的合并视图。总是新数组，调用方改不动静态库 */
+export function allEndgames() {
+  return [...ENDGAMES, ...customEndgames];
+}
+
 export function findEndgame(id) {
-  return ENDGAMES.find((e) => e.id === id);
+  return ENDGAMES.find((e) => e.id === id) || customEndgames.find((e) => e.id === id);
 }
 
 export function endgamesByCategory(category) {
-  if (!category || category === 'all') return ENDGAMES;
-  return ENDGAMES.filter((e) => e.category === category);
+  const all = allEndgames();
+  if (!category || category === 'all') return all;
+  return all.filter((e) => e.category === category);
 }

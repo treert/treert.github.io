@@ -12,8 +12,9 @@ import { findKing, isAttacked, moveFrom, moveTo, encodeMove } from './rules.js';
 import * as G from './game.js';
 import { createRenderer } from './renderer.js';
 import { attachInteraction } from './interaction.js';
-import { saveSoon, restoreInto } from './persist.js';
-import { CATEGORIES, RESULTS, endgamesByCategory } from './endgames.js';
+import { saveSoon, restoreInto, defaultStorage } from './persist.js';
+import { CATEGORIES, RESULTS, endgamesByCategory, setCustomEndgames } from './endgames.js';
+import { loadCustom, addCustom, removeCustom } from './custom-endgames.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -29,11 +30,26 @@ const dom = {
   btnFlip: document.getElementById('btn-flip'),
   btnHint: document.getElementById('btn-hint'),
   help: document.getElementById('page-help'),
+  endgameGoal: document.getElementById('endgame-goal'),
+  // 局面库弹窗
+  picker: document.getElementById('picker'),
+  btnOpenPicker: document.getElementById('btn-open-picker'),
+  btnClosePicker: document.getElementById('btn-close-picker'),
+  currentPos: document.getElementById('current-pos'),
   endgameCategory: document.getElementById('endgame-category'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
-  endgameGoal: document.getElementById('endgame-goal'),
+  customName: document.getElementById('custom-name'),
+  btnSaveCurrent: document.getElementById('btn-save-current'),
+  fenInput: document.getElementById('fen-input'),
+  btnImportFen: document.getElementById('btn-import-fen'),
+  btnExportFen: document.getElementById('btn-export-fen'),
+  pickerMsg: document.getElementById('picker-msg'),
 };
+
+// localStorage 只取一次。拿不到（隐私模式）时自定义局面存不了，
+// 但静态残局库和对弈本身不受影响 —— 降级而不是报错。
+const storage = defaultStorage();
 
 const app = {
   game: G.createGame(),
@@ -113,9 +129,11 @@ function updateChrome() {
       text = `正在回看${where} · ${text}`;
     }
   }
-  // 残局模式：给出目标，终局时判定是否达成
+  // 残局模式：给出目标，终局时判定是否达成。
+  // 自定义局面没有结论（程序无从知道那个局面的胜负），所以跳过判定 ——
+  // 编一个「达成目标」出来比不判定更糟。
   const eg = G.endgameOf(app.game);
-  if (eg && over) {
+  if (eg && eg.result && over) {
     // 「胜」局看先手方有没有赢；「和」局看有没有走到判和
     const met = eg.result === 'win' ? st.winner === 1 : st.type === 'repetition';
     text += met ? ' · 达成目标' : ' · 未达成目标';
@@ -126,13 +144,15 @@ function updateChrome() {
 
   dom.endgameGoal.hidden = !eg;
   if (eg) {
-    dom.endgameGoal.textContent =
-      `残局「${eg.name}」· 谱载${RESULTS[eg.result]} · 已走 ${app.game.cursor} 步`;
+    // 自定义局面没有结论，不要编一个出来
+    const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
+    dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
   }
   dom.btnExitEndgame.hidden = !eg;
 
   renderMoveList();
   syncEndgameList();
+  renderCurrentPos();
   updateButtons();
 }
 
@@ -176,7 +196,7 @@ function buildMoveList(moves) {
 
   if (moves.length === 0) {
     const p = document.createElement('p');
-    p.className = 'xq-move-empty';
+    p.className = 'xq-empty';
     p.textContent = '还没有走棋';
     dom.moveList.appendChild(p);
     return;
@@ -372,15 +392,54 @@ function onWorkerMessage(e) {
   applyMove(encodeMove(msg.move.from, msg.move.to), true);
 }
 
-// === 残局 ===
+// === 局面库（残局 + 自定义局面） ===
 
 let endgameFilter = 'all';
-// 记住上次按哪个 endgameId 渲染过列表，避免每次 refresh 都重建 23 个按钮、丢掉滚动位置
-let renderedEndgameId = '\u0000';
+// 自定义局面在内存里的副本。它是 endgames.js 注册表的来源 ——
+// 每次增删后重新读一遍 localStorage 并重新注册，其它地方（game.js / persist.js）
+// 就完全不需要知道「自定义」这回事。
+let customList = [];
+
+// 上次渲染列表用的签名（当前选中哪一局 + 自定义有几条）。
+// 避免每次 refresh 都重建几十个按钮、把用户滚动的位置冲掉。
+let renderedListKey = '\u0000';
+
+function refreshCustom() {
+  customList = loadCustom(storage);
+  setCustomEndgames(customList);
+}
+
+/** 一局在列表里显示的元信息。自定义局面没有结论和难度 */
+function endgameMeta(eg) {
+  return eg.custom ? '自定义' : `${RESULTS[eg.result]}·难度${eg.difficulty}`;
+}
+
+function endgameTooltip(eg) {
+  if (eg.custom) {
+    return `${eg.name}（自定义局面）\n没有结论 —— 程序无从知道你存这个局面时的胜负`;
+  }
+  return `${eg.name}（谱载${RESULTS[eg.result]}）\n出处：${eg.source}`
+    + (eg.note ? `\n${eg.note}` : '');
+}
 
 function renderEndgameList() {
   dom.endgameList.textContent = '';
-  for (const eg of endgamesByCategory(endgameFilter)) {
+
+  const list = endgamesByCategory(endgameFilter);
+  if (list.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'xq-empty';
+    p.textContent = endgameFilter === 'custom'
+      ? '还没有自定义局面。把当前下到一半的棋存一个，或者粘一段 FEN 进来。'
+      : '这个分类下还没有局面。';
+    dom.endgameList.appendChild(p);
+    return;
+  }
+
+  for (const eg of list) {
+    const row = document.createElement('div');
+    row.className = 'xq-endgame-row';
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'xq-endgame';
@@ -392,21 +451,34 @@ function renderEndgameList() {
 
     const meta = document.createElement('span');
     meta.className = 'xq-endgame-meta';
-    meta.textContent = `${RESULTS[eg.result]}·难度${eg.difficulty}`;
+    meta.textContent = endgameMeta(eg);
 
     btn.append(name, meta);
-    btn.title = `${eg.name}（谱载${RESULTS[eg.result]}）\n出处：${eg.source}`
-      + (eg.note ? `\n${eg.note}` : '');
+    btn.title = endgameTooltip(eg);
     btn.addEventListener('click', () => loadEndgame(eg.id));
-    dom.endgameList.appendChild(btn);
+    row.appendChild(btn);
+
+    // 只有自定义局面能删 —— 静态残局库是代码里的数据，删了下次刷新又回来
+    if (eg.custom) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'xq-endgame-del';
+      del.textContent = '✕';
+      del.title = `删除「${eg.name}」`;
+      del.setAttribute('aria-label', `删除 ${eg.name}`);
+      del.addEventListener('click', () => deleteCustom(eg));
+      row.appendChild(del);
+    }
+
+    dom.endgameList.appendChild(row);
   }
 }
 
-/** 只在选中的残局变了时才重建列表 */
+/** 只在列表内容真的可能变了时才重建（选中的局变了、或者自定义条数变了） */
 function syncEndgameList() {
-  const id = app.game.endgameId || '';
-  if (id === renderedEndgameId) return;
-  renderedEndgameId = id;
+  const key = `${app.game.endgameId || ''}:${customList.length}`;
+  if (key === renderedListKey) return;
+  renderedListKey = key;
   renderEndgameList();
 }
 
@@ -418,7 +490,148 @@ function loadEndgame(id) {
   app.hint = 0;
   refresh();
   saveSoon(app.game);
+  closePicker();
   requestAiMove(); // 残局都是红先，玩家执黑时 AI 先走
+}
+
+function deleteCustom(eg) {
+  if (!window.confirm(`删除自定义局面「${eg.name}」？`)) return;
+
+  removeCustom(storage, eg.id);
+  refreshCustom();
+
+  if (app.game.endgameId === eg.id) {
+    // 删掉的正是当前这一局 —— 不退回标准开局的话，
+    // 会停在一个查不到元信息的局面上（标题行、目标提示都会变空）
+    app.searchId++;
+    G.exitEndgame(app.game);
+    clearSelection();
+    app.hint = 0;
+    refresh();
+    saveSoon(app.game);
+  } else {
+    renderedListKey = '\u0000';
+    syncEndgameList();
+    renderCurrentPos();
+  }
+}
+
+// === 弹窗 ===
+
+function setPickerMsg(text, isError = false) {
+  dom.pickerMsg.hidden = !text;
+  dom.pickerMsg.textContent = text || '';
+  dom.pickerMsg.classList.toggle('xq-picker-msg--error', !!isError);
+}
+
+function openPicker() {
+  setPickerMsg('');
+  dom.customName.value = '';
+  dom.fenInput.value = '';
+  // 强制重建：自定义局面可能在别处被删过
+  renderedListKey = '\u0000';
+  syncEndgameList();
+  if (!dom.picker.open) dom.picker.showModal();
+}
+
+function closePicker() {
+  if (dom.picker.open) dom.picker.close();
+}
+
+/** 存完之后统一收尾：切到「自定义」分类，让用户立刻看到结果 */
+function afterCustomChanged(entry, prefix) {
+  refreshCustom();
+  dom.customName.value = '';
+  endgameFilter = 'custom';
+  dom.endgameCategory.value = endgameFilter;
+  renderedListKey = '\u0000';
+  syncEndgameList();
+  renderCurrentPos();
+  setPickerMsg(`${prefix}「${entry.name}」，点它就能开始`);
+}
+
+function saveCurrentAsCustom() {
+  const r = addCustom(storage, {
+    name: dom.customName.value,
+    fen: G.currentFen(app.game),
+  });
+  if (!r.ok) {
+    setPickerMsg(r.reason, true);
+    return;
+  }
+  afterCustomChanged(r.entry, '已存为');
+}
+
+function importFen() {
+  const text = dom.fenInput.value.trim();
+  if (!text) {
+    setPickerMsg('先把 FEN 粘到下面的框里', true);
+    return;
+  }
+  const r = addCustom(storage, {
+    name: dom.customName.value.trim() || '粘贴的局面',
+    fen: text,
+  });
+  if (!r.ok) {
+    setPickerMsg(r.reason, true);
+    return;
+  }
+  dom.fenInput.value = '';
+  afterCustomChanged(r.entry, '已导入并存为');
+}
+
+async function exportCurrentFen() {
+  const fen = G.currentFen(app.game);
+  dom.fenInput.value = fen;
+  try {
+    await navigator.clipboard.writeText(fen);
+    setPickerMsg('当前局面的 FEN 已复制，也填在下面的框里了');
+  } catch {
+    // 剪贴板要安全上下文（https / localhost），拿不到就退化成「已填好，你手动复制」
+    setPickerMsg('当前局面的 FEN 已填在下面的框里，手动复制即可');
+  }
+}
+
+/** 标题下面那行「当前局面」 */
+function renderCurrentPos() {
+  const eg = G.endgameOf(app.game);
+
+  dom.currentPos.textContent = '';
+  const lead = document.createElement('span');
+  lead.textContent = '当前局面：';
+
+  const name = document.createElement('b');
+  name.textContent = eg ? eg.name : '标准开局';
+
+  const tail = document.createElement('span');
+  if (!eg) tail.textContent = ' · 点击选择残局';
+  else if (eg.custom) tail.textContent = ' · 自定义局面';
+  else tail.textContent = ` · 谱载${RESULTS[eg.result]}`;
+
+  dom.currentPos.append(lead, name, tail);
+  dom.currentPos.title = eg ? `当前：${eg.name}（点击打开局面库）` : '点击打开局面库';
+}
+
+function bindPicker() {
+  dom.btnOpenPicker.addEventListener('click', openPicker);
+  dom.currentPos.addEventListener('click', openPicker);
+  dom.btnClosePicker.addEventListener('click', closePicker);
+  dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
+  dom.btnImportFen.addEventListener('click', importFen);
+  dom.btnExportFen.addEventListener('click', exportCurrentFen);
+
+  // 点遮罩关闭。<dialog> 自身铺满整个遮罩区域，所以「target 就是 dialog」
+  // 说明点在了内容之外 —— 这是原生 dialog 的惯用做法。
+  dom.picker.addEventListener('click', (e) => {
+    if (e.target === dom.picker) closePicker();
+  });
+
+  dom.customName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveCurrentAsCustom();
+    }
+  });
 }
 
 function bindEndgames() {
@@ -446,6 +659,7 @@ function bindEndgames() {
     app.hint = 0;
     refresh();
     saveSoon(app.game);
+    closePicker();
   });
 }
 
@@ -517,6 +731,10 @@ function bindToolbar() {
 
 function bindKeyboard() {
   window.addEventListener('keydown', (e) => {
+    // 弹窗打开时不响应全局快捷键 —— 否则在里面打字会顺手翻转棋盘、打开说明。
+    // Esc 也交给 <dialog> 自己处理（它原生就关弹窗）。
+    if (dom.picker.open) return;
+
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
 
@@ -542,8 +760,13 @@ function init() {
   app.worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
   app.worker.onmessage = onWorkerMessage;
 
+  // **必须在 restoreInto 之前**：恢复出来的 endgameId 可能指向一个自定义局面，
+  // 注册表还没灌的话 endgameOf 查不到，标题行和目标提示就都是空的。
+  refreshCustom();
+
   attachInteraction(dom.board, app);
   bindToolbar();
+  bindPicker();
   bindKeyboard();
 
   // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）

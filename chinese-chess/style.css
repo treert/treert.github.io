@@ -82,21 +82,73 @@ kbd {
   border-radius: 4px;
 }
 
-/* === 布局 === */
+/* === 标题行与「当前局面」 === */
+.xq-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.xq-picker-open {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+/* 标题下方那行「当前局面」。看起来是文字，实际是 <button> ——
+   可点、可 Tab、可回车，比给 <span> 挂 click 多花不了几行。 */
+.xq-current {
+  display: block;
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: color .2s;
+}
+/* 用伪元素画个小三角，明示「这行能点」 */
+.xq-current::after {
+  content: ' ▾';
+  font-size: 11px;
+}
+.xq-current:hover {
+  color: var(--accent);
+}
+.xq-current b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* === 布局 ===
+   棋盘在第 1 行第 1 列、侧栏在第 1 行第 2 列、工具栏在第 2 行第 1 列。
+
+   工具栏**必须**独立成一行，不能塞回棋盘列里 —— 否则第 1 行的高度会变成
+   「棋盘 + 工具栏」，侧栏跟着变高，着法列表就伸到棋盘下沿之外了。
+   这样摆之后第 1 行两列等高（align-items 默认就是 stretch），
+   侧栏里的着法面板就能用 flex: 1 正好收在棋盘下方。 */
 .xq-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 20px;
-  align-items: start;
+  column-gap: 20px;
+  row-gap: 14px;
 }
+.xq-board-col { grid-area: 1 / 1; min-width: 0; }
+.xq-toolbar   { grid-area: 2 / 1; }
+.xq-side      { grid-area: 1 / 2; }
+
+/* 窄屏改回单列，顺序由 DOM 决定（棋盘 → 工具栏 → 侧栏） */
 @media (max-width: 860px) {
   .xq-stage {
     grid-template-columns: 1fr;
   }
-}
-
-.xq-board-col {
-  min-width: 0;
+  .xq-board-col,
+  .xq-toolbar,
+  .xq-side {
+    grid-area: auto;
+  }
 }
 
 .xq-board-wrap {
@@ -275,14 +327,17 @@ kbd {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
-  margin-top: 14px;
+  /* 与棋盘之间的间距由 .xq-stage 的 row-gap 给，这里不要再加 margin */
 }
 
 /* === 侧栏 === */
+/* 侧栏和棋盘等高（第 1 行的 stretch 给的），所以「着法」面板可以用 flex: 1
+   吃掉对局面板剩下的全部高度 —— 列表于是正好收在棋盘下沿 */
 .xq-side {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 .xq-panel {
   padding: 16px 18px;
@@ -331,13 +386,21 @@ kbd {
   color: var(--accent);
 }
 
-/* === 残局面板 === */
+/* === 残局 / 自定义局面列表 === */
 .xq-endgame-list {
-  max-height: 300px;
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
-  margin-top: 12px;
+  margin: 12px 0;
+  padding-right: 4px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+/* 一行 = 主体按钮 +（自定义局面才有）删除按钮 */
+.xq-endgame-row {
+  display: flex;
+  align-items: center;
   gap: 2px;
 }
 .xq-endgame {
@@ -345,7 +408,8 @@ kbd {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -355,6 +419,24 @@ kbd {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+.xq-endgame-del {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.xq-endgame-del:hover {
+  color: var(--danger);
+  background: var(--bg);
 }
 .xq-endgame:hover {
   background: var(--bg);
@@ -386,7 +468,137 @@ kbd {
 }
 .xq-endgame-exit {
   width: 100%;
-  margin-top: 12px;
+}
+
+/* === 局面库弹窗 === */
+/* 用原生 <dialog> + showModal()：Esc 关闭、焦点陷阱、背景遮罩都是白送的，
+   比手写遮罩层省掉一大半代码（也少一堆「忘了恢复 body 滚动」的坑）。 */
+.xq-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(78vh, 700px);
+  /* **必须显式写 margin: auto**，不能指望 UA 默认值。
+     global.css 顶部的 `*, *::before, *::after { margin: 0 }` 重置
+     把 `dialog { margin: auto }` 一起干掉了 —— 少了这一行弹窗就贴顶显示。
+     （position: fixed + inset: 0 + margin: auto 才是原生 dialog 的居中方式。） */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-hover);
+  overflow: hidden;
+}
+.xq-dialog::backdrop {
+  background: rgba(0, 0, 0, .45);
+}
+/* dialog 默认是 block，改成纵向 flex —— body 才能吃到剩余高度、列表才能滚 */
+.xq-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.xq-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.xq-dialog-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.xq-dialog-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.xq-dialog-close:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* 底部不留 padding-bottom：列表的滚动条要能一直走到分隔线上 */
+.xq-dialog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 0;
+}
+.xq-dialog-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.xq-save {
+  display: flex;
+  gap: 8px;
+}
+.xq-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.xq-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.xq-save .btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.xq-fen summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.xq-fen summary:hover {
+  color: var(--text);
+}
+.xq-fen textarea {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.xq-fen-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.xq-fen-row .btn {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* 弹窗里的提示行（存成功 / 校验失败的原因） */
+.xq-picker-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.xq-picker-msg--error {
+  color: var(--danger);
 }
 .xq-thinking {
   margin-top: 6px;
@@ -409,14 +621,30 @@ kbd {
 }
 
 /* === 着法列表 === */
+/* 面板吃掉侧栏剩余高度、列表再吃掉面板剩余高度 —— 两层 flex 传递之后，
+   列表的下沿就落在棋盘下沿上（侧栏与棋盘等高，见 .xq-stage 的注释）。 */
 .xq-panel--moves {
+  flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .xq-move-list {
-  max-height: 340px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   font-family: var(--mono);
   font-size: 13px;
+}
+/* 窄屏是单列、侧栏高度由内容决定，flex: 1 会让列表塌成 0 —— 换回固定上限 */
+@media (max-width: 860px) {
+  .xq-panel--moves {
+    flex: none;
+  }
+  .xq-move-list {
+    flex: none;
+    max-height: 300px;
+  }
 }
 .xq-move-row {
   display: grid;
@@ -451,7 +679,8 @@ kbd {
   background: var(--accent-hover);
   color: var(--on-accent);
 }
-.xq-move-empty {
+/* 「还没有走棋」「还没有自定义局面」这类空状态提示 */
+.xq-empty {
   color: var(--text-secondary);
   font-size: 13px;
 }
