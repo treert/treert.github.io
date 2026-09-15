@@ -13,9 +13,11 @@
 import { CELLS, K, A, B, N, R, C, P, RED } from './config.js';
 import { indexOf, xOf, yOf } from './position.js';
 
-// 棋子名，索引 = 棋子编码（1..7）
-const RED_NAMES = ['', '帅', '仕', '相', '马', '车', '炮', '兵'];
-const BLACK_NAMES = ['', '将', '士', '象', '马', '车', '炮', '卒'];
+// 棋子名，索引 = 棋子编码（1..7）。
+// 导出给 renderer.js 用 —— 棋盘上的字和记谱里的字必须来自同一处，
+// 否则改了一个忘了另一个，就会出现「棋盘写着相、记谱写着象」这种不一致。
+export const RED_NAMES = ['', '帅', '仕', '相', '马', '车', '炮', '兵'];
+export const BLACK_NAMES = ['', '将', '士', '象', '马', '车', '炮', '卒'];
 
 const RED_DIGITS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 const BLACK_DIGITS = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9'];

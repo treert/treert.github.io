@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>中国象棋</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../global.css">
+  <link rel="stylesheet" href="./style.css">
+  <!-- 必须同步加载在 head 里：要在首次绘制前定好 data-theme，否则深色下会闪白 -->
+  <script src="../global.js"></script>
+</head>
+<body>
+  <div class="container wide">
+    <a class="back-link" href="../index.html">← 返回首页</a>
+
+    <header class="page-header">
+      <h1>中国象棋</h1>
+      <details class="xq-help" id="page-help">
+        <summary>单机对弈 · 四个挡位 · 中文记谱与复盘（点这里看玩法说明）</summary>
+        <div class="xq-help-body">
+          <table>
+            <tr><td><kbd>Esc</kbd></td><td>取消选中的棋子</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>悔棋（一次退到轮到你走）</td></tr>
+            <tr><td><kbd>H</kbd></td><td>提示：让当前挡位的 AI 给一步建议</td></tr>
+            <tr><td><kbd>F</kbd></td><td>翻转棋盘（只影响显示）</td></tr>
+            <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
+          </table>
+
+          <p><b>四个挡位</b>不是单纯调搜索深度。「入门」和「初级」<b>关掉了静态搜索</b>——
+          它们会在兑子序列中途停下、以为自己占了便宜，然后被吃回。这正是初学者的真实特征。
+          「入门」还会按较高概率故意走次优着。想要正经下棋请用「中级」或「高级」。</p>
+
+          <p><b>走子</b>：点自己的棋子选中，再点目标位置。鼠标可以直接拖拽。</p>
+
+          <p><b>悔棋</b>一次退到轮到你走为止，不会出现「悔完立刻又被 AI 走一步」的情况。
+          <b>重做</b>可以前进。悔棋只移动游标，着法不会丢——所以你可以悔完再点着法列表跳回去。</p>
+
+          <p><b>复盘</b>：点右侧着法列表里的任意一步，棋盘会回到那一步之后的局面，
+          状态栏会提示「正在回看」。此时走新着法会截断后面的分支。</p>
+
+          <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
+        </div>
+      </details>
+    </header>
+
+    <div class="xq-stage">
+      <div class="xq-board-col">
+        <div class="xq-board-wrap" id="board-wrap">
+          <div class="xq-board" id="board"></div>
+        </div>
+
+        <div class="xq-toolbar">
+          <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
+          <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
+          <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
+          <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
+          <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
+        </div>
+      </div>
+
+      <aside class="xq-side">
+        <section class="panel xq-panel">
+          <h2>对局</h2>
+
+          <label class="xq-field">
+            <span>挡位</span>
+            <select id="level-select" class="xq-select"></select>
+          </label>
+
+          <label class="xq-field">
+            <span>执子</span>
+            <select id="side-select" class="xq-select">
+              <option value="1">执红（先走）</option>
+              <option value="-1">执黑（后走）</option>
+            </select>
+          </label>
+
+          <p class="xq-status" id="status-text">准备开始</p>
+          <p class="xq-thinking" id="thinking" hidden>思考中…</p>
+        </section>
+
+        <section class="panel xq-panel xq-panel--moves">
+          <h2>着法</h2>
+          <div class="xq-move-list" id="move-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
