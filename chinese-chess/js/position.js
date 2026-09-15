@@ -81,3 +81,63 @@ export function positionSignature(fen) {
   const parts = String(fen).trim().split(/\s+/);
   return `${parts[0]} ${parts[1]}`;
 }
+
+/**
+ * Zobrist 哈希。
+ *
+ * 用 32 位整数（不是 64 位）：搜索节点数在 10^6 量级，
+ * 10^6 / 2^32 ≈ 0.02% 的碰撞概率，而置换表查找时还会校验着法合法性，
+ * 所以碰撞最多导致缓存失效，不会产生错误着法。
+ *
+ * 随机数用固定种子的 xorshift32 生成 —— 必须是确定性的，
+ * 否则同一个局面的哈希每次刷新都不一样，测试没法断言、调试也没法复现。
+ */
+const HASH_SEED = 0x9e3779b9;
+let PIECE_HASH = null;
+let SIDE_HASH = 0;
+
+function initHash() {
+  if (PIECE_HASH) return;
+  let s = HASH_SEED >>> 0;
+  const next = () => {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5; s >>>= 0;
+    return s >>> 0;
+  };
+  // 15 行对应棋子编码 -7..7（行号 = 编码 + 7）；行号 7 是空位，整行留 0
+  PIECE_HASH = [];
+  for (let piece = -7; piece <= 7; piece++) {
+    const row = new Uint32Array(CELLS);
+    if (piece !== EMPTY) for (let i = 0; i < CELLS; i++) row[i] = next();
+    PIECE_HASH.push(row);
+  }
+  SIDE_HASH = next();
+}
+
+/**
+ * 某个棋子站在某一格上的哈希值。
+ *
+ * EMPTY 恒返回 0 —— 这样走子 / 回退时可以把「被吃子」无条件异或进去，
+ * 两边写法完全对称，不用写 if (captured !== EMPTY)，少一处可能写错的地方。
+ */
+export function hashPiece(piece, idx) {
+  if (piece === EMPTY) return 0;
+  initHash();
+  return PIECE_HASH[piece + 7][idx];
+}
+
+/** 轮到黑方走时额外异或的值 */
+export function hashSide() {
+  initHash();
+  return SIDE_HASH;
+}
+
+/** 全量计算一个局面的哈希 */
+export function zobristKey(cells, side) {
+  initHash();
+  let key = 0;
+  for (let i = 0; i < CELLS; i++) key = (key ^ PIECE_HASH[cells[i] + 7][i]) >>> 0;
+  if (side === BLACK) key = (key ^ SIDE_HASH) >>> 0;
+  return key;
+}
