@@ -24,10 +24,12 @@ chinese-chess/
 ├── style.css                 模块样式，复用 ../global.css 的 CSS 变量
 ├── README.md                 本文件
 ├── docs/
-│   ├── design.md             设计文档（数据模型 / 规则 / AI / 界面 / 测试策略）
+│   ├── design.md             设计文档 —— **应该是什么样**
+│   ├── future-work.md        实际做成了什么样、还差什么 —— 偏离 / 可优化项 / 踩坑
 │   ├── plan.md               规则层与记谱层的实现计划
 │   ├── plan-ai.md            AI 层的实现计划
-│   └── plan-ui.md            对局层与界面层的实现计划
+│   ├── plan-ui.md            对局层与界面层的实现计划
+│   └── plan-endgame.md       残局库的实现计划
 ├── js/
 │   ├── config.js             常量 + 子力价值 + 挡位策略表。纯数据
 │   ├── position.js           局面表示 + FEN 读写 + Zobrist 哈希        ← 纯逻辑
@@ -182,6 +184,10 @@ Worker 再算一遍是重复劳动，还让 Worker 多依赖一个模块。
 改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
 
 ## 已知限制
+
+> 下面是一份**给使用者看的摘要**。完整的清单（含每条的改进路径与工作量估算）、
+> 以及「设计里写了但没实现」「实现偏离了设计」的记录，都在
+> [`docs/future-work.md`](./docs/future-work.md)。
 
 | 限制 | 说明 |
 |------|------|
