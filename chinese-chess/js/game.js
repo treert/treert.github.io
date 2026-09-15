@@ -19,6 +19,7 @@ import { START_FEN, RED } from './config.js';
 import { parseFen, toFen, positionSignature } from './position.js';
 import { generateLegalMoves, gameStatus, isThreefoldRepetition, moveFrom, moveTo } from './rules.js';
 import { toNotation } from './notation.js';
+import { findEndgame } from './endgames.js';
 
 export function createGame(options = {}) {
   return {
@@ -147,4 +148,39 @@ export function reset(game) {
 /** 当前这条线上的着法（回看时只到 cursor 为止） */
 export function moveList(game) {
   return game.moves.slice(0, game.cursor);
+}
+
+/**
+ * 切到某一局残局。
+ *
+ * 刻意**不改 level 与 playerSide** —— 玩家在残局里也应该能调挡位、换执子方。
+ * 残局库都是红先，所以玩家执黑时由界面层负责派发一次 AI 搜索
+ * （main.js 的 requestAiMove 已经处理了这种情况）。
+ *
+ * 切换失败（id 不存在）时不动任何状态，返回 false。
+ */
+export function startEndgame(game, endgameId) {
+  const eg = findEndgame(endgameId);
+  if (!eg) return false;
+
+  game.mode = 'endgame';
+  game.endgameId = eg.id;
+  game.initialFen = eg.fen;
+  game.moves = [];
+  game.cursor = 0;
+  return true;
+}
+
+/** 当前这一局的残局元信息；不在残局模式则返回 null */
+export function endgameOf(game) {
+  return game.endgameId ? findEndgame(game.endgameId) || null : null;
+}
+
+/** 退回普通对局（起始局面回到标准开局，清空着法与残局标记） */
+export function exitEndgame(game) {
+  game.mode = 'play';
+  game.endgameId = null;
+  game.initialFen = START_FEN;
+  game.moves = [];
+  game.cursor = 0;
 }

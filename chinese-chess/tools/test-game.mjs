@@ -269,5 +269,56 @@ console.log('对局状态机测试\n');
   check('清空存档', P.clear(fakeStorage({ [P.STORAGE_KEY]: '{}' })), true);
 }
 
+// --- 残局模式 ---
+{
+  const E = await load('endgames.js');
+
+  check('残局库非空', E.ENDGAMES.length > 0, true);
+  check('每一局都有 id / name / fen / source',
+    E.ENDGAMES.every((e) => e.id && e.name && e.fen && e.source), true);
+  check('id 全局唯一',
+    new Set(E.ENDGAMES.map((e) => e.id)).size, E.ENDGAMES.length);
+  check('findEndgame 找得到', E.findEndgame(E.ENDGAMES[0].id).id, E.ENDGAMES[0].id);
+  check('findEndgame 找不到时返回 undefined', E.findEndgame('no-such-id'), undefined);
+  check('按分类筛选（实用残局）',
+    E.endgamesByCategory('practical').every((e) => e.category === 'practical'), true);
+  check('按分类筛选（全部）', E.endgamesByCategory('all').length, E.ENDGAMES.length);
+
+  const first = E.ENDGAMES[0];
+  const g = G.createGame();
+  G.playMove(g, pickMove(g)); // 先走一步，验证换局时会清空
+
+  check('切换到残局成功', G.startEndgame(g, first.id), true);
+  check('模式变成 endgame', g.mode, 'endgame');
+  check('记录了残局 id', g.endgameId, first.id);
+  check('起始局面换成了残局的 FEN', g.initialFen, first.fen);
+  check('着法被清空', g.moves.length, 0);
+  check('游标归零', g.cursor, 0);
+  check('当前局面就是残局局面', G.currentFen(g), first.fen);
+  check('endgameOf 能取回', G.endgameOf(g).id, first.id);
+  check('残局局面的合法着法非空', G.legalMoves(g).length > 0, true);
+
+  check('切换不存在的残局失败', G.startEndgame(g, 'no-such-id'), false);
+  check('切换失败后仍是原来的残局', g.endgameId, first.id);
+
+  // 切残局不该动挡位与执子方 —— 玩家在残局里也要能调
+  g.level = 'easy';
+  g.playerSide = -1;
+  G.startEndgame(g, E.ENDGAMES[1].id);
+  check('切残局不改挡位', g.level, 'easy');
+  check('切残局不改执子方', g.playerSide, -1);
+  check('切到第二局后 endgameOf 跟着变', G.endgameOf(g).id, E.ENDGAMES[1].id);
+
+  // 残局里能正常走子
+  const r = G.playMove(g, pickMove(g));
+  check('残局里能走子', r.ok, true);
+  check('走子后游标前进', g.cursor, 1);
+
+  // reset 只清着法，不退出残局
+  G.reset(g);
+  check('重置后仍标记为 endgame 模式', g.mode, 'endgame');
+  check('重置后回到残局起始局面', G.currentFen(g), E.ENDGAMES[1].fen);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);
