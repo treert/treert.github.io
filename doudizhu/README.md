@@ -191,6 +191,7 @@ node doudizhu/tools/selfplay.mjs 500 hard             # 同挡位自对弈（看
 | `node doudizhu/tools/test-ai.mjs` | AI 层：**不含偷看**、只出合法牌、可复现 |
 | `node doudizhu/tools/selfplay.mjs [局数] [挡位]` | 同挡位自对弈冒烟 + 叫分阈值校准 |
 | `node doudizhu/tools/selfplay.mjs ab [地主挡位] [农民挡位] [局数]` | **强度对照**（`greedy` 是关掉 PIMC 的基线） |
+| `node doudizhu/tools/diag-ai.mjs` | **AI 内部诊断**：PIMC 有没有真的在采样、各开关接上没有 |
 
 合计约 **14 万条断言**，但绝大多数来自**随机不变量检查**而不是手写用例：
 「不偷看」180 个局面 × 4 个挡位、暴力法核对 186 个局面、
