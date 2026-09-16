@@ -34,7 +34,21 @@ import {
 
 const HUMAN = 0;          // 真人固定坐下方的 0 号位
 const BID_PAUSE_MS = 500; // AI 叫分之间的停顿（§9.3 的"逐条播报"）
-const AI_PAUSE_MS = 420;  // AI 出牌之间的停顿
+const AI_PAUSE_MS = 420;  // AI 出完牌到下一手之间的停顿
+// 两手牌之间的**最小**间隔。没有它的话，入门挡位（思考只要几毫秒）
+// 会把一轮瞬间打完，人根本看不清刚才谁出了什么（§9.8）
+const AI_MIN_INTERVAL_MS = 1000;
+
+/**
+ * 上一次"有人出牌并被渲染出来"的时刻。AI 的最小间隔从这里算起 ——
+ * 所以人出完牌之后，AI 的回应也是 1 秒后才出现，不会和自己的出牌挤在同一帧（§9.8）。
+ */
+let lastMoveAt = 0;
+
+/** 等 ms 毫秒。sleep(0) 也会让出一帧，正好避免"同一帧里连出两手" */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const refs = collectRefs();
 
@@ -219,9 +233,16 @@ function tick() {
     refresh();
     const seat = g.turn;
     ask('decide', viewOf(g, seat))
+      // 先思考，思考完再补足间隔 —— **不能**写成"先等 1 秒再思考"：
+      // 高级挡位思考本身要 0.7~1.5 秒，那样会白等一秒（§9.8）
+      .then((res) => {
+        const wait = Math.max(0, AI_MIN_INTERVAL_MS - (Date.now() - lastMoveAt));
+        return sleep(wait).then(() => res);
+      })
       .then((res) => {
         const r = play(g, seat, res.move);
         if (!r.ok) throw new Error(r.reason);
+        lastMoveAt = Date.now();
         refresh();
         setTimeout(tick, AI_PAUSE_MS);
       })
@@ -249,6 +270,7 @@ function startGame() {
   app.resultShown = false;
   // 新开一局立刻落盘：不然用户发完牌就刷新，读到的还是上一局
   flush(app.game, app.level.id);
+  lastMoveAt = Date.now();
   refresh();
   tick();
 }
@@ -284,6 +306,7 @@ function onPlay() {
   resetHint();
   app.note = '';
   app.narrate = '';
+  lastMoveAt = Date.now();
   refresh();
   tick();
 }
@@ -295,6 +318,7 @@ function onPass() {
   app.selected.clear();
   resetHint();
   app.note = '';
+  lastMoveAt = Date.now();
   refresh();
   tick();
 }
@@ -455,6 +479,7 @@ function tryRestore() {
   app.note = '';
   app.busy = false;
   app.resultShown = false;
+  lastMoveAt = Date.now();
   refresh();
   tick();
   return true;
