@@ -44,6 +44,8 @@ const dom = {
   btnClosePicker: document.getElementById('btn-close-picker'),
   pickerFoot: document.getElementById('picker-foot'),
   tabs: document.getElementById('endgame-tabs'),
+  endgameSearch: document.getElementById('endgame-search'),
+  btnClearSearch: document.getElementById('btn-clear-search'),
   endgameList: document.getElementById('endgame-list'),
   btnExitEndgame: document.getElementById('btn-exit-endgame'),
   // 保存 / 导入弹窗（只管往库里加）
@@ -468,13 +470,23 @@ function onWorkerMessage(e) {
 // 当前页签。没有「全部」这一页 —— 页签名与列表内容都来自 endgames.js 的页签表，
 // 所以这里只存一个 id，默认停在第一页。
 let endgameFilter = endgameTabs()[0].id;
+
+// 列表的过滤词。raw 原样留着（回显与空态文案要原话），words 是切好、转小写的关键词。
+//
+// **过滤只在当前页签内生效**，不跨页签搜 —— 页签是「分类」，跨页签搜会让
+// 页签和列表各说各话。跨页签的线索改由**页签徽标**提供：有过滤词时徽标显示各页的命中数，
+// 所以「搜的词其实在隔壁那一页」一眼就能看出来（见 countByCategory）。
+//
+// 过滤词不跨「打开弹窗」这个动作活着：closePicker 会把它清掉。
+let endgameQuery = { raw: '', words: [] };
+
 // 自定义局面在内存里的副本。它是 endgames.js 注册表的来源 ——
 // 每次增删后重新读一遍 localStorage 并重新注册，其它地方（game.js / persist.js）
 // 就完全不需要知道「自定义」这回事。
 let customList = [];
 
-// 上次渲染列表用的签名（当前选中哪一局 + 自定义有几条）。
-// 避免每次 refresh 都重建几十个按钮、把用户滚动的位置冲掉。
+// 上次渲染列表用的签名（当前选中哪一局 + 自定义有几条 + 哪个页签 + 过滤词）。
+// 避免每次 refresh 都重建几百个按钮、把用户滚动的位置冲掉。
 let renderedListKey = '\u0000';
 
 function refreshCustom() {
@@ -495,11 +507,63 @@ function tabOf(id) {
   return endgameTabs().find((t) => t.id === id);
 }
 
-/** 每个页签有几条 —— 徽标用。直接数当前数据，自定义那一页会随增删变 */
+// === 列表过滤 ===
+//
+// 内置库从 15 局收成《适情雅趣》全谱 550 局之后，滚动列表就不好使了，所以加一道过滤。
+//
+// **只匹配名字。** 名字是列表上唯一显示的文本，也是唯一同时带着局号与局名的地方
+// （「第473局 中外义安」），所以「473」「中外」「473 中外」都能命中。
+// 不去匹配 FEN 这类看不见的字段 —— 命中了用户也不知道为什么（「这行为什么会在这儿？」）。
+//
+// 空白分隔的多个词是「与」：全都要出现在名字里。所以「473 中外」能进一步收窄。
+
+/** 一局的名字是否命中当前过滤词 */
+function matchesQuery(name) {
+  const n = name.toLowerCase();
+  return endgameQuery.words.every((w) => n.includes(w));
+}
+
+/** 某一页命中过滤词的条数 —— 页签徽标与空态文案都用它 */
+function matchCount(tab) {
+  return tab.entries.filter((e) => matchesQuery(e.name)).length;
+}
+
+/**
+ * 每个页签有几条 —— 徽标用。
+ *
+ * **有过滤词时显示的是「这一页命中几条」**，不是总条数。这不是装饰：
+ * 过滤只在当前页签内生效，光看列表的话「搜「473」却一条都没有」看起来就是坏了；
+ * 徽标跟着变，等于在说「你要找的东西在那一页」。
+ * 自定义那一页会随增删变，所以每次都现数。
+ */
 function countByCategory() {
   const counts = {};
-  for (const tab of endgameTabs()) counts[tab.id] = tab.entries.length;
+  for (const tab of endgameTabs()) counts[tab.id] = matchCount(tab);
   return counts;
+}
+
+/**
+ * 清掉过滤词。
+ *
+ * `rebuild = false` 是给 closePicker 用的：那条路径上清完就要关弹窗，
+ * 再重建一次几百行的列表纯属白费（还会让关弹窗掉一帧）。列表反正下次打开会强制重建。
+ */
+function clearQuery(rebuild = true) {
+  endgameQuery = { raw: '', words: [] };
+  dom.endgameSearch.value = '';
+  dom.btnClearSearch.hidden = true;
+  if (!rebuild) return;
+  syncTabs();
+  syncEndgameList();
+}
+
+/** 输入框内容变了 —— 重建列表，并让页签徽标跟着变成各页的命中数 */
+function setQuery(raw) {
+  if (raw === endgameQuery.raw) return;
+  endgameQuery = { raw, words: raw.trim().toLowerCase().split(/\s+/).filter(Boolean) };
+  dom.btnClearSearch.hidden = endgameQuery.words.length === 0;
+  syncTabs();
+  syncEndgameList();
 }
 
 /** 建页签。只在初始化时调一次，之后靠 syncTabs 更新选中态和条数 */
@@ -577,16 +641,40 @@ function endgameTooltip(eg) {
     + (eg.note ? `\n${eg.note}` : '');
 }
 
+/**
+ * 列表空着时说什么。
+ *
+ * 两种情况必须分开讲，否则「搜了半天一条都没有」会被当成坏了：
+ *   这一页本来就是空的（比如还没存过自定义局面）→ 用页签自己的 empty 文案
+ *   这一页有东西、只是没命中过滤词 → 说清是过滤词没命中，并指出去哪一页找
+ */
+function emptyListText(tab, total) {
+  if (total === 0) return (tab && tab.empty) || '这个分类下还没有局面。';
+
+  const others = endgameTabs()
+    .filter((t) => t.id !== endgameFilter)
+    .map((t) => ({ label: t.label, n: matchCount(t) }))
+    .filter((t) => t.n > 0);
+
+  const tail = others.length
+    ? `（${others.map((t) => `${t.label} ${t.n} 条`).join('、')}，点上面的页签切过去）`
+    : '换个词试试，或者点右边「✕」清空。';
+  return `这一页没有匹配「${endgameQuery.raw}」的局面。${tail}`;
+}
+
 function renderEndgameList() {
   dom.endgameList.textContent = '';
 
-  const list = endgamesByCategory(endgameFilter);
+  // 先按页签取数据（它顺带补上 category），再按过滤词筛
+  const all = endgamesByCategory(endgameFilter);
+  const list = endgameQuery.words.length
+    ? all.filter((eg) => matchesQuery(eg.name))
+    : all;
+
   if (list.length === 0) {
-    // 空态文案也是页签自己的（见 endgames.js 的 empty 字段），没给就用通用那句
-    const tab = tabOf(endgameFilter);
     const p = document.createElement('p');
     p.className = 'xq-empty';
-    p.textContent = (tab && tab.empty) || '这个分类下还没有局面。';
+    p.textContent = emptyListText(tabOf(endgameFilter), all.length);
     dom.endgameList.appendChild(p);
     return;
   }
@@ -629,9 +717,9 @@ function renderEndgameList() {
   }
 }
 
-/** 列表内容取决于三件事：选中的是哪一局、自定义有几条、当前在哪个页签 */
+/** 列表内容取决于四件事：选中的是哪一局、自定义有几条、当前在哪个页签、过滤词是什么 */
 function listKey() {
-  return `${app.game.endgameId || ''}:${customList.length}:${endgameFilter}`;
+  return `${app.game.endgameId || ''}:${customList.length}:${endgameFilter}:${endgameQuery.raw}`;
 }
 
 /** 只在列表内容真的可能变了时才重建 */
@@ -741,7 +829,14 @@ function openPicker() {
 }
 
 function closePicker() {
-  if (dom.picker.open) dom.picker.close();
+  if (!dom.picker.open) return;
+
+  // 过滤词不跨「打开弹窗」这个动作活着：下次打开局面库应该看到完整的一页，
+  // 而不是上次搜剩下的三行 —— 那看起来就像库里少了东西。
+  // 只清状态、**不重建列表**：openPicker 反正会强制重建，这里再建几百行是白费。
+  clearQuery(false);
+  renderedListKey = '\u0000';
+  dom.picker.close();
 }
 
 function openIo() {
@@ -899,6 +994,26 @@ function bindPicker() {
   // 说明点在了内容之外 —— 这是原生 dialog 的惯用做法。
   dom.picker.addEventListener('click', (e) => {
     if (e.target === dom.picker) closePicker();
+  });
+
+  // 过滤框：边打边筛。550 局重建一次是几十毫秒级的事（一次几百个 DOM 节点），
+  // 不值得为它上防抖 —— 防抖反而会让「打完字列表还没跟上」这种小事变得可感知。
+  dom.endgameSearch.addEventListener('input', () => setQuery(dom.endgameSearch.value));
+
+  dom.btnClearSearch.addEventListener('click', () => {
+    clearQuery();
+    dom.endgameSearch.focus();
+  });
+
+  // Esc 的两级含义：先清过滤词，清完再按才关弹窗。
+  //
+  // **必须在 dialog 的 cancel 事件上拦，不是在输入框的 keydown 上** ——
+  // 「按 Esc 关弹窗」是 <dialog> 自己处理原生行为，不是 keydown 冒泡上去的，
+  // 在输入框里 stopPropagation() 拦不住它。cancel 才是官方的可拦截点。
+  dom.picker.addEventListener('cancel', (e) => {
+    if (!endgameQuery.words.length) return; // 框里本来就是空的 → 放行，正常关闭
+    e.preventDefault();
+    clearQuery();
   });
 }
 

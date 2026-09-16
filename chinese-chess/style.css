@@ -623,6 +623,42 @@ kbd {
   opacity: .85;
 }
 
+/* === 局面过滤框 === */
+/* 页签与列表之间的一道输入框。它是**页签内**的过滤（不跨页签搜），
+   跨页签的线索交给页签徽标 —— 有过滤词时徽标显示的是各页的命中数。
+   内置库收成全谱 550 局之后，没有它就是一路滚。 */
+.xq-search {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.xq-search .xq-input {
+  padding: 7px 10px;
+}
+.xq-search-clear {
+  flex-shrink: 0;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.xq-search-clear:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+/* **必须显式再写一条。** UA 的 `[hidden] { display: none }` 会被上面那句
+   `display: flex` 覆盖掉（作者样式优先于 UA 样式），于是 el.hidden = true 不起作用。
+   和 .xq-dialog-foot[hidden] 是同一个坑。 */
+.xq-search-clear[hidden] {
+  display: none;
+}
+
 /* === 残局 / 自定义局面列表 === */
 .xq-endgame-list {
   flex: 1;
@@ -735,7 +771,7 @@ kbd {
   flex-direction: column;
 }
 
-/* 局面库弹窗：**高度固定**。列表条数随页签变（15 / 8 / 0 条），
+/* 局面库弹窗：**高度固定**。列表条数随页签和过滤词变（550 / 8 / 0 条…），
    高度再不固定的话弹窗会一会长一会短，连它居中的位置都跟着跳。
    定成 78vh / 700px 和上面的 max-height 同口径，只是从「最多这么高」改成「就这么高」；
    条数多少都由 .xq-endgame-list 自己滚（body flex: 1 + 列表 overflow-y: auto）。

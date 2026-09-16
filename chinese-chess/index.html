@@ -148,6 +148,18 @@
       <!-- 页签由 main.js 的 renderTabs() 按 endgames.js 的页签表（endgameTabs()）生成，
            每个带一个条数徽标。加一页只改那边的 TABS -->
       <div class="xq-tabs" id="endgame-tabs" role="tablist" aria-label="局面分类"></div>
+
+      <!-- 过滤框。内置库现在是《适情雅趣》全谱 550 局，光靠滚找不到具体一局。
+           它是**页签内**的过滤，不跨页签搜；但页签徽标会跟着变成各页的命中数，
+           所以「要搜的东西其实在别的页签里」从徽标上就能看出来（main.js 里 countByCategory） -->
+      <div class="xq-search">
+        <input type="text" class="xq-input" id="endgame-search" autocomplete="off"
+               placeholder="过滤：局号或局名，如「473」「马」"
+               aria-label="按局号或局名过滤这一页的局面">
+        <button type="button" class="xq-search-clear" id="btn-clear-search"
+                aria-label="清空过滤词" title="清空过滤词" hidden>✕</button>
+      </div>
+
       <div class="xq-endgame-list" id="endgame-list" role="tabpanel"></div>
     </div>
 
