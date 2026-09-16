@@ -43,13 +43,31 @@ export function decide(view, level, rng, stats = null) {
   const last = view.trick.lastPlay ? view.trick.lastPlay.combo : null;
   const passMove = last ? { kind: 'pass' } : null;
 
+  // 诊断量**必须在所有早退之前初始化**。否则调用方看到 `worlds === 0`
+  // 时分不清「PIMC 采了 0 个世界」和「根本没走到 PIMC」——
+  // 实测里这两种情况混在一起占了近一半的决策次数（见 future-work 的 E10）。
+  // `path` 就是把这个区分直接摆出来。
+  if (stats) {
+    stats.path = 'unknown';
+    stats.candidates = 0;
+    stats.worlds = 0;
+    stats.nodes = 0;
+  }
+
   // —— 1. 一手走完，短路 ——
   const winNow = finishNow(view.myHand, last);
-  if (winNow) return { kind: 'play', cards: winNow };
+  if (winNow) {
+    if (stats) stats.path = 'finish';
+    return { kind: 'play', cards: winNow };
+  }
 
   // —— 2. 候选：一次算好，所有世界共用同一份，投票才可比 ——
   const withCombos = playsWithCombos(view.myHand, last);
-  if (withCombos.length === 0) return passMove;
+  if (withCombos.length === 0) {
+    // 跟牌时压不过上一手 —— 这个分支比想象中常见
+    if (stats) stats.path = 'no-move';
+    return passMove;
+  }
 
   const asMoves = withCombos.map((c) => ({ kind: 'play', cards: c.cards }));
   const scored = rankMoves(view, asMoves, level);
@@ -61,7 +79,7 @@ export function decide(view, level, rng, stats = null) {
   const options = kept.map((m) => ({ move: m, combo: comboOf.get(m.cards.join(',')) }));
   if (passMove) options.push({ move: passMove, combo: null });
 
-  if (stats) { stats.candidates = options.length; stats.worlds = 0; stats.nodes = 0; }
+  if (stats) { stats.candidates = options.length; stats.path = 'greedy'; }
 
   // —— 3a. 贪心：不做任何"猜牌" ——
   if (!level.samples || level.samples <= 1) {
@@ -69,6 +87,7 @@ export function decide(view, level, rng, stats = null) {
   }
 
   // —— 3b. PIMC ——
+  if (stats) stats.path = 'pimc';
   const deadline = Date.now() + (level.thinkMs || 1000);
   const searchStats = newStats();
   const ctx = { deadline, width: level.innerWidth || 1, stats: searchStats };
@@ -105,7 +124,10 @@ export function decide(view, level, rng, stats = null) {
   if (stats) { stats.worlds = worlds; stats.nodes = searchStats.nodes; }
 
   if (votes.size === 0) {
-    // 一次都没采成（预算太紧）→ 退回贪心，绝不返回空
+    // 一次都没采成（预算太紧）→ 退回贪心，绝不返回空。
+    // 正常参数下走不到这里（i=0 时 deadline 一定还没到），所以它同时是个哨兵：
+    // selfplay 里如果 path 出现这个值，说明 thinkMs 被调得太小了。
+    if (stats) stats.path = 'pimc-fallback';
     return pickMove(rankMoves(view, options.map((o) => o.move), level), level, rng);
   }
 
