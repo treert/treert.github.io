@@ -337,7 +337,12 @@ console.log('对局状态机测试\n');
   check('findEndgame 找不到时返回 undefined', E.findEndgame('no-such-id'), undefined);
   check('按分类筛选（实用残局）',
     E.endgamesByCategory('practical').every((e) => e.category === 'practical'), true);
-  check('按分类筛选（全部）', E.endgamesByCategory('all').length, E.ENDGAMES.length);
+  check('不传分类 = 内置 + 自定义', E.endgamesByCategory().length, E.allEndgames().length);
+  check('页签表：id 不重复、都有显示名',
+    E.endgameTabs().every((t) => t.id && t.label)
+      && new Set(E.endgameTabs().map((t) => t.id)).size === E.endgameTabs().length, true);
+  check('每一页签取出来的局面都带上了自己的 category',
+    E.endgameTabs().every((t) => E.endgamesByCategory(t.id).every((e) => e.category === t.id)), true);
 
   const first = E.ENDGAMES[0];
   const g = G.createGame();

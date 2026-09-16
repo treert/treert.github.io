@@ -13,8 +13,8 @@ import * as G from './game.js';
 import { createRenderer } from './renderer.js';
 import { attachInteraction } from './interaction.js';
 import { saveSoon, restoreInto, defaultStorage } from './persist.js';
-import { CATEGORIES, RESULTS, endgamesByCategory, setCustomEndgames } from './endgames.js';
-import { loadCustom, addCustom, removeCustom } from './custom-endgames.js';
+import { RESULTS, endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
+import { loadCustom, addCustom, removeCustom, CUSTOM_CATEGORY } from './custom-endgames.js';
 import { shareUrl, readShareFen } from './share.js';
 
 const dom = {
@@ -465,7 +465,9 @@ function onWorkerMessage(e) {
 
 // === 局面库（残局 + 自定义局面） ===
 
-let endgameFilter = 'all';
+// 当前页签。没有「全部」这一页 —— 页签名与列表内容都来自 endgames.js 的页签表，
+// 所以这里只存一个 id，默认停在第一页。
+let endgameFilter = endgameTabs()[0].id;
 // 自定义局面在内存里的副本。它是 endgames.js 注册表的来源 ——
 // 每次增删后重新读一遍 localStorage 并重新注册，其它地方（game.js / persist.js）
 // 就完全不需要知道「自定义」这回事。
@@ -484,14 +486,19 @@ function refreshCustom() {
 //
 // 原来是下拉框。下拉框把「内置残局」和「自定义局面」混在同一个列表里，
 // 看不出边界；换成页签之后两者是并列的、随时能切。
+//
+// **页签表在 endgames.js 里（endgameTabs()）**，加一页只改那边 ——
+// 这里只把表渲染成 DOM，不写死任何分类名，也就没有「界面和数据两边漏改」这回事。
 
-/** 每个分类有几条 —— 页签上的徽标用 */
+/** 当前页签的定义（取它的空态提示之类） */
+function tabOf(id) {
+  return endgameTabs().find((t) => t.id === id);
+}
+
+/** 每个页签有几条 —— 徽标用。直接数当前数据，自定义那一页会随增删变 */
 function countByCategory() {
-  const counts = { all: 0 };
-  for (const eg of endgamesByCategory('all')) {
-    counts.all++;
-    counts[eg.category] = (counts[eg.category] || 0) + 1;
-  }
+  const counts = {};
+  for (const tab of endgameTabs()) counts[tab.id] = tab.entries.length;
   return counts;
 }
 
@@ -499,13 +506,11 @@ function countByCategory() {
 function renderTabs() {
   dom.tabs.textContent = '';
 
-  // 「全部」不是 CATEGORIES 里的分类，但它是最常用的入口，单独放第一个
-  const items = [['all', '全部'], ...Object.entries(CATEGORIES)];
-  for (const [key, label] of items) {
+  for (const { id, label } of endgameTabs()) {
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'xq-tab';
-    tab.dataset.filter = key;
+    tab.dataset.filter = id;
     tab.setAttribute('role', 'tab');
     tab.textContent = label;
 
@@ -513,7 +518,7 @@ function renderTabs() {
     count.className = 'xq-tab-count';
     tab.appendChild(count);
 
-    tab.addEventListener('click', () => setFilter(key));
+    tab.addEventListener('click', () => setFilter(id));
     dom.tabs.appendChild(tab);
   }
   syncTabs();
@@ -577,11 +582,11 @@ function renderEndgameList() {
 
   const list = endgamesByCategory(endgameFilter);
   if (list.length === 0) {
+    // 空态文案也是页签自己的（见 endgames.js 的 empty 字段），没给就用通用那句
+    const tab = tabOf(endgameFilter);
     const p = document.createElement('p');
     p.className = 'xq-empty';
-    p.textContent = endgameFilter === 'custom'
-      ? '还没有自定义局面。把当前下到一半的棋存一个，或者粘一段 FEN 进来。'
-      : '这个分类下还没有局面。';
+    p.textContent = (tab && tab.empty) || '这个分类下还没有局面。';
     dom.endgameList.appendChild(p);
     return;
   }
@@ -723,6 +728,11 @@ function setIoMsg(text, isError = false) {
 }
 
 function openPicker() {
+  // 正在某一局里 → 页签先切到它所在的那一页。没有「全部」页签之后，
+  // 不切的话「高亮的那一行」会藏在别的页签里，一眼看不出自己在哪。
+  const eg = G.endgameOf(app.game);
+  if (eg && tabOf(eg.category)) endgameFilter = eg.category;
+
   // 强制重建：自定义局面可能刚在「保存 / 导入」那边加过或删过
   renderedListKey = '\u0000';
   syncTabs();
@@ -756,7 +766,7 @@ function closeIo() {
 function afterCustomChanged(entry, prefix) {
   refreshCustom();
   dom.customName.value = '';
-  endgameFilter = 'custom';
+  endgameFilter = CUSTOM_CATEGORY;
   renderedListKey = '\u0000';
   syncTabs();
   syncEndgameList();

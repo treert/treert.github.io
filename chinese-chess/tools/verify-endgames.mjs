@@ -10,15 +10,15 @@
  *   2. 局面合法（将帅照面 / 士象出界 / 兵在己方底线 / 子力超限 / 非轮走方被将军）
  *   3. 不是已经终局的局面（轮走方得有合法着法）
  *   4. 轮走方不是已经被将军 —— 出题局面不该从「正在被将」开始
- *   5. 字段规范：category / result 是枚举内的值，difficulty 在 1~5，
- *      id 唯一，name / source 非空
+ *   5. 字段规范：category 必须对应一个页签（endgames.js 的页签表）、
+ *      result 是枚举内的值，difficulty 在 1~5，id 唯一，name / source 非空
  *   6. 子力一致性：result 是「胜」时，先手方的子力价值不应低于对手
  *
  * ## 它刻意不查什么
  *
  * **不校验胜负结论。** 「红先胜」这类标注需要可靠的求解器或权威棋谱，
  * 本模块的引擎（简化评估 + 迭代加深）做不到。
- * 实用残局的结果取自教材定式，经典排局取自《适情雅趣》的性质，逐局未复核。
+ * 实用残局的结果取自教材定式，适情雅趣取自该谱的性质，逐局未复核。
  * 详见 js/endgames.js 文件头。
  */
 
@@ -31,7 +31,11 @@ const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href)
 const { CELLS, EMPTY, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS } = await load('config.js');
 const { parseFen, toFen, yOf } = await load('position.js');
 const { isLegalPosition, generateLegalMoves, inCheck } = await load('rules.js');
-const { ENDGAMES, CATEGORIES, RESULTS } = await load('endgames.js');
+const { ENDGAMES, RESULTS, endgameTabs } = await load('endgames.js');
+
+/** 页签表是 category 的唯一来源 —— 加一页只改 endgames.js，这里不用动 */
+const TABS = endgameTabs();
+const TAB_IDS = new Set(TABS.map((t) => t.id));
 
 let failed = 0;
 
@@ -78,7 +82,7 @@ for (const eg of ENDGAMES) {
   // 字段规范
   if (!eg.name) problems.push('name 为空');
   if (!eg.source) problems.push('source 为空');
-  if (!(eg.category in CATEGORIES)) problems.push(`category「${eg.category}」不在枚举内`);
+  if (!TAB_IDS.has(eg.category)) problems.push(`category「${eg.category}」不对应任何页签`);
   if (!(eg.result in RESULTS)) problems.push(`result「${eg.result}」不在枚举内`);
   if (!Number.isInteger(eg.difficulty) || eg.difficulty < 1 || eg.difficulty > 5) {
     problems.push(`difficulty「${eg.difficulty}」不在 1~5`);
@@ -110,7 +114,7 @@ for (const eg of ENDGAMES) {
 
       // 子力一致性：实用残局里标「胜」时，先手方不该比对手少子。
       //
-      // **只对实用残局查这一条。** 经典排局（《适情雅趣》）恰恰以
+      // **只对实用残局查这一条。** 「适情雅趣」那一页恰恰以
       // 「红方子力更少、靠连杀取胜」为常态 —— 把它们也拦下来是错的，
       // 第一版就是这么写的，12 局排局被误报。
       if (eg.result === 'win' && eg.category === 'practical') {
@@ -132,9 +136,10 @@ for (const eg of ENDGAMES) {
 
 // --- 统计 ---
 console.log('');
-const byCategory = new Map();
-for (const eg of ENDGAMES) byCategory.set(eg.category, (byCategory.get(eg.category) || 0) + 1);
-for (const [cat, n] of byCategory) console.log(`${CATEGORIES[cat] || cat}：${n} 局`);
+// 按页签统计。空页签也要打出来（显示 0 局），才看得出「这一页还没数据」
+for (const tab of TABS) {
+  console.log(`${tab.label}：${ENDGAMES.filter((e) => e.category === tab.id).length} 局`);
+}
 
 const byResult = new Map();
 for (const eg of ENDGAMES) byResult.set(eg.result, (byResult.get(eg.result) || 0) + 1);

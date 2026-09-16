@@ -313,7 +313,7 @@ git commit -m "feat(chinese-chess): 局面合法性校验"
 | `che-vs-shi-xiang-quan` | 单车难胜士象全 | 帅 车 | 将 士象全 | draw |
 | `shuang-che-vs-shi-xiang-quan` | 双车必胜士象全 | 帅 双车 | 将 士象全 | win |
 | `ma-qin-dan-shi` | 马擒单士 | 帅 马 | 将 士 | win |
-| `dan-ma-vs-dan-jiang` | 单马难胜单将 | 帅 马 | 将 | draw |
+| `dan-ma-vs-dan-jiang` | 单马必胜单将 | 帅 马 | 将 | win |
 
 **经典排局（取自《适情雅趣》，15 局）：** 用 `FEN_INDEX` 作 id，`EVENT` 里的局号局名作 name，
 `category: 'composed'`，`result: 'win'`，`source: '《适情雅趣》第 NNN 局（据 kuiba1949/xiangqi-tools 的 FEN 转换，BSD-3）'`。

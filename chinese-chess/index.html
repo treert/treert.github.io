@@ -138,14 +138,15 @@
     </div>
   </div>
 
-  <dialog class="xq-dialog" id="picker">
+  <dialog class="xq-dialog xq-dialog--picker" id="picker">
     <div class="xq-dialog-head">
       <h2>局面库</h2>
       <button type="button" class="xq-dialog-close" id="btn-close-picker" aria-label="关闭">✕</button>
     </div>
 
     <div class="xq-dialog-body">
-      <!-- 页签由 main.js 的 renderTabs() 按 CATEGORIES 生成，每个带一个条数徽标 -->
+      <!-- 页签由 main.js 的 renderTabs() 按 endgames.js 的页签表（endgameTabs()）生成，
+           每个带一个条数徽标。加一页只改那边的 TABS -->
       <div class="xq-tabs" id="endgame-tabs" role="tablist" aria-label="局面分类"></div>
       <div class="xq-endgame-list" id="endgame-list" role="tabpanel"></div>
     </div>

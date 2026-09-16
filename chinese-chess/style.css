@@ -735,6 +735,15 @@ kbd {
   flex-direction: column;
 }
 
+/* 局面库弹窗：**高度固定**。列表条数随页签变（15 / 8 / 0 条），
+   高度再不固定的话弹窗会一会长一会短，连它居中的位置都跟着跳。
+   定成 78vh / 700px 和上面的 max-height 同口径，只是从「最多这么高」改成「就这么高」；
+   条数多少都由 .xq-endgame-list 自己滚（body flex: 1 + 列表 overflow-y: auto）。
+   「保存 / 导入」那个弹窗是普通表单流，没有这个类，不受影响。 */
+.xq-dialog--picker {
+  height: min(78vh, 700px);
+}
+
 .xq-dialog-head {
   display: flex;
   align-items: center;
