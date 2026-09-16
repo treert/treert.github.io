@@ -14,7 +14,7 @@ import { createRenderer } from './renderer.js';
 import { attachInteraction } from './interaction.js';
 import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { RESULTS, endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
-import { loadCustom, addCustom, removeCustom, CUSTOM_CATEGORY } from './custom-endgames.js';
+import { loadCustom, addCustom, renameCustom, removeCustom, validateFreeFen, CUSTOM_CATEGORY } from './custom-endgames.js';
 import { shareUrl, readShareFen } from './share.js';
 
 const dom = {
@@ -56,7 +56,15 @@ const dom = {
   customName: document.getElementById('custom-name'),
   btnSaveCurrent: document.getElementById('btn-save-current'),
   fenInput: document.getElementById('fen-input'),
+  btnLoadFen: document.getElementById('btn-load-fen'),
   btnImportFen: document.getElementById('btn-import-fen'),
+  // 重命名弹窗（从局面库「自定义」页签里每一行的 ✎ 打开）
+  renameDialog: document.getElementById('rename-dialog'),
+  btnCloseRename: document.getElementById('btn-close-rename'),
+  renameHint: document.getElementById('rename-hint'),
+  renameInput: document.getElementById('rename-input'),
+  btnDoRename: document.getElementById('btn-do-rename'),
+  renameMsg: document.getElementById('rename-msg'),
 };
 
 // localStorage 只取一次。拿不到（隐私模式）时自定义局面存不了，
@@ -149,11 +157,13 @@ function setStatus(...parts) {
 }
 
 /**
- * 现在是不是处在一个**自由局面**上 —— 起始局面既不是标准开局、也不在残局库里。
+ * 现在是不是处在一个**临时局面**（代码里叫「自由局面」）上 ——
+ * 起始局面既不是标准开局、也不在残局库里。
  *
- * 目前唯一的来源是分享链接（见 applyShareLink）。之所以不另存一个标志位，
- * 是为了让**从存档恢复出来的也认得出来** —— 刷新前后表现一致，
- * 因为状态只有一个来源：`game.initialFen`。
+ * 来源有两个，都**不进库**：点开别人分享的链接（`applyShareLink`），
+ * 或者在「保存 / 导入」里粘一段 FEN 直接载入（`loadFen`）。
+ * 之所以不另存一个标志位，是为了让**从存档恢复出来的也认得出来** ——
+ * 刷新前后表现一致，因为状态只有一个来源：`game.initialFen`。
  */
 function isFreePosition() {
   return !G.endgameOf(app.game) && app.game.initialFen !== START_FEN;
@@ -196,8 +206,9 @@ function updateChrome() {
   setStatus(...parts);
   dom.status.classList.toggle('xq-status--over', over);
 
-  // 自由局面（分享链接来的）没有元信息，但同样要有一行说明「这是什么、走了几步」，
-  // 也**同样要能退出去** —— 否则用户会卡在一个不知道从哪来的局面上。
+  // 临时局面（分享链接来的、或者粘 FEN 直接摆上来的）没有元信息，但同样要有一行
+  // 说明「这是什么、走了几步」，也**同样要能退出去** ——
+  // 否则用户会卡在一个不知道从哪来的局面上。
   const showStart = !!(eg || free);
   dom.endgameGoal.hidden = !showStart;
   if (eg) {
@@ -205,7 +216,7 @@ function updateChrome() {
     const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
     dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
   } else if (free) {
-    dom.endgameGoal.textContent = `分享的局面 · 已走 ${app.game.cursor} 步`;
+    dom.endgameGoal.textContent = `临时局面 · 已走 ${app.game.cursor} 步`;
   }
   // 不在残局里时整条底栏一起隐藏 —— 否则会留一条空的横线
   dom.btnExitEndgame.hidden = !showStart;
@@ -698,11 +709,23 @@ function renderEndgameList() {
 
     btn.append(name, meta);
     btn.title = endgameTooltip(eg);
+    // 记下 id：改完名字列表要整块重建，靠它才能在重建之后把焦点找回来（见 doRename）
+    btn.dataset.egId = eg.id;
     btn.addEventListener('click', () => loadEndgame(eg.id));
     row.appendChild(btn);
 
-    // 只有自定义局面能删 —— 静态残局库是代码里的数据，删了下次刷新又回来
+    // 只有自定义局面能改名 / 删 —— 静态残局库是代码里的数据，改了删了下次刷新又回来。
+    // 顺序是先 ✎ 后 ✕：破坏性的那个永远放最右边
     if (eg.custom) {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'xq-endgame-edit';
+      edit.textContent = '✎';
+      edit.title = `给「${eg.name}」改个名字`;
+      edit.setAttribute('aria-label', `重命名 ${eg.name}`);
+      edit.addEventListener('click', () => openRename(eg));
+      row.appendChild(edit);
+
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'xq-endgame-del';
@@ -765,6 +788,84 @@ function deleteCustom(eg) {
   }
 }
 
+// === 给自定义局面改名 ===
+
+/** 正在改名的那一条的 id。弹窗关掉就清空 */
+let renameTarget = null;
+
+/**
+ * 打开重命名弹窗。
+ *
+ * `eg` 是**列表里那一份**（`endgamesByCategory` 造出来的副本），只拿来预填和显示旧名字。
+ * 真正落盘时靠 id 重新在库里找 —— 这份副本在弹窗开着的时候可能已经过期
+ * （另一个标签页把它删了），所以 `renameCustom` 找不到 id 时是返回失败而不是抛错。
+ */
+function openRename(eg) {
+  renameTarget = eg.id;
+  setMsg(dom.renameMsg, '');
+  dom.renameHint.textContent = `只改名字，局面本身不动。原名：「${eg.name}」。`;
+  dom.renameInput.value = eg.name;
+  if (!dom.renameDialog.open) dom.renameDialog.showModal();
+  dom.renameInput.focus();
+  dom.renameInput.select(); // 选中整个旧名字：想全换掉就直接打，不用先 Ctrl+A
+}
+
+function closeRename() {
+  if (dom.renameDialog.open) dom.renameDialog.close();
+  renameTarget = null;
+}
+
+function doRename() {
+  if (!renameTarget) return;
+  const id = renameTarget; // closeRename 会把它清掉，先留住
+
+  const r = renameCustom(storage, id, dom.renameInput.value);
+  if (!r.ok) {
+    setMsg(dom.renameMsg, r.reason, true);
+    return;
+  }
+
+  refreshCustom();
+
+  // **必须强制重建。** `listKey()` 只看「选中哪一局 / 自定义几条 / 哪个页签 / 过滤词」，
+  // 改名这四个一个都没动 —— 不强制的话 `syncEndgameList` 直接 return，
+  // 列表上还挂着旧名字（看起来像「点了保存没反应」）。
+  renderedListKey = '\u0000';
+  // 有过滤词时，改名会改变各页的命中数（搜「旧名字」改成别的就没了）
+  syncTabs();
+  // 用 updateChrome 而不是 renderPickerButton：**名字显示在三个地方** ——
+  // 列表、标题行、还有棋盘上方那行目标（「「旧名字」· 自定义局面 · 已走 0 步」）。
+  // 只更新标题行的话，目标行会一直挂着旧名字。
+  // 它内部会把列表和标题行一起更新；棋盘不用重绘（局面根本没变）。
+  updateChrome();
+  closeRename();
+
+  // **重建把刚才那个 ✎ 连 DOM 一起换掉了。** 原生 dialog 关闭时想把焦点还给它，
+  // 找不到人就只能落到 `<body>`（实测如此）—— 键盘用户会被丢回弹窗开头。
+  // 所以自己接上：焦点放到改名后的那一行，接着就能继续操作列表。
+  // 若此刻正被过滤词挡着，这一行根本不在列表里，`btn` 为 null，什么都不做。
+  const row = dom.endgameList.querySelector(`[data-eg-id="${id}"]`);
+  if (row) row.focus();
+}
+
+function bindRename() {
+  dom.btnCloseRename.addEventListener('click', closeRename);
+  dom.btnDoRename.addEventListener('click', doRename);
+
+  // 点遮罩关闭，同另外两个弹窗
+  dom.renameDialog.addEventListener('click', (e) => {
+    if (e.target === dom.renameDialog) closeRename();
+  });
+
+  // 在名字框里按回车直接保存
+  dom.renameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      doRename();
+    }
+  });
+}
+
 // === 玩法说明（标题行的问号图标） ===
 
 /**
@@ -793,15 +894,16 @@ function bindHelp() {
 //
 // 两个弹窗，职责分开：
 //   局面库（picker）   只管「挑」—— 页签 + 列表 + 退出残局
-//   保存 / 导入（io）  只管「往库里加」—— 存当前局面 / 导入 FEN
+//   保存 / 导入（io）  只管「把一段局面放哪儿」—— 存当前局面 / 存粘进来的 FEN / 粘进来直接载入
 //
-// 分家的理由：这三件事的方向根本不一样。「挑」是读，「存 / 导入」是往库里写，
-// 而「复制 FEN」是把当前局面取出去 —— 最后那个还是个即时动作（和悔棋 / 翻转同类），
-// 所以它连弹窗都不要，直接做成棋盘下方工具栏上的按钮（见 copyCurrentFen）。
+// 分家的理由：这几件事的方向不一样。「挑」是读；弹窗里那几个是「进」——
+// 存进库里（要留下来反复练）或者摆到棋盘上（只是看看、接着下）；
+// 而「复制 FEN / 复制链接」是「出」，而且是个即时动作（和悔棋 / 翻转同类），
+// 连弹窗都不要，直接做成棋盘下方工具栏上的按钮（见 copyCurrentFen）。
 
 /** 任意一个模态弹窗开着 —— 全局快捷键要让路 */
 function anyDialogOpen() {
-  return dom.picker.open || dom.ioDialog.open;
+  return dom.picker.open || dom.ioDialog.open || dom.renameDialog.open;
 }
 
 /** 弹窗底部的提示行。两个弹窗共用一套样式，各用各的元素 */
@@ -899,6 +1001,43 @@ function importFen() {
   afterCustomChanged(r.entry, '已导入并存为');
 }
 
+/**
+ * 把粘进来的 FEN **直接摆到棋盘上** —— 一个「临时局面」，不写进自定义库。
+ *
+ * 和 `importFen` 共用同一个输入框，校验过了再选去处。它俩的准入标准**故意不同**：
+ *
+ *   载入到棋盘   `validateFreeFen` —— 只看局面成不成立
+ *   存为自定义   `validateEndgameFen` —— 还要有练习价值（已经终局的别存）
+ *
+ * 所以一个已经将死的局面：摆上去看看完全合理，存下来则没意义。
+ * 分享链接那一侧用的也是「只看成不成立」这个标准（见 share.js）。
+ */
+function loadFen() {
+  if (app.busy) return; // AI 在想的时候换局面会打架
+
+  const text = dom.fenInput.value.trim();
+  if (!text) {
+    setIoMsg('先把 FEN 粘到下面的框里', true);
+    return;
+  }
+
+  const r = validateFreeFen(text);
+  if (!r.ok) {
+    setIoMsg(r.reason, true);
+    return;
+  }
+
+  app.searchId++; // 作废在飞的响应
+  G.startPosition(app.game, r.fen);
+  clearSelection();
+  app.hint = 0;
+  dom.fenInput.value = '';
+  refresh();
+  saveSoon(app.game);
+  closeIo();
+  requestAiMove(); // 摆上去的局面可能轮到 AI 走（比如黑先而玩家执红）
+}
+
 // 复制成功的提示做在按钮自己身上（文字短暂变成「已复制」）——
 // 它们没有弹窗可以显示提示，而工具栏就在棋盘下方、视线落点上。
 // 每个按钮各记一个定时器：连点两个按钮时，不会互相把对方的提示提前收掉。
@@ -976,13 +1115,13 @@ function renderPickerButton() {
   sep.textContent = '·';
 
   const name = document.createElement('b');
-  name.textContent = eg ? eg.name : (free ? '分享的局面' : '标准开局');
+  name.textContent = eg ? eg.name : (free ? '临时局面' : '标准开局');
 
   dom.btnOpenPicker.append(label, sep, name);
   dom.btnOpenPicker.title = eg
     ? `当前：${eg.name}（点击更换）`
     : free
-      ? '当前是一个分享来的局面（点击换成残局）'
+      ? '当前是一个临时局面（点击换成残局）'
       : '点击选择残局，或把当前局面存起来';
 }
 
@@ -1021,6 +1160,7 @@ function bindIo() {
   dom.btnOpenIo.addEventListener('click', openIo);
   dom.btnCloseIo.addEventListener('click', closeIo);
   dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
+  dom.btnLoadFen.addEventListener('click', loadFen);
   dom.btnImportFen.addEventListener('click', importFen);
 
   dom.ioDialog.addEventListener('click', (e) => {
@@ -1193,6 +1333,7 @@ function init() {
   bindToolbar();
   bindPicker();
   bindIo();
+  bindRename();
   bindHelp();
   bindKeyboard();
 

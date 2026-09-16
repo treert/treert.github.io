@@ -63,8 +63,9 @@
         <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
 
         <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
-        旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，
-        或者粘一段 FEN 把外面弄到的局面收进来。
+        旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，也可以粘一段 FEN ——
+        再选 <b>存为自定义局面</b>（收进库里反复练），或者 <b>载入到棋盘</b>
+        （直接摆上去看看、接着下，不进库）。
         棋盘下方的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
         前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
       </div>
@@ -193,13 +194,43 @@
 
       <section class="xq-io-section">
         <h3>导入外部局面</h3>
-        <p class="xq-io-hint">从别的软件、网页或棋谱里复制来的 FEN 粘到下面。</p>
+        <p class="xq-io-hint">从别的软件、网页或棋谱里复制来的 FEN 粘到下面，再选拿它干什么。</p>
         <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
                   placeholder="4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1"></textarea>
-        <button type="button" class="btn btn-ghost xq-io-btn" id="btn-import-fen">导入</button>
+        <!-- 同一个输入、两个去处：
+             「载入到棋盘」只是把它摆上去（一个临时局面，不进库），
+             「存为自定义局面」是收进库里，以后能在「自定义」页签反复点开。 -->
+        <div class="xq-io-actions">
+          <button type="button" class="btn btn-ghost xq-io-btn" id="btn-load-fen">载入到棋盘</button>
+          <button type="button" class="btn btn-ghost xq-io-btn" id="btn-import-fen">存为自定义局面</button>
+        </div>
       </section>
 
       <p class="xq-dialog-msg" id="io-msg" hidden></p>
+    </div>
+  </dialog>
+
+  <!-- 「重命名」弹窗。只改名字，FEN 一个字符不动 —— 想换局面就重新存一条。
+       藏在局面库「自定义」页签里每一行右边的 ✎ 后面。
+       用弹窗而不是 window.prompt：prompt 没法把「名字最长 40 个字」这类原因显示出来，
+       只能弹个 alert 再来一次。 -->
+  <dialog class="xq-dialog xq-dialog--rename" id="rename-dialog">
+    <div class="xq-dialog-head">
+      <h2>重命名</h2>
+      <button type="button" class="xq-dialog-close" id="btn-close-rename" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="xq-dialog-body xq-dialog-body--form">
+      <section class="xq-io-section">
+        <p class="xq-io-hint" id="rename-hint"></p>
+        <div class="xq-save">
+          <input type="text" class="xq-input" id="rename-input" maxlength="40"
+                 placeholder="给这个局面起个名字">
+          <button type="button" class="btn btn-ghost" id="btn-do-rename">保存名字</button>
+        </div>
+      </section>
+
+      <p class="xq-dialog-msg" id="rename-msg" hidden></p>
     </div>
   </dialog>
 

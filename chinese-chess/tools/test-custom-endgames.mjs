@@ -121,6 +121,29 @@ const IN_CHECK = '4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1';
   check('照面的局面报「照面」', C.validateEndgameFen(FACEOFF).reason.includes('照面'), true);
 }
 
+// === validateFreeFen：粘一段 FEN 直接摆到棋盘上的准入（比入库松一档）===
+//
+// 两条路的差别只有一条：已经终局的局面**能摆上去看，不能存成练习题**。
+// 所以「相同」和「不同」都要钉，别让以后的人顺手合并成一条。
+{
+  check('自由局面校验：合法局面通过', C.validateFreeFen(VALID).ok, true);
+  check('自由局面校验：返回规范化后的 FEN', C.validateFreeFen(VALID).fen, VALID);
+
+  check('自由局面校验接受将死局面', C.validateFreeFen(MATE).ok, true);
+  check('自由局面校验接受困毙局面', C.validateFreeFen(STALE).ok, true);
+  check('同一局面存为自定义则被拒', C.validateEndgameFen(MATE).ok, false);
+
+  // 「局面本身成不成立」这一档两边完全一致
+  for (const [label, fen] of [['照面', FACEOFF], ['解析不了', 'not a fen'], ['空', '']]) {
+    check(`自由局面校验拒绝：${label}`, C.validateFreeFen(fen).ok, false);
+    check(`两条路对「${label}」判定一致`,
+      C.validateFreeFen(fen).ok, C.validateEndgameFen(fen).ok);
+  }
+
+  // 被将军两边都放行
+  check('自由局面校验接受被将军的局面', C.validateFreeFen(IN_CHECK).ok, true);
+}
+
 // === 增删查 ===
 
 {
@@ -179,6 +202,61 @@ const IN_CHECK = '4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1';
   check('拒绝重复局面', dup.ok, false);
   check('重复时提示已经存过', dup.reason.includes('甲'), true);
   check('重复的没写进去', C.loadCustom(st).length, 1);
+}
+
+// === 改名 ===
+//
+// 只动 name：FEN / id / createdAt 都不该变，别的条目也不该被碰。
+// 名字的规矩和新增完全一样（非空、40 字以内、首尾空白去掉）。
+{
+  const st = fakeStorage();
+  const a = C.addCustom(st, { name: '老名字', fen: VALID });
+  const b = C.addCustom(st, { name: '另一条', fen: IN_CHECK });
+
+  const r = C.renameCustom(st, a.entry.id, '新名字');
+  check('改名成功', r.ok, true);
+  check('返回的条目带新名字', r.entry.name, '新名字');
+
+  const read = (id) => C.loadCustom(st).find((e) => e.id === id);
+  check('读回来是新名字', read(a.entry.id).name, '新名字');
+  check('FEN 一个字符没动', read(a.entry.id).fen, a.entry.fen);
+  check('id 没变', read(a.entry.id).id, a.entry.id);
+  check('新建时间没变', read(a.entry.id).createdAt, a.entry.createdAt);
+  check('没碰到别的条目', read(b.entry.id).name, '另一条');
+  check('条数没变', C.loadCustom(st).length, 2);
+
+  // 首尾空白照旧 trim 掉（和新增一个规矩）
+  C.renameCustom(st, a.entry.id, '  带空白的  ');
+  check('名字首尾空白被去掉', read(a.entry.id).name, '带空白的');
+
+  // 拒绝路径：每条都要给出原因
+  for (const [label, name] of [['空名字', ''], ['全是空白', '   '], ['超过 40 个字', '名'.repeat(41)]]) {
+    const v = C.renameCustom(st, a.entry.id, name);
+    check(`拒绝：${label}`, v.ok, false);
+    check(`拒绝 ${label} 时给出原因`, typeof v.reason === 'string' && v.reason.length > 0, true);
+  }
+  check('被拒之后名字原样没动', read(a.entry.id).name, '带空白的');
+  check('刚好 40 个字可以', C.renameCustom(st, a.entry.id, '名'.repeat(40)).ok, true);
+
+  // 界面上那一行可能是几秒前的快照（另一个标签页删了它）—— 要返回失败而不是抛
+  const gone = C.renameCustom(st, 'no-such-id', '随便');
+  check('改不存在的 id 返回失败', gone.ok, false);
+  check('并给出原因', typeof gone.reason === 'string' && gone.reason.length > 0, true);
+
+  check('storage 为 null 时改名失败但不抛', C.renameCustom(null, a.entry.id, 'x').ok, false);
+}
+
+// 名字没真变时**不该写盘** —— 用一台 setItem 必抛的 storage 来证明它确实没写：
+// 名字没变就该直接成功，换个真不一样的名字才会撞上写盘失败。
+{
+  const full = fullStorage();
+  full._raw(C.CUSTOM_KEY, JSON.stringify({
+    v: C.VERSION,
+    items: [{ id: 'e1', name: '原样', fen: VALID, source: '', note: '', createdAt: 1 }],
+  }));
+
+  check('名字没变时直接成功（没写盘）', C.renameCustom(full, 'e1', '原样').ok, true);
+  check('真要改、写盘失败时返回失败而不是抛', C.renameCustom(full, 'e1', '换个名字').ok, false);
 }
 
 // === 损坏数据 ===

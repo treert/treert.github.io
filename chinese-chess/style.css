@@ -693,6 +693,8 @@ kbd {
   text-align: left;
   cursor: pointer;
 }
+/* 每行末尾那两个小图标按钮：改名 / 删除。形状一样，只有 hover 色分好坏 */
+.xq-endgame-edit,
 .xq-endgame-del {
   flex-shrink: 0;
   width: 26px;
@@ -706,6 +708,10 @@ kbd {
   border: none;
   border-radius: 6px;
   cursor: pointer;
+}
+.xq-endgame-edit:hover {
+  color: var(--accent);
+  background: var(--bg);
 }
 .xq-endgame-del:hover {
   color: var(--danger);
@@ -778,6 +784,10 @@ kbd {
    「保存 / 导入」那个弹窗是普通表单流，没有这个类，不受影响。 */
 .xq-dialog--picker {
   height: min(78vh, 700px);
+}
+/* 重命名弹窗：就一行输入，用不着 560px 那么宽 */
+.xq-dialog--rename {
+  width: min(420px, calc(100vw - 32px));
 }
 
 .xq-dialog-head {
@@ -890,6 +900,13 @@ kbd {
   align-self: flex-start;
   padding: 6px 12px;
   font-size: 13px;
+}
+/* 「载入到棋盘」/「存为自定义局面」—— 同一个输入、两个去处，并排摆开。
+   flex-wrap 是为了窄屏：挤不下时换行，而不是把字压扁。 */
+.xq-io-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* 标题行里的「保存 / 导入」按钮，和局面库那个并排 */

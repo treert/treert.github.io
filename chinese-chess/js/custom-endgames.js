@@ -23,7 +23,12 @@
  * ## 校验失败一律带原因
  *
  * 用户是手粘 FEN 的，说「不行」而不说为什么等于没说。
- * validateEndgameFen 返回 { ok, reason }，reason 直接拿去显示。
+ * 校验函数都返回 `{ ok, reason }`，`reason` 直接拿去显示。
+ *
+ * 分两个层次：
+ *
+ *   validateFreeFen      局面成不成立 —— 粘一段 FEN 直接摆到棋盘上（「自由局面」）走这个
+ *   validateEndgameFen   能不能当练习题存下来 —— 比上面多一条「别是已经终局的」
  */
 
 import { parseFen, toFen } from './position.js';
@@ -42,13 +47,19 @@ const MAX_ENTRIES = 100;
 const MAX_NAME = 40;
 
 /**
- * 校验一段 FEN 能不能当局面用，返回 `{ ok, reason, fen }`。
+ * 校验一段 FEN 能不能当**局面**用：能解析 + 局面合法。返回 `{ ok, reason, fen }`。
  *
  * `fen` 是**规范化后**的：尾部三个字段统一成 `- - 0 1`、空白去掉。
  * 规范化有两个好处 —— 存进去的和读出来的永远一致（往返可比），
  * 以及「同一个局面粘两次」能被去重认出来。
+ *
+ * 这是「**自由局面**」的准入标准：粘一段 FEN 直接摆到棋盘上就走它（见 main.js 的 loadFen）。
+ * `share.js` 的 `readShareFen` 是同一套标准，只是它的错误文案要带上「链接里的」，
+ * 所以那边自己写了一遍 —— 改这里的判定时记得两边一起看。
+ *
+ * **只管「局面本身成不成立」，不管「拿它当起点合不合适」** —— 后者是 validateEndgameFen 的事。
  */
-export function validateEndgameFen(fen) {
+export function validateFreeFen(fen) {
   const text = String(fen ?? '').trim();
   if (!text) return { ok: false, reason: 'FEN 是空的' };
 
@@ -62,17 +73,27 @@ export function validateEndgameFen(fen) {
   const legal = isLegalPosition(pos);
   if (!legal.ok) return { ok: false, reason: `局面不合法：${legal.reason}` };
 
-  // 剩这一条是「能下」的前提，和 isLegalPosition 分开写 ——
-  // isLegalPosition 只管「局面本身成不成立」，这条管的是「拿它当起点有没有练习价值」。
-  //
-  // 「轮走方已经被将军」不在这里：那是**合法**局面（他应将就是了），
-  // 而「我正被将、该怎么解」是正当需求，这种局面应该存得下来。
-  // 真正非法的「非轮走方被将军」由 isLegalPosition 挡住。
-  if (generateLegalMoves(pos).length === 0) {
+  return { ok: true, reason: '', fen: toFen(pos) };
+}
+
+/**
+ * 校验一段 FEN 能不能**收进局面库当练习题**用。
+ *
+ * 比 `validateFreeFen` 只多一条：轮走方得有合法着法 —— 已经终局（将死 / 困毙）的局面
+ * 存下来也练不了。
+ *
+ * **「轮走方已经被将军」不禁**：那是合法局面（他应将就是了），
+ * 而「我正被将、该怎么解」是正当需求，这种局面应该存得下来。
+ * 真正非法的「非轮走方被将军」由 `isLegalPosition` 挡住。
+ */
+export function validateEndgameFen(fen) {
+  const base = validateFreeFen(fen);
+  if (!base.ok) return base;
+
+  if (generateLegalMoves(parseFen(base.fen)).length === 0) {
     return { ok: false, reason: '这个局面已经终局了（轮走方无着法可走）' };
   }
-
-  return { ok: true, reason: '', fen: toFen(pos) };
+  return base;
 }
 
 function newId() {
@@ -190,6 +211,37 @@ export function addCustom(storage, { name, fen } = {}) {
     return { ok: false, reason: '写入失败：浏览器存储可能已满或被禁用' };
   }
   return { ok: true, reason: '', entry };
+}
+
+/**
+ * 给已存的一条**改名字**。返回 `{ ok, reason, entry }`，失败时 reason 可直接显示。
+ *
+ * **只动 `name`，FEN 一个字符都不碰** —— 想换局面就重新存一条，那是另一件事。
+ * 名字的规矩和 `addCustom` 完全一样（非空、`MAX_NAME` 字以内），不另立一套。
+ * **不查重名**：`addCustom` 也没查，去重管的是「同一个 FEN 存两遍」。
+ *
+ * `id` 找不到时返回失败而不是抛错 —— 界面上那一行可能是几秒前的快照
+ * （弹窗开着的时候，另一个标签页把它删掉了）。
+ */
+export function renameCustom(storage, id, name) {
+  if (!storage) return { ok: false, reason: '浏览器不允许保存（可能是隐私模式）' };
+
+  const label = String(name ?? '').trim();
+  if (!label) return { ok: false, reason: '名字不能是空的' };
+  if (label.length > MAX_NAME) return { ok: false, reason: `名字最长 ${MAX_NAME} 个字` };
+
+  const list = loadCustom(storage);
+  const i = list.findIndex((e) => e.id === id);
+  if (i < 0) return { ok: false, reason: '这个局面已经不在库里了' };
+
+  // 没真改就别写盘：白写一次多一次「配额满」的失败机会，没有意义
+  if (list[i].name === label) return { ok: true, reason: '', entry: list[i] };
+
+  list[i].name = label;
+  if (!write(storage, list)) {
+    return { ok: false, reason: '写入失败：浏览器存储可能已满或被禁用' };
+  }
+  return { ok: true, reason: '', entry: list[i] };
 }
 
 /** 删一个。id 不存在返回 false */
