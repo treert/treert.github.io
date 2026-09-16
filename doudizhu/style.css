@@ -1,0 +1,557 @@
+/**
+ * 斗地主模块样式。
+ *
+ * 颜色一律走 ../global.css 的 CSS 变量（深浅两套），所以**不需要监听 themechange**
+ * —— 这是选 DOM 渲染而不是 Canvas 的直接收益（design.md §3.3、§9.6）。
+ * 只有"扑克牌自己的颜色"（牌面底色、红桃方块的红、牌背）需要模块级变量，两套都给。
+ *
+ * 类名一律 ddz- 前缀（AGENTS.md 的模块隔离要求）。
+ */
+
+:root {
+  --ddz-card-bg: #fdfdfb;
+  --ddz-card-text: #2d3436;
+  --ddz-card-red: #c0392b;
+  --ddz-card-line: #d8d8d0;
+  --ddz-card-back: #35618f;
+  --ddz-card-back-line: #24466a;
+  --ddz-selected: #0984e3;
+  --ddz-landlord: #e17055;
+  --ddz-felt: #eef2f0;
+}
+
+:root[data-theme="dark"] {
+  --ddz-card-bg: #e9ecf1;
+  --ddz-card-text: #1a1d22;
+  /* 深底上不能沿用大红，会发暗；提到亮一档 */
+  --ddz-card-red: #d6303a;
+  --ddz-card-line: #b9c0cc;
+  --ddz-card-back: #2b4a70;
+  --ddz-card-back-line: #1b3252;
+  --ddz-selected: #4dabf7;
+  --ddz-landlord: #ff9f7f;
+  --ddz-felt: #1b1f27;
+}
+
+/* === 标题行与说明 === */
+
+.ddz-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ddz-title-row h1 {
+  margin: 0;
+  margin-right: auto;
+}
+
+.ddz-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .9rem;
+  color: var(--text-secondary);
+}
+
+.ddz-select {
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+}
+
+.ddz-help {
+  margin-top: 14px;
+  font-size: .92rem;
+  color: var(--text-secondary);
+}
+
+.ddz-help > summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.ddz-help-body p {
+  margin: .6em 0;
+  line-height: 1.7;
+}
+
+.ddz-help-body b {
+  color: var(--text);
+}
+
+.ddz-help kbd {
+  font-family: var(--mono);
+  font-size: .82em;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* === 牌桌 === */
+
+.ddz-board {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--ddz-felt);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 14px;
+}
+
+.ddz-foes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.ddz-foe {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  min-height: 96px;
+}
+
+.ddz-foe--turn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.ddz-foe-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .88rem;
+  color: var(--text-secondary);
+}
+
+.ddz-foe-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ddz-count {
+  font-family: var(--mono);
+}
+
+.ddz-badge {
+  font-size: .72rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ddz-landlord);
+  color: #fff;
+  font-weight: 700;
+}
+
+.ddz-play {
+  margin-top: 8px;
+  min-height: 62px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.ddz-center {
+  text-align: center;
+}
+
+.ddz-trump-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 62px;
+}
+
+.ddz-trump-label {
+  font-size: .82rem;
+  color: var(--text-secondary);
+}
+
+.ddz-trump {
+  display: flex;
+  gap: 4px;
+}
+
+.ddz-status {
+  margin-top: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  min-height: 1.4em;
+}
+
+.ddz-note {
+  margin-top: 4px;
+  font-size: .88rem;
+  color: var(--danger);
+  min-height: 1.2em;
+}
+
+.ddz-meter {
+  margin-top: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  font-size: .84rem;
+  color: var(--text-secondary);
+}
+
+.ddz-meter b {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+/* === 出牌区（我的） === */
+
+.ddz-mine-play {
+  margin-top: 14px;
+  min-height: 74px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.ddz-mine-play--turn {
+  border-color: var(--accent);
+}
+
+.ddz-pass-mark {
+  font-size: .9rem;
+  color: var(--text-secondary);
+  padding: 0 6px;
+}
+
+/* === 牌 === */
+
+.ddz-card {
+  --ddz-card-w: 56px;
+  --ddz-card-h: 78px;
+  width: var(--ddz-card-w);
+  height: var(--ddz-card-h);
+  flex: 0 0 auto;
+  border-radius: 6px;
+  border: 1px solid var(--ddz-card-line);
+  background: var(--ddz-card-bg);
+  color: var(--ddz-card-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  line-height: 1.05;
+  user-select: none;
+  position: relative;
+  padding: 0;
+  font-family: var(--font);
+}
+
+.ddz-card--red {
+  color: var(--ddz-card-red);
+}
+
+.ddz-rank {
+  font-size: 1.15rem;
+}
+
+.ddz-suit {
+  font-size: .95rem;
+}
+
+.ddz-card--joker .ddz-rank {
+  font-size: .78rem;
+  writing-mode: vertical-rl;
+  letter-spacing: 1px;
+}
+
+.ddz-card--small {
+  --ddz-card-w: 40px;
+  --ddz-card-h: 56px;
+  border-radius: 5px;
+}
+
+.ddz-card--small .ddz-rank { font-size: .88rem; }
+.ddz-card--small .ddz-suit { font-size: .72rem; }
+.ddz-card--small .ddz-card--joker .ddz-rank { font-size: .64rem; }
+
+/* 牌背：对手的手牌 */
+.ddz-card--back {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--ddz-card-back),
+    var(--ddz-card-back) 4px,
+    var(--ddz-card-back-line) 4px,
+    var(--ddz-card-back-line) 8px
+  );
+  border-color: var(--ddz-card-back-line);
+}
+
+/* === 我的手牌 === */
+
+.ddz-hand-wrap {
+  margin-top: 14px;
+  padding: 16px 12px 26px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  overflow: visible;
+}
+
+.ddz-hand {
+  --ddz-step: 58px;
+  display: flex;
+  justify-content: center;
+  min-height: 92px;
+  padding-top: 16px;
+}
+
+/* 重叠靠负 margin 实现；已选中的牌抬高，所以重叠不会遮住选中态 */
+.ddz-hand .ddz-card + .ddz-card {
+  margin-left: calc(var(--ddz-step) - var(--ddz-card-w));
+}
+
+.ddz-hand .ddz-card {
+  transition: transform .12s ease;
+  cursor: pointer;
+}
+
+.ddz-hand .ddz-card:hover {
+  transform: translateY(-8px);
+}
+
+.ddz-hand .ddz-card--sel {
+  transform: translateY(-16px);
+  border-color: var(--ddz-selected);
+  box-shadow: 0 0 0 2px var(--ddz-selected), 0 4px 10px rgba(0, 0, 0, .25);
+  z-index: 2;
+}
+
+.ddz-hand .ddz-card--sel:hover {
+  transform: translateY(-18px);
+}
+
+.ddz-hand .ddz-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 3;
+}
+
+/* === 按钮行 === */
+
+.ddz-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ddz-actions-gap {
+  flex: 1 1 auto;
+}
+
+.ddz-actions .btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* === 记牌器 / 出牌记录 === */
+
+.ddz-recorder {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: .9rem;
+}
+
+.ddz-recorder > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.ddz-recorder-body {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px 12px;
+}
+
+.ddz-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: .82rem;
+}
+
+.ddz-rank-row > span:first-child {
+  width: 2.2em;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.ddz-pips {
+  display: flex;
+  gap: 2px;
+}
+
+.ddz-pip {
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.ddz-pip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.ddz-recorder-note {
+  margin-top: 10px;
+  font-size: .82rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.ddz-log {
+  margin-top: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: .86rem;
+  font-family: var(--mono);
+  line-height: 1.8;
+  color: var(--text-secondary);
+}
+
+.ddz-log b {
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* === 结算弹窗 === */
+
+.ddz-dialog {
+  /* global.css 顶部的 * { margin: 0 } 会把 UA 默认的 dialog { margin: auto } 干掉，
+     不显式写回来弹窗就贴顶了（象棋那边踩过同一个坑） */
+  margin: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-hover);
+  padding: 0;
+  max-width: 420px;
+  width: calc(100% - 32px);
+}
+
+.ddz-dialog::backdrop {
+  background: rgba(0, 0, 0, .45);
+}
+
+.ddz-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ddz-dialog-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  margin-right: auto;
+}
+
+.ddz-dialog-close {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.ddz-dialog-close:hover {
+  background: var(--border);
+}
+
+.ddz-dialog-body {
+  padding: 18px;
+}
+
+.ddz-result {
+  margin: 0 0 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: .92rem;
+}
+
+.ddz-result dt {
+  color: var(--text-secondary);
+}
+
+.ddz-result dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.ddz-stats {
+  margin: 0 0 16px;
+  font-size: .84rem;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  line-height: 1.6;
+}
+
+/* === 窄屏 === */
+
+@media (max-width: 860px) {
+  .ddz-foes {
+    grid-template-columns: 1fr;
+  }
+
+  .ddz-board {
+    padding: 12px;
+  }
+
+  .ddz-hand-wrap {
+    padding: 12px 8px 22px;
+  }
+
+  .ddz-card {
+    --ddz-card-w: 46px;
+    --ddz-card-h: 64px;
+  }
+
+  .ddz-card--small {
+    --ddz-card-w: 34px;
+    --ddz-card-h: 48px;
+  }
+
+  .ddz-hand {
+    --ddz-step: 48px;
+  }
+}

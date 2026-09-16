@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>斗地主</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../global.css">
+  <link rel="stylesheet" href="./style.css">
+  <!-- 必须同步加载在 head 里：要在首次绘制前定好 data-theme，否则深色下会闪白 -->
+  <script src="../global.js"></script>
+</head>
+<body>
+  <div class="container wide">
+    <a class="back-link" href="../index.html">← 返回首页</a>
+
+    <header class="page-header">
+      <div class="ddz-title-row">
+        <h1>斗地主</h1>
+        <label class="ddz-field">
+          <span>挡位</span>
+          <select id="level-select" class="ddz-select"></select>
+        </label>
+        <button type="button" class="btn btn-ghost" id="btn-new">重开一局</button>
+      </div>
+
+      <details class="ddz-help">
+        <summary>单机对弈 · 四个挡位 · 记牌器与提示（点这里看玩法说明）</summary>
+        <div class="ddz-help-body">
+          <p><b>怎么玩</b>：点手牌选中（可以多选），点「出牌」。选错了再点一下取消。
+          压不过上一手时按钮会给原因，不会弹窗。</p>
+
+          <p><b>叫分</b>：开局每人一次机会，叫 1 / 2 / 3 分，叫到 3 分立刻定地主；
+          只能叫比场上更高的分。三家都不叫就重新发牌。不会叫就用「托管叫分」。</p>
+
+          <p><b>地主是首出</b>，底牌 3 张翻开归他，手牌变 20 张 ——
+          这 3 张一直显示在牌桌中间，农民也要盯着它（那是地主多出来的牌）。</p>
+
+          <p><b>提示</b>：按当前手牌能出的所有牌型从好到坏循环给出，并自动帮你选中对应的牌。
+          第一下就是最推荐的那手。</p>
+
+          <p><b>记牌器</b>：显示<b>还没出现过的牌</b> —— 也就是「54 张 − 我的手牌 − 已经打出去的牌」。
+          这是任何只看牌面的观众都能算出来的信息，不是偷看别人的手牌。
+          对手手里有什么，程序也不会告诉你（AI 同样看不到）。</p>
+
+          <p><b>四个挡位</b>不是一个数字调大小。「入门」和「初级」<b>不会配合队友</b>
+          —— 它们会用大牌压自己队友的牌，这是最容易看出来的新手特征；
+          它们还会按较高概率走次优着。「中级」和「高级」会配合、判断也更稳。
+          另外「高级」再多一步浅层搜索（见页面底部说明）。</p>
+
+          <p>键盘：<kbd>←</kbd> <kbd>→</kbd> 移动焦点，<kbd>空格</kbd> 切换选中，
+          <kbd>Enter</kbd> 出牌，<kbd>P</kbd> 不要，<kbd>H</kbd> 提示，<kbd>Esc</kbd> 清空选择。</p>
+        </div>
+      </details>
+    </header>
+
+    <div class="ddz-board">
+      <div class="ddz-foes">
+        <div class="ddz-foe" id="foe-left">
+          <div class="ddz-foe-head">
+            <span class="ddz-foe-name">上家</span>
+            <span class="ddz-badge" id="badge-left" hidden>地主</span>
+            <span class="ddz-count" id="count-left">–</span>
+          </div>
+          <div class="ddz-play" id="play-left"></div>
+        </div>
+        <div class="ddz-foe" id="foe-right">
+          <div class="ddz-foe-head">
+            <span class="ddz-foe-name">下家</span>
+            <span class="ddz-badge" id="badge-right" hidden>地主</span>
+            <span class="ddz-count" id="count-right">–</span>
+          </div>
+          <div class="ddz-play" id="play-right"></div>
+        </div>
+      </div>
+
+      <div class="ddz-center">
+        <div class="ddz-trump-row">
+          <span class="ddz-trump-label" id="trump-label">底牌</span>
+          <div class="ddz-trump" id="trump"></div>
+        </div>
+        <p class="ddz-status" id="status-text">准备开始</p>
+        <p class="ddz-note" id="note-text" hidden></p>
+        <div class="ddz-meter" id="meter" hidden>
+          <span>倍数 <b id="multiplier">1</b></span>
+          <span>炸弹 <b id="bomb-count">0</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ddz-mine-play" id="play-mine"></div>
+
+    <div class="ddz-hand-wrap" id="hand-wrap">
+      <div class="ddz-hand" id="hand" role="group" aria-label="我的手牌"></div>
+    </div>
+
+    <div class="ddz-actions">
+      <button type="button" class="btn btn-ghost" id="btn-play">出牌</button>
+      <button type="button" class="btn btn-ghost" id="btn-pass">不要</button>
+      <button type="button" class="btn btn-ghost" id="btn-hint">提示</button>
+      <span class="ddz-actions-gap"></span>
+      <button type="button" class="btn btn-ghost" id="btn-trust-bid" hidden>托管叫分</button>
+      <button type="button" class="btn btn-ghost" id="btn-bid-pass" hidden>不叫</button>
+      <button type="button" class="btn btn-ghost" id="btn-bid-1" hidden>1 分</button>
+      <button type="button" class="btn btn-ghost" id="btn-bid-2" hidden>2 分</button>
+      <button type="button" class="btn btn-ghost" id="btn-bid-3" hidden>3 分</button>
+    </div>
+
+    <details class="ddz-recorder" id="recorder">
+      <summary>记牌器 · 还没出现过的牌</summary>
+      <div class="ddz-recorder-body" id="recorder-body"></div>
+      <p class="ddz-recorder-note">
+        这是「54 张 − 我的手牌 − 已经打出去的牌」，公开信息。它<b>不会</b>显示对手手里有什么。
+      </p>
+    </details>
+
+    <details class="ddz-recorder" id="log-panel">
+      <summary>出牌记录</summary>
+      <div class="ddz-log" id="log-body"></div>
+    </details>
+  </div>
+
+  <dialog class="ddz-dialog" id="result-dialog">
+    <div class="ddz-dialog-head">
+      <h2 id="result-title">本局结束</h2>
+      <button type="button" class="ddz-dialog-close" id="btn-close-result" aria-label="关闭">✕</button>
+    </div>
+    <div class="ddz-dialog-body">
+      <dl class="ddz-result" id="result-body"></dl>
+      <p class="ddz-stats" id="result-stats"></p>
+      <button type="button" class="btn btn-ghost" id="btn-again">再来一局</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
