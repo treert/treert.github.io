@@ -16,8 +16,9 @@
  *
  * ## 钉住「比 validateEndgameFen 松」这条刻意的不一致
  *
- * `validateEndgameFen` 拒绝「轮走方被将军」的局面，`readShareFen` 接受。
- * 这是**故意**的（出题 vs 对局中途截图），但很容易被后来的人当成 bug 顺手「修掉」，
+ * `validateEndgameFen` 拒绝**已经终局**的局面（出题没有练习价值），`readShareFen` 接受
+ * （你刚好把对方将死那一刻复制了链接，对方打开就该看到那个局面）。
+ * 这是**故意**的，但很容易被后来的人当成 bug 顺手「修掉」，
  * 所以这里两边都断言，让不一致变成显式的。
  */
 
@@ -45,8 +46,12 @@ const PAGE = 'https://example.com/chinese-chess/';
 // 普通局面：黑将 (4,0)、红车 (0,9)、红帅 (3,9)，红先
 const VALID = '4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1';
 
-// 红车在 (4,8) 将军黑将 (4,0)，**黑方正在被将军** —— 分享要接受、出题要拒绝
+// 红车在 (4,8) 将军黑将 (4,0)，**黑方正在被将军**（但躲得开）—— 两侧都接受
 const IN_CHECK = '4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1';
+
+// 已经终局：轮走方一步都走不了。出题要拒绝（没有练习价值），分享要接受（对局中间就这个局面）
+const MATE = '3k5/9/9/9/9/3RR4/9/9/9/4K4 b - - 0 1';    // 将死
+const STALE = '3k5/R8/9/9/9/4R4/9/9/9/4K4 b - - 0 1';   // 困毙
 
 console.log('=== 生成链接 ===');
 {
@@ -117,14 +122,19 @@ console.log('\n=== 带了坏参数（必须报出原因）===');
 
 console.log('\n=== 刻意比 validateEndgameFen 松 ===');
 {
-  // 「轮走方被将军」：出题局面不接受（不该一上来就被将），
-  // 但对局中途截出来的链接必须接受（你刚走了一步将军）
-  check('出题校验拒绝被将军的局面',
-    C.validateEndgameFen(IN_CHECK).ok, false);
-  check('分享校验接受被将军的局面',
-    S.readShareFen(S.shareUrl(IN_CHECK, PAGE)).ok, true);
-  check('分享校验读回来还是原局面',
-    S.readShareFen(S.shareUrl(IN_CHECK, PAGE)).fen, IN_CHECK);
+  // 唯一的差异：「已经终局」。出题侧要拦（没有练习价值），
+  // 而分享是**对局中途**截出来的 —— 你刚把对方将死就复制了链接，
+  // 接收方打开就该看到那个局面，而不是一句「这个局面不能用」。
+  for (const [name, fen] of [['将死', MATE], ['困毙', STALE]]) {
+    check(`出题校验拒绝${name}局面`, C.validateEndgameFen(fen).ok, false);
+    check(`出题校验拒绝${name}时理由是「终局」`, C.validateEndgameFen(fen).reason.includes('终局'), true);
+    check(`分享校验接受${name}局面`, S.readShareFen(S.shareUrl(fen, PAGE)).ok, true);
+    check(`分享校验读回来还是原局面`, S.readShareFen(S.shareUrl(fen, PAGE)).fen, fen);
+  }
+
+  // 「轮走方被将军」是合法局面（他应将就是了），两侧都该接受
+  check('出题校验接受被将军的局面', C.validateEndgameFen(IN_CHECK).ok, true);
+  check('分享校验也接受被将军的局面', S.readShareFen(S.shareUrl(IN_CHECK, PAGE)).ok, true);
 
   // 两边都该拒绝的东西：局面本身不成立
   const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';

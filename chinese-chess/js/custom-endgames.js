@@ -27,7 +27,7 @@
  */
 
 import { parseFen, toFen } from './position.js';
-import { isLegalPosition, generateLegalMoves, inCheck } from './rules.js';
+import { isLegalPosition, generateLegalMoves } from './rules.js';
 import { defaultStorage } from './persist.js';
 
 export const CUSTOM_KEY = 'chinese-chess:endgames';
@@ -62,12 +62,12 @@ export function validateEndgameFen(fen) {
   const legal = isLegalPosition(pos);
   if (!legal.ok) return { ok: false, reason: `局面不合法：${legal.reason}` };
 
-  // 下面两条是「能下」的前提。它们和 isLegalPosition 分开写，
-  // 因为 isLegalPosition 只管「局面本身成不成立」，
-  // 而这两条管的是「拿它当起点合不合适」——工具函数不该混这两件事。
-  if (inCheck(pos.cells, pos.side)) {
-    return { ok: false, reason: '轮走方正在被将军 —— 出题局面不该从被将开始' };
-  }
+  // 剩这一条是「能下」的前提，和 isLegalPosition 分开写 ——
+  // isLegalPosition 只管「局面本身成不成立」，这条管的是「拿它当起点有没有练习价值」。
+  //
+  // 「轮走方已经被将军」不在这里：那是**合法**局面（他应将就是了），
+  // 而「我正被将、该怎么解」是正当需求，这种局面应该存得下来。
+  // 真正非法的「非轮走方被将军」由 isLegalPosition 挡住。
   if (generateLegalMoves(pos).length === 0) {
     return { ok: false, reason: '这个局面已经终局了（轮走方无着法可走）' };
   }

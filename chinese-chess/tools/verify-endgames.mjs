@@ -9,10 +9,12 @@
  *   1. FEN 能被解析，且解析后重新生成与原文一致（往返一致）
  *   2. 局面合法（将帅照面 / 士象出界 / 兵在己方底线 / 子力超限 / 非轮走方被将军）
  *   3. 不是已经终局的局面（轮走方得有合法着法）
- *   4. 轮走方不是已经被将军 —— 出题局面不该从「正在被将」开始
- *   5. 字段规范：category 必须对应一个页签（endgames.js 的页签表）、
+ *   4. 字段规范：category 必须对应一个页签（endgames.js 的页签表）、
  *      result 是枚举内的值，difficulty 在 1~5，id 唯一，name / source 非空
- *   6. 子力一致性：result 是「胜」时，先手方的子力价值不应低于对手
+ *   5. 子力一致性：result 是「胜」时，先手方的子力价值不应低于对手
+ *
+ * 「轮走方已经被将军」不在上面这几条里 —— 那是合法局面（他应将就是了），
+ * 真正非法的只有「非轮走方被将军」，第 2 条里查了。
  *
  * ## 它刻意不查什么
  *
@@ -30,7 +32,7 @@ const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href)
 
 const { CELLS, EMPTY, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS } = await load('config.js');
 const { parseFen, toFen, yOf } = await load('position.js');
-const { isLegalPosition, generateLegalMoves, inCheck } = await load('rules.js');
+const { isLegalPosition, generateLegalMoves } = await load('rules.js');
 const { ENDGAMES, RESULTS, endgameTabs } = await load('endgames.js');
 
 /** 页签表是 category 的唯一来源 —— 加一页只改 endgames.js，这里不用动 */
@@ -108,9 +110,6 @@ for (const eg of ENDGAMES) {
       // 不是已经终局
       const moves = generateLegalMoves(pos);
       if (moves.length === 0) problems.push('这个局面已经终局了（轮走方无着法可走）');
-
-      // 轮走方不该已经被将军
-      if (inCheck(pos.cells, pos.side)) problems.push('轮走方已经被将军，出题局面不该从被将开始');
 
       // 子力一致性：实用残局里标「胜」时，先手方不该比对手少子。
       //

@@ -62,6 +62,9 @@ const VALID = '4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1';   // 单车例胜单士
 const MATE = '3k5/9/9/9/9/3RR4/9/9/9/4K4 b - - 0 1';    // 将死：轮走方（黑）正被将军
 const STALE = '3k5/R8/9/9/9/4R4/9/9/9/4K4 b - - 0 1';   // 困毙：没被将军但一步也走不了
 const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';    // 将帅照面
+// 轮走方（黑）被将军，但**解得开**：黑将只能躲到 (5,0)（(4,1) 还在红车那条纵线上，
+// (3,0) 和红帅照面）。这种局面必须能存 —— 「我正被将、该怎么解」是正当需求。
+const IN_CHECK = '4k4/9/9/9/9/9/9/9/4R4/3K5 b - - 0 1';
 
 // === 校验：能用的局面 ===
 
@@ -77,6 +80,12 @@ const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';    // 将帅照面
   // 首尾空白 / 多空格也要能吃下（从网页上复制来的经常带）
   const padded = C.validateEndgameFen(`  ${VALID}  `);
   check('容忍首尾空白', padded.ok, true);
+
+  // 轮走方被将军是**合法**局面（他应将就是了），不该拦
+  const chk = C.validateEndgameFen(IN_CHECK);
+  check('轮走方被将军、但有解的局面通过校验', chk.ok, true);
+  check('它返回的 FEN 也规范化过', chk.fen, IN_CHECK);
+  check('通过时不带原因', chk.reason, '');
 }
 
 // === 校验：各类非法输入，每一条都要给出原因 ===
@@ -92,7 +101,7 @@ const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';    // 将帅照面
     ['有无法识别的字符', '4kZa3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1'],
     ['轮走方不是 w/b', '4ka3/9/9/9/9/9/9/9/9/R2K5 x - - 0 1'],
     ['将帅照面', FACEOFF],
-    ['轮走方正被将军', MATE],
+    ['将死（轮走方被将军、且一步都走不了）', MATE],
     ['已经终局（困毙）', STALE],
   ];
   for (const [label, fen] of cases) {
@@ -101,11 +110,14 @@ const FACEOFF = '4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1';    // 将帅照面
     check(`拒绝 ${label} 时给出原因`, typeof v.reason === 'string' && v.reason.length > 0, true);
   }
 
-  // 两条最容易被搞混的：都「下不下去了」，但原因完全不同。
-  // 只断言「原因不同」不够 —— 两个都写错成同一句话时也会不同，
-  // 所以各自钉住关键词。
-  check('被将军的局面报「被将军」', C.validateEndgameFen(MATE).reason.includes('被将军'), true);
-  check('已终局的局面报「终局」', C.validateEndgameFen(STALE).reason.includes('终局'), true);
+  // 钉住拒绝的**理由**，不能只钉「拒绝了」——理由串了也能拒绝成功，
+  // 那用户看到的就是一句驴唇不对马嘴的话。
+  //
+  // 注意 MATE 与 STALE 走的是**同一条**理由（都已经终局）：出题侧不区分
+  // 「被将死」和「困毙」，只要轮走方没着法可走就没有练习价值。
+  // 「被将军但解得开」不属于这一条 —— 那个是能存的（见上面 IN_CHECK）。
+  check('将死的局面报「终局」', C.validateEndgameFen(MATE).reason.includes('终局'), true);
+  check('困毙的局面也报「终局」', C.validateEndgameFen(STALE).reason.includes('终局'), true);
   check('照面的局面报「照面」', C.validateEndgameFen(FACEOFF).reason.includes('照面'), true);
 }
 
