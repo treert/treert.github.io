@@ -33,7 +33,9 @@ const dom = {
   btnHint: document.getElementById('btn-hint'),
   btnCopyFen: document.getElementById('btn-copy-fen'),
   btnCopyUrl: document.getElementById('btn-copy-url'),
-  help: document.getElementById('page-help'),
+  // 玩法说明：标题行的问号图标 + 它控制的那块说明（本体在标题行下面）
+  btnHelp: document.getElementById('btn-help'),
+  helpBody: document.getElementById('help-body'),
   endgameGoal: document.getElementById('endgame-goal'),
   // 局面库弹窗
   // 局面库弹窗（只管挑）
@@ -670,6 +672,30 @@ function deleteCustom(eg) {
   }
 }
 
+// === 玩法说明（标题行的问号图标） ===
+
+/**
+ * 展开 / 收起玩法说明。
+ *
+ * 说明的显隐只认 `hidden` 这一个来源，图标的点亮态只认它自己的 `aria-expanded`，
+ * 不另存一个布尔量 —— 两份状态迟早会不一致。
+ *
+ * 为什么不继续用 `<details>`：入口要从标题下面那行文字挪进标题行，而
+ * `<summary>` 只能待在 `<details>` 内部，挪出去它就不再是那个开关了
+ * （键盘的 `?` 也会跟着失效）。「按钮 + aria-expanded」是等价的折叠写法，
+ * 位置自由，键盘和读屏的语义也没丢。
+ */
+function toggleHelp() {
+  const open = dom.helpBody.hidden;   // hidden 为 true = 现在收着 = 这一次要展开
+  dom.helpBody.hidden = !open;
+  dom.btnHelp.setAttribute('aria-expanded', String(open));
+  dom.btnHelp.title = open ? '收起玩法说明（?）' : '玩法说明（?）';
+}
+
+function bindHelp() {
+  dom.btnHelp.addEventListener('click', toggleHelp);
+}
+
 // === 弹窗 ===
 //
 // 两个弹窗，职责分开：
@@ -998,8 +1024,8 @@ function bindKeyboard() {
       requestHint();
     } else if (e.key === 'f' || e.key === 'F') {
       app.renderer.setFlipped(!app.renderer.isFlipped());
-    } else if (e.key === '?' ) {
-      dom.help.open = !dom.help.open;
+    } else if (e.key === '?') {
+      toggleHelp();
     } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
       dom.btnUndo.click();
@@ -1042,6 +1068,7 @@ function init() {
   bindToolbar();
   bindPicker();
   bindIo();
+  bindHelp();
   bindKeyboard();
 
   // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）

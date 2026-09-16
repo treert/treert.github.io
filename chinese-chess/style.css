@@ -51,32 +51,46 @@
   --xq-switch-off: #3a414d;
 }
 
-/* === 页面说明（可折叠） === */
-.xq-help {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 6px;
+/* === 玩法说明 === */
+/* 入口是标题行末尾的一个问号图标，说明本体在标题行下面展开。
+   原来入口是一整行可点的文字（「单机对弈 · 四个挡位 · …」）——
+   那行字在手机上会折成两三行、把棋盘往下顶一截，而它换不来任何操作。 */
+.xq-help-open {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* global.css 的 .btn 带的是 9px 18px —— 圆图标得按自己的尺寸重设 */
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 50%;
 }
-.xq-help summary {
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+/* 展开时点亮图标：说明块在下面，视线要能对上「是它打开的」 */
+.xq-help-open[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
 }
-.xq-help summary::-webkit-details-marker {
-  display: none;
-}
-.xq-help summary:hover {
-  color: var(--text);
-}
+
 .xq-help-body {
-  margin-top: 12px;
+  margin-top: 16px;
   padding: 14px 16px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text-secondary);
   line-height: 1.7;
   text-align: left;
+}
+/* 说明块的显隐靠 el.hidden 控制，这里显式钉一条 ——
+   别让以后加进来的 display 值把它顶掉（.xq-dialog-foot 踩过同一个坑） */
+.xq-help-body[hidden] {
+  display: none;
 }
 .xq-help-body table {
   border-collapse: collapse;
@@ -184,6 +198,60 @@ kbd {
   /* 让棋子字号能跟着棋盘宽度走。inline-size 容器只约束宽度，
      不会像 size 那样影响 aspect-ratio 的推算 */
   container-type: inline-size;
+}
+
+/* === 棋盘上方的状态区 ===
+   战斗状态（轮到谁走 / 将死 / 和棋）和棋谱说明（当前是哪一局、已走几步），
+   从右侧「对局」面板搬到了棋盘正上方。
+
+   搬家的理由：窄屏（≤860px）是单列布局，顺序是「棋盘 → 工具栏 → 侧栏」——
+   留在侧栏里的话，这两行会被挤到整页最下面，正在下棋时看不见「轮到谁」，
+   终局了也看不见「谁赢了」。放到棋盘正上方，什么布局都在视线里；
+   桌面端这里也比隔着半屏的侧栏底部更靠近落子处。 */
+.xq-board-status {
+  /* 和棋盘左右对齐：.xq-board-wrap 就是 560px 居中 */
+  max-width: 560px;
+  margin: 0 auto 10px;
+  font-size: 13px;
+}
+/* 状态正文和「思考中」并排 —— AI 思考时那两句说的是同一件事，不该各占一行 */
+.xq-status-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.xq-status {
+  font-weight: 600;
+}
+.xq-status--over {
+  color: var(--danger);
+}
+/* 状态里的方名按方着色 —— 扫一眼就知道轮到谁 */
+.xq-status--red {
+  color: var(--xq-red);
+}
+.xq-status--black {
+  color: var(--xq-black);
+}
+/* 终局时整行统一走危险色，但**只有红方名让位，黑方名保留自己的颜色**。
+   这个不对称是有原因的，不是漏写：
+     - 红方名（--xq-red #c0392b）和终局色（--danger #d63031）本来就都是红的，
+       让位等于没变化 ——「将死 · 红方胜」读起来仍然是一整句红字，不违和；
+     - 黑方名（--xq-black #2d3436）和终局色差得远，让它随整行的话
+       「将死 · 黑方胜 · 未达成目标」会成为一整句红字，看不出是谁赢的。
+   深色主题下 --xq-red 与 --danger 恰好同值（#ff6b6b），两边表现一致即可。 */
+.xq-status--over .xq-status--red {
+  color: inherit;
+}
+/* 残局模式的棋谱说明（「xxx」· 谱载先手胜 · 已走 N 步） */
+.xq-goal {
+  margin-top: 4px;
+  color: var(--accent);
+}
+/* AI 思考中。跟在状态正文后面，不另占一行 */
+.xq-thinking {
+  color: var(--accent);
 }
 
 /* === 棋盘 === */
@@ -501,39 +569,8 @@ kbd {
   opacity: .45;
   cursor: not-allowed;
 }
-.xq-status {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 600;
-}
-.xq-status--over {
-  color: var(--danger);
-}
-/* 状态栏里的方名按方着色 —— 扫一眼就知道轮到谁 */
-.xq-status--red {
-  color: var(--xq-red);
-}
-.xq-status--black {
-  color: var(--xq-black);
-}
-/* 终局时整行统一走危险色，但**只有红方名让位，黑方名保留自己的颜色**。
-   这个不对称是有原因的，不是漏写：
-     - 红方名（--xq-red #c0392b）和终局色（--danger #d63031）本来就都是红的，
-       让位等于没变化 ——「将死 · 红方胜」读起来仍然是一整句红字，不违和；
-     - 黑方名（--xq-black #2d3436）和终局色差得远，让它随整行的话
-       「将死 · 黑方胜 · 未达成目标」会成为一整句红字，看不出是谁赢的。
-   深色主题下 --xq-red 与 --danger 恰好同值（#ff6b6b），两边表现一致即可。 */
-.xq-status--over .xq-status--red {
-  color: inherit;
-}
-/* 残局模式下的目标提示 */
-.xq-goal {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--accent);
-}
+/* 状态行（.xq-status / .xq-goal / .xq-thinking）原本长在这儿，
+   它们跟着 DOM 一起搬到了上面「棋盘上方的状态区」那一节，别在这里重复定义 */
 
 /* === 局面分类页签 === */
 /* 原来是下拉框。下拉框的问题是把「内置残局」和「自定义局面」混在同一个列表里，
@@ -823,11 +860,6 @@ kbd {
 }
 .xq-dialog-msg--error {
   color: var(--danger);
-}
-.xq-thinking {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--accent);
 }
 .xq-thinking::after {
   content: '';

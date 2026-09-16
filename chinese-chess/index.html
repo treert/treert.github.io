@@ -21,53 +21,70 @@
         <button type="button" class="btn btn-ghost xq-picker-open" id="btn-open-picker"></button>
         <!-- 「往库里加东西」的入口，和「挑」并列放在标题行 -->
         <button type="button" class="btn btn-ghost xq-io-open" id="btn-open-io">保存 / 导入</button>
+        <!-- 玩法说明的入口。原来是一整行可点的文字（「单机对弈 · 四个挡位 · …」）——
+             那行字在手机上会折成两三行、把棋盘往下顶一截，收成一个问号图标就够了。
+             说明本体是标题行下面那块（#help-body），开合由 main.js 的 toggleHelp() 管；
+             图标亮不亮读的是它自己的 aria-expanded，不另存一份状态。 -->
+        <button type="button" class="btn btn-ghost xq-help-open" id="btn-help"
+                aria-label="玩法说明" aria-expanded="false" aria-controls="help-body"
+                title="玩法说明（?）">?</button>
       </div>
 
-      <details class="xq-help" id="page-help">
-        <summary>单机对弈 · 四个挡位 · 中文记谱与复盘（点这里看玩法说明）</summary>
-        <div class="xq-help-body">
-          <table>
-            <tr><td><kbd>Esc</kbd></td><td>取消选中的棋子</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>悔棋（一次退到轮到你走）</td></tr>
-            <tr><td><kbd>H</kbd></td><td>提示：让当前挡位的 AI 给一步建议</td></tr>
-            <tr><td><kbd>F</kbd></td><td>翻转棋盘（只影响显示）</td></tr>
-            <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
-          </table>
+      <div class="xq-help-body" id="help-body" hidden>
+        <table>
+          <tr><td><kbd>Esc</kbd></td><td>取消选中的棋子</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>悔棋（一次退到轮到你走）</td></tr>
+          <tr><td><kbd>H</kbd></td><td>提示：让当前挡位的 AI 给一步建议</td></tr>
+          <tr><td><kbd>F</kbd></td><td>翻转棋盘（只影响显示）</td></tr>
+          <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
+        </table>
 
-          <p><b>四个挡位</b>不是单纯调搜索深度。「入门」和「初级」<b>关掉了静态搜索</b>——
-          它们会在兑子序列中途停下、以为自己占了便宜，然后被吃回。这正是初学者的真实特征。
-          「入门」还会按较高概率故意走次优着。想要正经下棋请用「中级」或「高级」。</p>
+        <p><b>四个挡位</b>不是单纯调搜索深度。「入门」和「初级」<b>关掉了静态搜索</b>——
+        它们会在兑子序列中途停下、以为自己占了便宜，然后被吃回。这正是初学者的真实特征。
+        「入门」还会按较高概率故意走次优着。想要正经下棋请用「中级」或「高级」。</p>
 
-          <p><b>走子</b>：点自己的棋子选中，再点目标位置。鼠标可以直接拖拽。
-          选中后空格上会出现<b>绿点</b>（可以走过去），能吃的对方棋子会套上<b>红环</b>。</p>
+        <p><b>走子</b>：点自己的棋子选中，再点目标位置。鼠标可以直接拖拽。
+        选中后空格上会出现<b>绿点</b>（可以走过去），能吃的对方棋子会套上<b>红环</b>。</p>
 
-          <p><b>提示</b>（工具栏按钮或按 <kbd>H</kbd>）：AI 建议的那一步，
-          起点和终点的棋子会各套上一道<b>琥珀色外圈</b>；终点是空格时，
-          那个格子上会有一个琥珀色圆点。</p>
+        <p><b>提示</b>（工具栏按钮或按 <kbd>H</kbd>）：AI 建议的那一步，
+        起点和终点的棋子会各套上一道<b>琥珀色外圈</b>；终点是空格时，
+        那个格子上会有一个琥珀色圆点。</p>
 
-          <p><b>双人对弈</b>（侧栏的开关）：打开后不走 AI，红黑两边都由人点，
-          适合两个人轮流在同一台设备上下。此时「执子」会禁用（没意义了），
-          悔棋也只退一步。</p>
+        <p><b>双人对弈</b>（侧栏的开关）：打开后不走 AI，红黑两边都由人点，
+        适合两个人轮流在同一台设备上下。此时「执子」会禁用（没意义了），
+        悔棋也只退一步。</p>
 
-          <p><b>悔棋</b>一次退到轮到你走为止，不会出现「悔完立刻又被 AI 走一步」的情况。
-          <b>重做</b>可以前进。悔棋只移动游标，着法不会丢——所以你可以悔完再点着法列表跳回去。</p>
+        <p><b>悔棋</b>一次退到轮到你走为止，不会出现「悔完立刻又被 AI 走一步」的情况。
+        <b>重做</b>可以前进。悔棋只移动游标，着法不会丢——所以你可以悔完再点着法列表跳回去。</p>
 
-          <p><b>复盘</b>：点右侧着法列表里的任意一步，棋盘会回到那一步之后的局面，
-          状态栏会提示「正在回看」。此时走新着法会截断后面的分支。</p>
+        <p><b>复盘</b>：点右侧着法列表里的任意一步，棋盘会回到那一步之后的局面，
+        棋盘上方的状态行会提示「正在回看」。此时走新着法会截断后面的分支。</p>
 
-          <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
+        <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
 
-          <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
-          旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，
-          或者粘一段 FEN 把外面弄到的局面收进来。
-          棋盘下方的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
-          前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
-        </div>
-      </details>
+        <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
+        旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，
+        或者粘一段 FEN 把外面弄到的局面收进来。
+        棋盘下方的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
+        前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
+      </div>
     </header>
 
     <div class="xq-stage">
       <div class="xq-board-col">
+        <!-- 战斗状态（轮到谁走 / 将死 / 和棋）与棋谱说明（当前是哪一局、已走几步）。
+             原来是塞在右侧「对局」面板底部的 —— 手机上布局变成单列
+             （棋盘 → 工具栏 → 侧栏），那两行会被挤到整页最下面，
+             正在下棋时看不见「轮到谁」，终局了也看不见「谁赢了」。
+             挪到棋盘正上方就永远在视线里，桌面端也比隔着半屏的侧栏底部更靠近落子处。 -->
+        <div class="xq-board-status">
+          <div class="xq-status-line">
+            <p class="xq-status" id="status-text">准备开始</p>
+            <p class="xq-thinking" id="thinking" hidden>思考中…</p>
+          </div>
+          <p class="xq-goal" id="endgame-goal" hidden></p>
+        </div>
+
         <div class="xq-board-wrap" id="board-wrap">
           <div class="xq-board" id="board"></div>
         </div>
@@ -111,10 +128,6 @@
             <input type="checkbox" class="xq-switch" id="two-player-toggle"
                    title="打开后不派发 AI 搜索，红黑两边都由人来点">
           </label>
-
-          <p class="xq-status" id="status-text">准备开始</p>
-          <p class="xq-goal" id="endgame-goal" hidden></p>
-          <p class="xq-thinking" id="thinking" hidden>思考中…</p>
         </section>
 
         <section class="panel xq-panel xq-panel--moves">
