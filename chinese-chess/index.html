@@ -63,9 +63,9 @@
         <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
 
         <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
-        旁边的 <b>保存 / 导入</b> 能把当前下到一半的局面存成自定义局面，也可以粘一段 FEN ——
-        再选 <b>存为自定义局面</b>（收进库里反复练），或者 <b>载入到棋盘</b>
-        （直接摆上去看看、接着下，不进库）。
+        旁边的 <b>保存 / 导入</b> 打开后，里面那个 FEN 框<b>已经是当前局面</b> ——
+        不动它就点 <b>存为自定义局面</b>（收进库里反复练），
+        或者把别处复制的 FEN 粘上去盖掉它、再点 <b>载入到棋盘</b>（直接摆上去看看、接着下，不进库）。
         棋盘下方的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
         前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
       </div>
@@ -181,29 +181,30 @@
       <button type="button" class="xq-dialog-close" id="btn-close-io" aria-label="关闭">✕</button>
     </div>
 
+    <!-- **只有一段**：一个 FEN 框 + 两个去处。
+         原来拆成「存下当前局面 / 导入外部局面」两段，结果是两个都叫「存为自定义局面」的按钮
+         （一个存当前局面、一个存粘进来的 FEN）并排出现 —— 看着像重复，其实是一件事：
+         局面就是 FEN 框里那个。 -->
     <div class="xq-dialog-body xq-dialog-body--form">
       <section class="xq-io-section">
-        <h3>存下当前局面</h3>
-        <p class="xq-io-hint">起个名字存进局面库的「自定义」页签，之后可以反复拿来练。</p>
+        <!-- 打开时这个框里已经填好当前局面，而且是全选状态（见 main.js 的 openIo）：
+             想存当前这盘棋直接点下面的按钮；想换成别处的局面，Ctrl+V 一步就替换掉了。 -->
+        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
+                  placeholder="4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1"></textarea>
+        <p class="xq-io-hint">打开时这里就是当前局面。想换成别处的局面，整个选中、把 FEN 粘上去覆盖即可。</p>
+
         <div class="xq-save">
           <input type="text" class="xq-input" id="custom-name" maxlength="40"
                  placeholder="给这个局面起个名字">
-          <button type="button" class="btn btn-ghost" id="btn-save-current">存为自定义局面</button>
         </div>
-      </section>
 
-      <section class="xq-io-section">
-        <h3>导入外部局面</h3>
-        <p class="xq-io-hint">从别的软件、网页或棋谱里复制来的 FEN 粘到下面，再选拿它干什么。</p>
-        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
-                  placeholder="4ka3/9/9/9/9/9/9/9/9/R2K5 w - - 0 1"></textarea>
-        <!-- 同一个输入、两个去处：
-             「载入到棋盘」只是把它摆上去（一个临时局面，不进库），
-             「存为自定义局面」是收进库里，以后能在「自定义」页签反复点开。 -->
         <div class="xq-io-actions">
           <button type="button" class="btn btn-ghost xq-io-btn" id="btn-load-fen">载入到棋盘</button>
           <button type="button" class="btn btn-ghost xq-io-btn" id="btn-import-fen">存为自定义局面</button>
         </div>
+
+        <p class="xq-io-hint">「存为自定义局面」用上面那个名字把它收进局面库，以后能反复点开；
+        「载入到棋盘」只是摆上去接着下，不进库。</p>
       </section>
 
       <p class="xq-dialog-msg" id="io-msg" hidden></p>

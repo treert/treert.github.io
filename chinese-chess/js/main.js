@@ -54,7 +54,6 @@ const dom = {
   btnCloseIo: document.getElementById('btn-close-io'),
   ioMsg: document.getElementById('io-msg'),
   customName: document.getElementById('custom-name'),
-  btnSaveCurrent: document.getElementById('btn-save-current'),
   fenInput: document.getElementById('fen-input'),
   btnLoadFen: document.getElementById('btn-load-fen'),
   btnImportFen: document.getElementById('btn-import-fen'),
@@ -221,6 +220,10 @@ function updateChrome() {
   // 不在残局里时整条底栏一起隐藏 —— 否则会留一条空的横线
   dom.btnExitEndgame.hidden = !showStart;
   dom.pickerFoot.hidden = !showStart;
+
+  // 弹窗开着的时候局面也可能变（玩家执黑、AI 那一步正好这时候落下来）——
+  // 「载入到棋盘」灰不灰要跟着一起刷。弹窗关着就什么都不做，不为它白解析一遍 FEN。
+  if (dom.ioDialog.open) syncLoadFenBtn();
 
   renderMoveList();
   syncEndgameList();
@@ -894,7 +897,7 @@ function bindHelp() {
 //
 // 两个弹窗，职责分开：
 //   局面库（picker）   只管「挑」—— 页签 + 列表 + 退出残局
-//   保存 / 导入（io）  只管「把一段局面放哪儿」—— 存当前局面 / 存粘进来的 FEN / 粘进来直接载入
+//   保存 / 导入（io）  只管「FEN 框里那个局面放哪儿」—— 收进局面库 / 直接载入棋盘
 //
 // 分家的理由：这几件事的方向不一样。「挑」是读；弹窗里那几个是「进」——
 // 存进库里（要留下来反复练）或者摆到棋盘上（只是看看、接着下）；
@@ -941,12 +944,35 @@ function closePicker() {
   dom.picker.close();
 }
 
+/**
+ * FEN 框里那个局面是不是**就是当前局面** —— 是的话「载入到棋盘」等于什么都没做，置灰。
+ *
+ * 比较用**规范化之后**的 FEN（`validateFreeFen` 顺带做了）：从别处复制来的 FEN
+ * 尾部那几个字段可能写成 `w - - 12 34`，直接比字符串会判成「不一样」，
+ * 其实载入进去是同一个局面。
+ *
+ * **解析不了的 FEN 不禁用** —— 那时候点一下会给出「哪里不合法」，
+ * 禁掉的话按钮就是个不会说话的坏按钮，用户不知道哪儿错了。
+ */
+function syncLoadFenBtn() {
+  const v = validateFreeFen(dom.fenInput.value);
+  const same = v.ok && v.fen === G.currentFen(app.game);
+  dom.btnLoadFen.disabled = same;
+  dom.btnLoadFen.title = same ? '框里就是当前局面，不用载入' : '';
+}
+
 function openIo() {
   setIoMsg('');
   dom.customName.value = '';
-  dom.fenInput.value = '';
+  // **打开时 FEN 框里就是当前局面。** 于是「存当前这盘棋」和「存别处的局面」变成同一件事：
+  // 不动它就是当前局面，改掉它就是别处的。界面上也就只剩一个「存为自定义局面」。
+  dom.fenInput.value = G.currentFen(app.game);
+  syncLoadFenBtn(); // 刚填进去的，所以「载入到棋盘」这时候是灰的
   if (!dom.ioDialog.open) dom.ioDialog.showModal();
-  dom.customName.focus(); // 主路径是「起个名字存下来」，直接聚焦省一次点击
+  // 聚焦 + **全选**：下一步多半是粘一段自己的 FEN 覆盖掉，
+  // 全选之后 Ctrl+V 一步就完成，不用先 Ctrl+A。
+  dom.fenInput.focus();
+  dom.fenInput.select();
 }
 
 function closeIo() {
@@ -971,26 +997,20 @@ function afterCustomChanged(entry, prefix) {
   setIoMsg(`${prefix}「${entry.name}」，在局面库的「自定义」页签里`);
 }
 
-function saveCurrentAsCustom() {
-  const r = addCustom(storage, {
-    name: dom.customName.value,
-    fen: G.currentFen(app.game),
-  });
-  if (!r.ok) {
-    setIoMsg(r.reason, true);
-    return;
-  }
-  afterCustomChanged(r.entry, '已存为');
-}
-
+/**
+ * 「存为自定义局面」—— 收进局面库。
+ *
+ * 局面来自 FEN 框，而那个框打开时就是当前局面（见 openIo），
+ * 所以「存当前这盘棋」和「存粘进来的局面」走的是同一条路，不再各有一个按钮。
+ */
 function importFen() {
   const text = dom.fenInput.value.trim();
   if (!text) {
-    setIoMsg('先把 FEN 粘到下面的框里', true);
+    setIoMsg('FEN 是空的 —— 先粘一段进来', true);
     return;
   }
   const r = addCustom(storage, {
-    name: dom.customName.value.trim() || '粘贴的局面',
+    name: dom.customName.value.trim() || '我的局面',
     fen: text,
   });
   if (!r.ok) {
@@ -998,7 +1018,7 @@ function importFen() {
     return;
   }
   dom.fenInput.value = '';
-  afterCustomChanged(r.entry, '已导入并存为');
+  afterCustomChanged(r.entry, '已存为');
 }
 
 /**
@@ -1057,8 +1077,10 @@ function flashCopied(btn, original) {
  * 这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
  */
 function clipboardFallback(text, label) {
-  dom.fenInput.value = text;
+  // **顺序不能反**：openIo 会把 FEN 框预填成当前局面，先填值再开就被它盖掉了。
   openIo();
+  dom.fenInput.value = text;
+  dom.fenInput.select(); // 顺手全选：Ctrl+C 一步就能拿走
   setIoMsg(`剪贴板不可用，${label}已填在下面的框里，手动复制即可`);
 }
 
@@ -1159,19 +1181,21 @@ function bindPicker() {
 function bindIo() {
   dom.btnOpenIo.addEventListener('click', openIo);
   dom.btnCloseIo.addEventListener('click', closeIo);
-  dom.btnSaveCurrent.addEventListener('click', saveCurrentAsCustom);
   dom.btnLoadFen.addEventListener('click', loadFen);
   dom.btnImportFen.addEventListener('click', importFen);
+
+  // 框里改一个字就重新判一次「和当前局面是不是同一个」（决定「载入到棋盘」灰不灰）
+  dom.fenInput.addEventListener('input', syncLoadFenBtn);
 
   dom.ioDialog.addEventListener('click', (e) => {
     if (e.target === dom.ioDialog) closeIo();
   });
 
-  // 在名字框里按回车直接存
+  // 在名字框里按回车直接存（和点「存为自定义局面」等价）
   dom.customName.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      saveCurrentAsCustom();
+      importFen();
     }
   });
 }

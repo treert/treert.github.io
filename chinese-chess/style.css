@@ -891,15 +891,21 @@ kbd {
   line-height: 1.5;
   color: var(--text-secondary);
 }
-/* 段与段之间画条淡线，把「导出」和「导入」分得更开 */
-.xq-io-section + .xq-io-section {
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-}
 .xq-io-btn {
   align-self: flex-start;
   padding: 6px 12px;
   font-size: 13px;
+}
+/* 置灰态：「载入到棋盘」在框里就是当前局面时没有意义（见 main.js 的 syncLoadFenBtn）。
+   写在这里而不是 global.css —— `.btn` 是全站共用的，改它会影响别的模块。
+   第二条要把 `.btn-ghost:hover` 抢回来，否则鼠标一上去又变强调色，看着像能点。 */
+.xq-io-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.xq-io-btn:disabled:hover {
+  border-color: var(--border);
+  color: var(--text);
 }
 /* 「载入到棋盘」/「存为自定义局面」—— 同一个输入、两个去处，并排摆开。
    flex-wrap 是为了窄屏：挤不下时换行，而不是把字压扁。 */
