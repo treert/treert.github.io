@@ -16,6 +16,8 @@ import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { RESULTS, endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
 import { loadCustom, addCustom, renameCustom, removeCustom, validateFreeFen, CUSTOM_CATEGORY } from './custom-endgames.js';
 import { shareUrl, readShareFen } from './share.js';
+import { solutionOf } from './solutions.js';
+import { buildBook, bookMove } from './solution-book.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -81,6 +83,8 @@ const app = {
   selected: -1,
   targets: [],
   hint: 0,
+  // 这一步提示是不是来自谱载解法 —— 只影响状态行文案（要跟「引擎算出来的」分开讲）
+  hintFromBook: false,
   pos: null,
   status: { type: 'playing', winner: null },
 
@@ -186,6 +190,8 @@ function updateChrome() {
       : `（${side === app.game.playerSide ? '你' : 'AI'}）`;
     parts = ['轮到', { side }, tail];
     if (app.busy && app.pending === 'ai') parts = ['轮到', { side }, ' · AI 思考中'];
+    // 提示来自棋谱而不是引擎时标出来 —— 两者可信度不同，用户要能分清
+    if (app.hint && app.hintFromBook) parts.push(' · 谱载解法');
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
       const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
@@ -214,7 +220,11 @@ function updateChrome() {
   if (eg) {
     // 自定义局面没有结论，不要编一个出来
     const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
-    dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
+    // 有解法的局把「几步杀」也说清楚 —— 这是这一局最有用的一条信息，
+    // 也解释了为什么「提示」会一点就出（它不需要等引擎）
+    const sol = solutionOf(eg.id);
+    const tail = sol ? ` · 有解法（${sol.mate} 步杀）` : '';
+    dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步${tail}`;
   } else if (free) {
     dom.endgameGoal.textContent = `临时局面 · 已走 ${app.game.cursor} 步`;
   }
@@ -412,6 +422,35 @@ function applyMove(move, animate) {
   return true;
 }
 
+// === 谱载解法（js/solutions.js + solution-book.js）===
+//
+// 残局库里 395 局带一条**已证明的杀线**（离线用 Pikafish 生成、再用本模块规则层校验过）。
+// 界面拿它做两件事：「提示」优先给谱载着法；**轮到 AI 时也按谱应着**
+// —— 后者不是可选项：玩家刚按谱走一步、对手就走到谱外去了，那条线根本走不完。
+//
+// 走岔了（或这一局没有解法）就回退到引擎搜索，行为与从前一致。
+// 匹配规则见 solution-book.js：**必须带上「已经走到第几手」，不能只用局面**，
+// 因为杀线里重复局面是常态（同一局面要走向不同的着法）。
+let bookKey = '';
+let book = null;
+
+/** 当前这一局的谱表。按「局 id + 起始局面」缓存，换局才重建（展开一次几十步，本来也不贵） */
+function currentBook() {
+  const g = app.game;
+  const key = `${g.endgameId || ''}@${g.initialFen}`;
+  if (key !== bookKey) {
+    bookKey = key;
+    const sol = g.endgameId ? solutionOf(g.endgameId) : null;
+    book = sol ? buildBook(g.initialFen, sol.pv) : null;
+  }
+  return book;
+}
+
+/** 眼下这个局面谱上写的是哪一步；0 = 不在谱上（走岔了，或这局没有解法） */
+function bookMoveNow() {
+  return bookMove(currentBook(), G.currentFen(app.game), app.game.cursor);
+}
+
 // === Worker ===
 
 /**
@@ -424,6 +463,14 @@ function requestAiMove() {
   // 而关掉开关时又需要能立刻把 AI 拉回来接着走，那由下面的判断自然处理。
   if (app.game.twoPlayer) return;
   if (G.sideToMove(app.game) === app.game.playerSide) return;
+
+  // 谱上优先：这一步按谱走。同步落子、没有搜索等待，所以不进 busy 状态
+  //（状态行也就不会闪一下「AI 思考中」）。
+  const fromBook = bookMoveNow();
+  if (fromBook) {
+    applyMove(fromBook, true);
+    return;
+  }
 
   app.busy = true;
   app.pending = 'ai';
@@ -441,6 +488,17 @@ function requestAiMove() {
 function requestHint() {
   if (!app.canAct()) return;
 
+  // 谱上优先：直接给谱载着法，不必派发搜索 —— 也省掉最长 1.5 秒的等待。
+  // 状态行会标明「谱载解法」，用户要能分清这是棋谱上的正解、还是引擎的建议。
+  const fromBook = bookMoveNow();
+  if (fromBook) {
+    app.hint = fromBook;
+    app.hintFromBook = true;
+    refresh();
+    return;
+  }
+
+  app.hintFromBook = false;
   app.busy = true;
   app.pending = 'hint';
   dom.thinking.hidden = false;
