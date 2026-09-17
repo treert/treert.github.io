@@ -446,9 +446,11 @@ Worker 只依赖 `engine.js`（以及它间接依赖的 `config.js` / `position.
 | `github.com/kuiba1949/xiangqi-tools` 的 `fen/shiqingyaqu551.fen` | 《适情雅趣》551 局的 FEN 数据 | 仓库 BSD-3-Clause；《适情雅趣》为明代排局谱，公有领域 |
 
 原文件每行形如 `[FEN_INDEX "shiqingyaqu-551-001"] [EVENT "...第001局 气吞关右"] [FEN "..."]`，
-`FEN_INDEX` 用作 id、`EVENT` 里的局号局名用作 name。整理时对原文只动两处：
-去掉局名里标记补图 / 异文的 `*`；把唯一一条没有局号的 `shiqingyaqu-551-228plus` 命名为
-「第227局 舍生取义（补图复原）」。**FEN 原样照抄，一个字符都没改。**
+`FEN_INDEX` 用作 id、`EVENT` 里的局号局名用作 name。
+**FEN 原样照抄，一个字符都没改**；id 与局名有**三处**人工整理：去掉局名里标记补图 / 异文的 `*`；
+唯一一条没有局号的记录（`shiqingyaqu-551-228plus`）改成 id `shiqingyaqu-551-227` +
+局名「第227局 舍生取义（补图复原）」；第 543 局局名括号前补了个空格。
+逐条说明在 `js/endgames.js` 里 `COMPOSED_RAW` 上面那段注释。
 
 **运行时绝不联网。** 流程是离线一次性把 FEN 整理进 `endgames.js`，之后纯本地——这符合本仓库
 「纯静态、无外部请求」的约定，也避免 CORS 问题。
