@@ -53,6 +53,10 @@ const ROOT = resolve(HERE, '../..');
 const WORK_FILE = resolve(ROOT, 'tmp/solutions-work.json');
 const ISSUES_FILE = resolve(ROOT, 'tmp/solutions-issues.md');
 const OUT_FILE = resolve(HERE, '../js/solutions.js');
+/** 「没解出来的局面」清单 —— 这一份**进仓库**（tmp 里那份是全量疑点，随跑批更新） */
+const UNFINISHED_FILE = resolve(HERE, '../docs/pikafish-unfinished.md');
+/** 引擎版本。写进生成物头部 —— 换引擎重跑时只改这一处 */
+const ENGINE = 'Pikafish 2026-09-06';
 const EXE = process.env.PIKAFISH
   || resolve(ROOT, 'tmp/pikafish/Pikafish-Windows-x86-64-universal.exe');
 
@@ -301,7 +305,7 @@ function emit() {
  */
 
 /** 生成这批数据的引擎版本（换引擎重跑时这里要跟着改） */
-export const SOLUTIONS_SOURCE = 'Pikafish 2026-09-06';
+export const SOLUTIONS_SOURCE = '${ENGINE}';
 
 /**
  * id → 解法。**只有引擎证明了强制杀的局才在这里**（${rows.length} 条）。
@@ -325,6 +329,88 @@ export function solutionOf(id) {
     console.log(`  ${incomplete.join(', ')}`);
     console.log('   用 `slow --normal --ids <这些 id>` 补跑一轮普通搜索再 emit）');
   }
+}
+
+// === 没解出来的局面（进仓库的那份清单）===
+
+/**
+ * 写 `docs/pikafish-unfinished.md`：把「引擎没给出杀线」的局单独列一张清单。
+ *
+ * 与 `tmp/solutions-issues.md` 的分工：那份是**全量疑点**（还含「和局却找到杀」「没跑过」等），
+ * 随跑批更新、留在 tmp；这一份只回答一个问题 —— **库里还剩哪些题没有答案** ——
+ * 所以进仓库，换引擎重跑后重新生成一次即可。
+ *
+ * 分组不按 id 排，而按「该不该人工核查」排：反杀最可疑、评估≈0 次之、
+ * 大优但无杀（多半只是「赢法不是连杀」）放最后；组内也按可疑程度排。
+ */
+function writeUnfinished(work) {
+  const rows = ENDGAMES.map((eg) => ({ eg, r: work[eg.id] })).filter((x) => x.r);
+  const solved = rows.filter((x) => x.r.mate > 0);
+  const draws = rows.filter((x) => x.eg.result === 'draw');
+  const noMate = rows.filter((x) => x.eg.result === 'win' && !(x.r.mate > 0));
+  const reversed = noMate.filter((x) => x.r.mate !== null && x.r.mate <= 0)
+    .sort((a, b) => a.r.mate - b.r.mate);
+  const nearZero = noMate.filter((x) => x.r.mate === null && Math.abs(x.r.cp || 0) < 100)
+    .sort((a, b) => Math.abs(a.r.cp || 0) - Math.abs(b.r.cp || 0));
+  const bigEdge = noMate.filter((x) => x.r.mate === null && Math.abs(x.r.cp || 0) >= 100)
+    .sort((a, b) => b.r.cp - a.r.cp);
+
+  const HEAD = '| id | 局名 | 难度 | 引擎给出 | 耗时 |\n|---|---|---|---|---|';
+  const line = ({ eg, r }) => `| \`${eg.id}\` | ${eg.name} | ${eg.difficulty} | `
+    + `${r.mate !== null ? `mate ${r.mate}` : `cp ${r.cp}`} | ${(r.ms / 1000).toFixed(1)}s |`;
+
+  const md = `# Pikafish 没解出来的局面
+
+> **生成物，别手改。** 重新生成：\`node chinese-chess/tools/gen-solutions.mjs issues\`
+> （引擎 ${ENGINE}；数据来自 \`tmp/solutions-work.json\`）
+
+「没解出来」= 引擎没能给出一条**已证明的杀线**，所以这些局在界面上没有谱载解法，
+点「提示」时仍会走本地引擎现算。**它不等于这些局是错的** —— 大多数只是「赢法不是连击式连杀」。
+真正需要人工核查的是 A、B 两组。
+
+| | 局数 | 说明 |
+|---|---|---|
+| 全库 | ${rows.length} | |
+| 已解出（在 \`js/solutions.js\` 里） | ${solved.length} | 「提示」直接给正解、AI 按谱应着 |
+| **没解出来** | ${noMate.length + draws.length} | 下面逐个列出 |
+| └ 其中谱载「和」 | ${draws.length} | **不是问题**：和局本来就没有「正解着一说」，列在文件末尾备查 |
+| └ 其中谱载「胜」 | ${noMate.length} | 即 A + B + C 三组 |
+
+## A. 反杀（谱载「胜」，引擎却判定红方被杀）—— ${reversed.length} 局
+
+最可疑的一类：要么题面 FEN 与谱上不一致，要么谱载结论有误。
+建议拿棋谱站的题面与解法逐手对一遍（第 020 局我在排查 B6 时已经对过一次）。
+
+${HEAD}
+${reversed.map(line).join('\n')}
+
+## B. 评估 ≈ 0（更像和局，或者结论本身有问题）—— ${nearZero.length} 局
+
+引擎搜满预算后给的是「均势」。如果它们其实该是「和」，那库里的胜局数就有水分 ——
+这一组比 A 组更值得优先看，因为它影响的是**库的整体可信度**。
+
+${HEAD}
+${nearZero.map(line).join('\n')}
+
+## C. 大优但没有强制杀 —— ${bigEdge.length} 局
+
+引擎认为红方能赢（cp 越高越确信），但**赢法不是连击式连杀**，所以给不出杀线。
+抽样验证过（4 局给 60 秒 / mate 60）：这类局面加大预算也基本救不回来 —— 最多捞回约四分之一。
+详见 \`future-work.md\` C8。
+
+${HEAD}
+${bigEdge.map(line).join('\n')}
+
+## 谱载「和」的 ${draws.length} 局（不解，仅备查）
+
+它们本来就没有「正解着一说」，找杀对它们天然无效；而且 **0 局被引擎找到杀**，
+与谱载「和」的判定一致。
+
+${draws.map((x) => `- \`${x.eg.id}\`　${x.eg.name}`).join('\n')}
+`;
+
+  writeFileSync(UNFINISHED_FILE, md);
+  console.log(`没解出的清单 → ${UNFINISHED_FILE}`);
 }
 
 // === issues ===
@@ -387,6 +473,7 @@ function issues() {
   writeFileSync(ISSUES_FILE, md);
   console.log(`疑点清单 → ${ISSUES_FILE}`);
   console.log(`  反杀 ${groups.reversed.length} / 未解出 ${groups.unsolved.length} / 和局却有杀 ${groups.drawWithMate.length} / 参考 ${groups.winLowCp.length} / 未跑 ${groups.notRun.length}`);
+  writeUnfinished(work);
 }
 
 // === 入口 ===

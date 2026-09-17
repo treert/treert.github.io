@@ -162,7 +162,8 @@ bestmove (none)
 | `tools/verify-solutions.mjs` | **校验**：不需要引擎。`node ... verify-solutions.mjs [id]` 传 id 就只看一局 |
 | `js/solutions.js` | 生成物（**别手改**）：395 条 `{ pv, mate, ms }` + `SOLUTIONS_SOURCE` |
 | `tmp/solutions-work.json` | 生成器的账本（每局一条记录）—— 删了要从零重跑 |
-| `tmp/solutions-issues.md` | 疑点清单：反杀 / 未解出 / 和局核对，**人工核查用** |
+| `tmp/solutions-issues.md` | 疑点清单：反杀 / 未解出 / 和局核对，**人工核查用**（留在 tmp，随跑批更新） |
+| `docs/pikafish-unfinished.md` | **没解出来的局面清单**（生成物，进仓库）：按「该不该人工核查」分成反杀 / 评估≈0 / 大优无杀三组，另附全部和局备查 |
 
 换引擎版本重跑后，记得更新 `js/solutions.js` 顶部的 `SOLUTIONS_SOURCE`
 （它是 `gen-solutions.mjs` 里的常量，改那边再 `emit`）。
