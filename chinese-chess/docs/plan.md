@@ -1072,6 +1072,10 @@ git commit -m "feat(chinese-chess): 终局判定与三次重复判和"
 
 ## Task 6: 中文记谱
 
+> **注（2026-09 修正）**：本 Task 里的 `notation.js` 代码是**当时的计划原样**，
+> 其中「纵线号 = `9 - x`，两方数值相同」**是错的** —— 黑方应当是 `x + 1`（红黑镜像）。
+> 见 `design.md` §6.1 与 `future-work.md` E10。这里保留原样，是为了让计划与执行记录可追溯。
+
 **Files:**
 - Create: `chinese-chess/js/notation.js`
 - Create: `chinese-chess/tools/test-notation.mjs`
