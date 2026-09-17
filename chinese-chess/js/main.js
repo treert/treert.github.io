@@ -33,6 +33,7 @@ const dom = {
   btnHint: document.getElementById('btn-hint'),
   btnCopyFen: document.getElementById('btn-copy-fen'),
   btnCopyUrl: document.getElementById('btn-copy-url'),
+  btnCopyMoves: document.getElementById('btn-copy-moves'),
   // 玩法说明：标题行的问号图标 + 它控制的那块说明（本体在标题行下面）
   btnHelp: document.getElementById('btn-help'),
   helpBody: document.getElementById('help-body'),
@@ -347,6 +348,9 @@ function updateButtons() {
   // 挡位也照旧可用，因为提示用的就是它。
   dom.btnHint.disabled = app.busy || !playing
     || (!two && G.sideToMove(app.game) !== app.game.playerSide);
+  // 复制着法跟「轮到谁」「AI 在不在想」都无关 —— 它只读列表。
+  // 唯一的门槛是列表里得有东西：一步都没走时复制出来是空串，不如置灰。
+  dom.btnCopyMoves.disabled = app.game.moves.length === 0;
   dom.levelSelect.disabled = app.busy;
   // 双人模式下「执子」没有意义（两边都是人），禁掉免得让人以为它还有作用。
   // 想让黑方在下方，用「翻转」。
@@ -1117,6 +1121,44 @@ async function copyShareUrl() {
 }
 
 /**
+ * 把着法列表拼成一段文本 —— 一行一个回合，「1. 红着 黑着」。
+ *
+ * 抄的是**列表里显示的全部着法**（`game.moves`，不是 `moveList()` 那个到游标为止的切片）：
+ * 界面上列出来多少就复制多少。回看状态下若只复制到游标，用户会发现自己
+ * 「照着屏幕数出来的步数」和复制出来的对不上。
+ *
+ * 不做列对齐：汉字和阿拉伯数字混排时按字符数补空格对不齐（等宽字体里汉字占两格），
+ * 单空格分隔在各种编辑器里都不会错位。
+ */
+function movesText() {
+  const moves = app.game.moves;
+  const lines = [];
+  for (let i = 0; i < moves.length; i += 2) {
+    const head = `${i / 2 + 1}. ${moves[i].notation}`;
+    // 奇数步数时最后一回合没有黑方着法，别留个尾空格
+    lines.push(moves[i + 1] ? `${head} ${moves[i + 1].notation}` : head);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 复制着法列表。入口在「着法」面板标题右边。
+ *
+ * 和「复制 FEN / 复制链接」是同一族的「把东西拿出去」，只是拿出去的是**棋谱文本**：
+ * 贴进棋谱软件、论坛帖子里都比 FEN 好读 —— FEN 给的是局面，它给的是过程。
+ */
+async function copyMoves() {
+  const text = movesText();
+  if (!text) return; // 没走过棋（按钮本来也是灰的）
+  try {
+    await navigator.clipboard.writeText(text);
+    flashCopied(dom.btnCopyMoves, '复制');
+  } catch {
+    clipboardFallback(text, '着法');
+  }
+}
+
+/**
  * 标题右边那个按钮：**既是局面库的唯一入口，也是「我在哪一局」的指示**。
  *
  * 原先入口有两个（这个按钮 + 标题下面一行可点的「当前局面」文本），视觉上重复。
@@ -1294,6 +1336,7 @@ function bindToolbar() {
   dom.btnHint.addEventListener('click', requestHint);
   dom.btnCopyFen.addEventListener('click', copyCurrentFen);
   dom.btnCopyUrl.addEventListener('click', copyShareUrl);
+  dom.btnCopyMoves.addEventListener('click', copyMoves);
   bindEndgames();
 }
 

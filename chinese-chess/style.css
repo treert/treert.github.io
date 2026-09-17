@@ -953,6 +953,44 @@ kbd {
   display: flex;
   flex-direction: column;
 }
+/* 标题行：h2 左边，复制按钮右边。h2 自己的 margin-bottom 留着当这一行的下边距 ——
+   去掉它的话（比如把 margin 挪到 .xq-moves-head 上）会和 `.panel h2` 打架，
+   以后改主题时容易两边都以为对方管着间距。 */
+.xq-moves-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 「复制」是个次要动作（和列表同属一个面板，不该比「悔棋 / 重开」那些工具栏按钮显眼），
+   做成无边框的文字按钮，hover 才浮出色块 —— 同局面库行尾的 ✎ / ✕。
+   min-width 是为了「复制」变成「已复制」时右侧不抽动。 */
+.xq-moves-copy {
+  flex-shrink: 0;
+  min-width: 4em;
+  padding: 3px 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.xq-moves-copy:hover {
+  color: var(--accent);
+  background: var(--bg);
+}
+/* 一步都没走时没东西可复制（见 main.js 的 updateButtons）。第二条要把 hover 抢回来，
+   否则鼠标一上去又变强调色，看着像能点 —— 同 .xq-io-btn:disabled:hover */
+.xq-moves-copy:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.xq-moves-copy:disabled:hover {
+  color: var(--text-secondary);
+  background: none;
+}
 .xq-move-list {
   flex: 1;
   min-height: 0;
