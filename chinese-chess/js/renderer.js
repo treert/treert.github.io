@@ -8,6 +8,10 @@
  *
  * 棋盘的 9×10 个格子是「交叉点」网格（每个格子的中心就是一个落子点），
  * 十字线由格子自己的伪元素画，河界和九宫由棋盘容器的伪元素画。
+ *
+ * 传统棋盘上那些「不是线」的东西 —— 外框、楚河汉界、上下纵线号、炮位与兵卒位上的
+ * 「十」字标记 —— 归本文件建：它们都在棋盘内部，位置由 COLS / ROWS 推出来，
+ * 和格子的坐标是同一套算法，分开放只会两边各写一遍。
  */
 
 import { COLS, ROWS, CELLS, EMPTY } from './config.js';
@@ -19,6 +23,67 @@ import { RED_NAMES, BLACK_NAMES } from './notation.js';
 const RIVER_TOP_ROW = 4;
 const RIVER_BOTTOM_ROW = 5;
 
+// 传统棋盘在炮位与兵 / 卒位上画「十」字标记；最外两列上的只画朝盘内的那一半
+const STAR_POINTS = (() => {
+  const set = new Set();
+  const add = (x, y) => set.add(y * COLS + x);
+  for (const y of [2, 7]) { add(1, y); add(7, y); }                    // 炮位
+  for (const y of [3, 6]) for (const x of [0, 2, 4, 6, 8]) add(x, y);  // 兵 / 卒位
+  return set;
+})();
+
+// 下沿的纵线号。红方在下方，从红方右手边数起是「一」，所以盘左是「九」。
+const RED_FILES = ['九', '八', '七', '六', '五', '四', '三', '二', '一'];
+
+function decoText(text) {
+  const el = document.createElement('span');
+  el.className = 'xq-deco-text';
+  el.textContent = text;
+  return el;
+}
+
+/** 一排纵线号：9 等分网格，每格一个 —— 和棋子的 left 百分比是同一套算法 */
+function coordsRow(extraClass, textOf) {
+  const row = document.createElement('div');
+  row.className = `xq-coords ${extraClass}`;
+  for (let x = 0; x < COLS; x++) row.appendChild(decoText(textOf(x)));
+  return row;
+}
+
+/**
+ * 棋盘装饰层：外框 + 楚河汉界 + 上下纵线号。
+ *
+ * 它们都不参与交互，也不该跟着 90 个格子重复建，所以聚成一层。
+ * 插在格子后面是图省事（格子是循环里 append 的），上下关系由 z-index 定，不看 DOM 顺序 ——
+ * 装饰层是 0，格子是 1，棋子是 2。
+ *
+ * 翻转时这一层跟着棋盘转 180°，里面的文字各自反向转回来（见 style.css 的 .xq-deco-text）——
+ * 转容器会把文字送到别的列上，必须在文字自己身上转。
+ */
+function buildDeco() {
+  const deco = document.createElement('div');
+  deco.className = 'xq-deco';
+  deco.setAttribute('aria-hidden', 'true'); // 纯装饰，读屏不必念
+
+  const frame = document.createElement('div');
+  frame.className = 'xq-frame';
+
+  // 河界：左边楚河、右边汉界，和参考棋盘一样分开摆
+  const river = document.createElement('div');
+  river.className = 'xq-river';
+  river.append(decoText('楚河'), decoText('汉界'));
+
+  // 上面「1..9」（黑方的纵线号，从左到右）、下面「九..一」（红方的，同样从左到右）。
+  // 两排都是「跟着列走」的：翻转后它们各自转到棋盘另一头，仍然对着原来那一列。
+  deco.append(
+    frame,
+    river,
+    coordsRow('xq-coords--top', (x) => String(x + 1)),
+    coordsRow('xq-coords--bottom', (x) => RED_FILES[x]),
+  );
+  return deco;
+}
+
 /**
  * 建好 90 个格子，返回一个渲染器。
  *
@@ -29,6 +94,7 @@ const RIVER_BOTTOM_ROW = 5;
 export function createRenderer(boardEl, wrapEl) {
   const cells = new Array(CELLS);
   const pieceEls = new Map(); // 格子下标 -> 棋子元素
+  let flipTimer = 0;          // 翻转动画结束后把装饰文字放出来的定时器
 
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
@@ -43,10 +109,20 @@ export function createRenderer(boardEl, wrapEl) {
         if (y === RIVER_TOP_ROW) cell.classList.add('xq-cell--river-up');
         if (y === RIVER_BOTTOM_ROW) cell.classList.add('xq-cell--river-down');
       }
+      // 星位标记：一个空元素，四条短臂由它的两个伪元素画（格子的伪元素已经是十字线了）
+      if (STAR_POINTS.has(i)) {
+        const star = document.createElement('i');
+        star.className = 'xq-star';
+        if (x === 0) star.classList.add('xq-star--left');
+        else if (x === COLS - 1) star.classList.add('xq-star--right');
+        cell.appendChild(star);
+      }
       boardEl.appendChild(cell);
       cells[i] = cell;
     }
   }
+
+  boardEl.appendChild(buildDeco());
 
   /** 格心坐标 -> CSS 百分比 */
   function place(el, idx) {
@@ -172,8 +248,23 @@ export function createRenderer(boardEl, wrapEl) {
     return Number(cell.dataset.index);
   }
 
+  /**
+   * 翻转棋盘。纯 CSS：整块棋盘转 180°，棋子和装饰文字各自转回来。
+   *
+   * 装饰文字（河界、纵线号）的反向转是**瞬间**的 —— 棋盘在 0.3 秒里慢慢转，
+   * 文字却在第一帧就拧回了正着的角度，看起来像文字自己在打转。
+   * 所以动画期间给外层挂上 is-flipping，把那几个字先藏起来，转完再淡回来
+   * （CSS 里的 .xq-deco-text）。棋子的反向转同理，只是棋子是图形，
+   * 转起来不像文字那么刺眼，就不折腾了。
+   */
   function setFlipped(flipped) {
-    wrapEl.classList.toggle('is-flipped', !!flipped);
+    const next = !!flipped;
+    if (next !== isFlipped()) {
+      wrapEl.classList.add('is-flipping');
+      clearTimeout(flipTimer);
+      flipTimer = setTimeout(() => wrapEl.classList.remove('is-flipping'), 320);
+    }
+    wrapEl.classList.toggle('is-flipped', next);
   }
 
   function isFlipped() {

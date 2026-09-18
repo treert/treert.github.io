@@ -235,7 +235,9 @@ AI 单测里**不出现「搜了多少节点 / 花了多少毫秒」**这类断�
 ### 改棋盘样式
 
 颜色在 `style.css` 顶部的 `--xq-*` 变量里（深浅两套）。
-棋盘的线、河界、九宫分别在 `.xq-cell::before/::after` 和 `.xq-board::before/::after` 里。
+棋盘的线、河界、九宫分别在 `.xq-cell::before/::after` 和 `.xq-board::before/::after` 里；
+外框、楚河汉界、上下纵线号、星位直角是 `renderer.js` 建的 `.xq-deco` 一层，
+位置全用 `cqw`（1 格 = 11.111cqw）；纵线号借 `.xq-board` 的上下 margin 站在棋盘外面。
 
 ## 工具与测试
 

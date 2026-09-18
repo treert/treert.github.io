@@ -14,8 +14,14 @@
 :root {
   --xq-red: #c0392b;
   --xq-black: #2d3436;
-  --xq-board-bg: #f0d9b5;
+  /* 棋盘底色三段：中间亮、边缘略暗。木色平涂太像塑料，
+     有一点深浅过渡就有木板的观感（不用纹理图，见 .xq-board 的注释） */
+  --xq-board-bg: #eed7b0;
+  --xq-board-bg-hi: #f8e9cd;
+  --xq-board-bg-lo: #e2c496;
   --xq-board-line: #a08660;
+  /* 外框 / 河界文字 / 纵线号用的「重线色」，比棋盘线深一档 */
+  --xq-board-frame: #8a6a45;
   --xq-hl-last: rgba(9, 132, 227, .30);
   --xq-hl-target: rgba(0, 184, 148, .38);
   /* 提示（AI 建议的着法）。同一个琥珀色，圆点用半透明、棋子外圈用实色。
@@ -30,7 +36,7 @@
      顺带省掉「红黑各一套 + 深色主题再各一套」四份颜色。
 
      **为什么是紫：它要和棋盘底色比，不是和棋子比。**
-     圈画在棋盘上（棋子外沿之外），而棋盘是暖米色 #f0d9b5。
+     圈画在棋盘上（棋子外沿之外），而棋盘是暖米色 #eed7b0。
      最初用的黄色和它同一个色系，50% 透明度合成出来是 #F2C65B ——
      还是「偏黄的米色」，对比天生就弱。紫色和米色是**色相对比**，一眼就能分开。
 
@@ -39,11 +45,14 @@
   --xq-turn: #7c3aed;
 }
 :root[data-theme="dark"] {
-  /* 深色下棋盘不能纯黑，否则棋子边框看不清；用偏暖的深灰 */
   --xq-red: #ff6b6b;
   --xq-black: #e6e9ee;
+  /* 深色下棋盘不能纯黑，否则棋子边框看不清；用偏暖的深灰 */
   --xq-board-bg: #2b2a26;
+  --xq-board-bg-hi: #35332e;
+  --xq-board-bg-lo: #22211d;
   --xq-board-line: #6b6355;
+  --xq-board-frame: #867a63;
   --xq-hl-last: rgba(77, 171, 247, .36);
   --xq-hl-target: rgba(0, 184, 148, .42);
   --xq-hint: #f0a02a;
@@ -270,10 +279,22 @@ kbd {
   aspect-ratio: 9 / 10;
   width: 100%;
   background: var(--xq-board-bg);
+  /* 木色不铺平：中间偏亮、边缘略深，和参考棋盘的观感一致。
+     **用渐变而不是纹理图** —— 纹理图在深色主题下要再准备一张，
+     而这里两套主题只换三个变量，深色下自动成立。 */
+  background-image: radial-gradient(
+    115% 95% at 50% 42%,
+    var(--xq-board-bg-hi), var(--xq-board-bg) 58%, var(--xq-board-bg-lo)
+  );
   border: 1px solid var(--xq-board-line);
   border-radius: 8px;
   box-shadow: var(--shadow);
   transition: transform .3s;
+  /* 上下各留一条窄带，给棋盘的纵线号（.xq-coords）。
+     **数字必须留在棋盘盒子之外**：棋盘里那半格边距看着够宽，其实被棋子占满了 ——
+     棋子直径 0.92 格，顶行的棋子离棋盘上沿只有 2px，数字放进去必然被压住。
+     用 cqw 而不是 px，窄屏上跟着棋盘一起缩。 */
+  margin: 4.6cqw 0;
 }
 
 /* 每个格子画自己的十字线。格子中心就是交叉点，
@@ -318,6 +339,44 @@ kbd {
   top: 50%;
 }
 
+/* === 星位（炮位与兵 / 卒位上的标记）===
+   传统棋盘在这个点上画的是**四个直角**，不是十字 ——
+   十字会和底下的棋盘线完全重合，等于没画（试过，看不见）。
+   每个直角的**顶点朝交点、两条边往外张开**（顶点在 38% / 62% 处，离交点 12%）。
+   方向别搞反：四个角的边都朝外，不是围成一个方框。
+
+   8 段实线用 8 层 solid 渐变画在一个 <i> 上（renderer.js 建的）。
+   用 background-position 摆位时记住：百分比是「图片与容器的差值」的比例，
+   所以边往外张到 25% 处时，横向摆位要写 25 / (100 - 13) = 28.7%。 */
+.xq-star {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--xq-board-line), var(--xq-board-line)), linear-gradient(var(--xq-board-line), var(--xq-board-line)),
+    linear-gradient(var(--xq-board-line), var(--xq-board-line)), linear-gradient(var(--xq-board-line), var(--xq-board-line)),
+    linear-gradient(var(--xq-board-line), var(--xq-board-line)), linear-gradient(var(--xq-board-line), var(--xq-board-line)),
+    linear-gradient(var(--xq-board-line), var(--xq-board-line)), linear-gradient(var(--xq-board-line), var(--xq-board-line));
+  /* 前四条横臂（左上 / 右上 / 左下 / 右下），后四条竖臂 */
+  background-size:
+    13% 1px, 13% 1px, 13% 1px, 13% 1px,
+    1px 13%, 1px 13%, 1px 13%, 1px 13%;
+  background-position:
+    28.7% 38%, 71.3% 38%, 28.7% 62%, 71.3% 62%,
+    38% 28.7%, 62% 28.7%, 38% 71.3%, 62% 71.3%;
+}
+/* 最外两列上的星位骑在棋盘边上，只画朝盘内的那两个直角 ——
+   传统棋盘上它们就是半个标记（renderer.js 的 xq-star--left / --right） */
+.xq-star--left {
+  background-size: 13% 1px, 13% 1px, 1px 13%, 1px 13%;
+  background-position: 71.3% 38%, 71.3% 62%, 62% 28.7%, 62% 71.3%;
+}
+.xq-star--right {
+  background-size: 13% 1px, 13% 1px, 1px 13%, 1px 13%;
+  background-position: 28.7% 38%, 28.7% 62%, 38% 28.7%, 38% 71.3%;
+}
+
 /* 九宫斜线：两个伪元素绝对定位在棋盘容器上。
    注意绝对定位的伪元素不参与 grid 布局，所以不会挤掉格子。
 
@@ -345,6 +404,92 @@ kbd {
 }
 .xq-board::before { top: 5%; }      /* 黑方九宫（y = 0..2） */
 .xq-board::after  { top: 75%; }     /* 红方九宫（y = 7..9） */
+
+/* === 棋盘装饰层（外框 / 楚河汉界 / 上下纵线号）===
+   单独一层，z-index: 0 —— 和棋盘线同层，在格子和棋子之下。
+   整层 pointer-events: none：它盖在格子上，点击必须穿过去。
+
+   位置全部用 cqw（1cqw = 容器宽度的 1%）。棋盘自己就是个 9:10 的容器，
+   所以「一格」永远是 11.111cqw，省得在百分比和 cqw 之间来回换算：
+   横向的格心在 (x+.5)/9，纵向的格心在 (y+.5)/10 —— 而 1/10 的宽度正好是 11.111cqw。 */
+.xq-deco {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* 外框。传统棋盘最外那圈是**双线**：
+   内线画在 border 上，正好压着最外那圈棋线；外线让 outline 向外偏一点点。
+   一个元素两条线，比再套一个 div 省事。
+   5.556cqw = 半格（最外那圈棋线离棋盘边就是半格）。 */
+.xq-frame {
+  position: absolute;
+  inset: 5.556cqw;
+  border: 1px solid var(--xq-board-frame);
+  outline: 1px solid var(--xq-board-frame);
+  outline-offset: .7cqw;
+  border-radius: 2px;
+}
+
+/* 河界里的「楚河 / 汉界」。两个字之间拉开（letter-spacing），
+   和手写棋盘上那样一左一右各摆一处：padding 20% 让它们落在 1/4 与 3/4 处。 */
+.xq-river {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 45%;               /* 河界上下沿在 y = 4 / 5 两条棋线上，即 45% ~ 55% */
+  height: 10%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20%;
+  font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  font-size: 4.4cqw;
+  letter-spacing: 1cqw;
+  color: var(--xq-board-frame);
+  opacity: .9;
+}
+
+/* 上下两排纵线号。9 等分网格，每格一个字、居中 ——
+   和棋子的 left 百分比是同一套算法，所以天然对齐列心。
+
+   它们在棋盘盒子**外面**（上下各借 .xq-board 的 margin），所以数字永远不被棋子压住。
+   翻转时整排跟着棋盘转 180°：上排会转到下排、数字左右镜像 ——
+   这正是翻过来看一块真棋盘的样子（黑方换到下方，它的 1..9 就跟着到下排）。 */
+.xq-coords {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 4.6cqw;
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  align-items: center;
+  justify-items: center;
+  font-size: 3cqw;
+  line-height: 1;
+  color: var(--xq-board-frame);
+  opacity: .75;
+}
+.xq-coords--top    { top: -4.6cqw; }
+.xq-coords--bottom { bottom: -4.6cqw; }
+
+/* 装饰文字（河界两个字 + 18 个纵线号）共用的两条规则：
+   1. 翻转时**每个字各自**反向转 180° 把字正过来。反向转不能落在容器上 ——
+      那样文字会留在原来那一列，而棋盘已经左右镜像了，数字就对错了列。
+      跟着棋盘转（到达正确的位置）+ 自己转回来（保持正着），两件事分开做。
+   2. 翻转动画那 0.3 秒里藏起来（renderer.js 挂的 is-flipping），转完再淡回来。
+      棋盘是慢慢转的、反向转是瞬间的，不藏的话会看到文字自己在那儿拧。 */
+.xq-deco-text {
+  transition: opacity .18s;
+}
+.xq-board-wrap.is-flipped .xq-deco-text {
+  transform: rotate(180deg);
+}
+.xq-board-wrap.is-flipping .xq-deco-text {
+  opacity: 0;
+  transition: none;   /* 藏要立刻藏，不然还能看见它转一半 */
+}
 
 /* === 高亮 === */
 /* 用带 alpha 的径向渐变画圆点，不覆盖格子自己的十字线 */
@@ -454,7 +599,8 @@ kbd {
 
 /* === 翻转 === */
 /* 只影响显示：整个棋盘转 180°，棋子文字再转回来。
-   因为格子和棋子都在棋盘内部，点击事件跟着 DOM 走，所以 cellAt 不需要任何翻转逻辑。 */
+   因为格子和棋子都在棋盘内部，点击事件跟着 DOM 走，所以 cellAt 不需要任何翻转逻辑。
+   装饰文字（外框不用转，河界和纵线号要）同理，规则和它们一起在「棋盘装饰层」那一节。 */
 .xq-board-wrap.is-flipped .xq-board {
   transform: rotate(180deg);
 }
