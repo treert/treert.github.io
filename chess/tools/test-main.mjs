@@ -15,6 +15,10 @@
  * 特别钉住 plan.md 里点名要验的那条：**翻转棋盘之后点击仍然正确** ——
  * 翻转是纯 CSS（整块棋盘 rotate 180°），点击映射不该做任何翻转换算。
  * 写反了的表现是「翻转后点 e2，动的却是对方那一排」。
+ *
+ * 另一类「只有界面层才看得出来」的是**三种特殊着法**（易位 / 吃过路兵 / 升变）：
+ * 规则层有 perft 盯着，但升变浮层、易位的落点、过路兵吃掉的那个子都是界面层的事。
+ * 文件最后有一节把它们逐个走一遍，判据是「打开保存 / 导入把当前局面读回来」。
  */
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -707,6 +711,99 @@ console.log('\n=== 自定义局面（改名 / 删除）===');
   check('删除之后列表空了（只剩空态提示）', btn('endgame-list').textContent.includes('还没有存过局面'), true);
   check('徽标回到 0', badgeOf(btn('endgame-tabs').children[4]), '0');
   btn('btn-close-picker').fire('click');
+}
+
+// --- 特殊着法：易位 / 吃过路兵 / 升变 ---
+//
+// 这三种交互以前一条断言都没有。规则层有 perft 与逐条断言盯着，但**界面层**那三条路径
+// 各自有自己容易错的地方：易位走的是「王从 e1 到 g1」、吃过路兵吃的**不是目标格上的子**、
+// 升变要先弹浮层问一句。所以这里用摆好的局面逐个走一遍，
+// 并且**打开「保存 / 导入」把 FEN 框里的当前局面读回来当证据**（用户在界面上能看到的同一个东西）。
+console.log('\n=== 特殊着法（易位 / 吃过路兵 / 升变）===');
+{
+  // 双人模式：走法完全确定，不会有 AI 应手把局面搅乱
+  btn('two-player-toggle').checked = true;
+  btn('two-player-toggle').fire('change');
+
+  const loadFen = (fen) => {
+    btn('btn-open-io').fire('click');
+    btn('fen-input').value = fen;
+    btn('btn-load-fen').fire('click');
+  };
+  const fenOf = () => {
+    btn('btn-open-io').fire('click');
+    const v = btn('fen-input').value;
+    btn('btn-close-io').fire('click');
+    return v;
+  };
+
+  // --- 短易位 ---
+  loadFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  check('易位：先摆回标准开局', piecesOnBoard().length, 32);
+  for (const [a, b] of [['e2', 'e4'], ['e7', 'e5'], ['g1', 'f3'], ['b8', 'c6'], ['f1', 'c4'], ['f8', 'c5']]) {
+    clickCell(a);
+    clickCell(b);
+  }
+  check('易位：走完三个回合，白方两个易位权都还在', fenOf().split(' ')[2], 'KQkq');
+
+  clickCell('e1');
+  // 着法编码里易位就是「王从 e1 走到 g1」，所以 g1 必须被标成可走点
+  check('易位：选中王之后 g1 是可走点', cellOf('g1').classList.contains('chess-cell--target'), true);
+  clickCell('g1');
+  const castled = fenOf();
+  check('易位：记作 O-O', moveSans(), ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'O-O']);
+  check('易位：王到 g1、车从 h1 挪到 f1', castled.split(' ')[0].split('/')[7], 'RNBQ1RK1');
+  check('易位：e1 与 h1 都空了', [pieceOn('e1'), pieceOn('h1')], [null, null]);
+  check('易位：白方两个易位权都没了', castled.split(' ')[2], 'kq');
+
+  // --- 吃过路兵 ---
+  loadFen('4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1');
+  // 和下面那条成对：同一个查找函数，走之前找得到、走之后找不到 ——
+  // 否则「找不到」也可能只是查找本身失效，那样断言就是空的
+  check('吃过路兵：走之前 d5 上是黑兵', pieceOn('d5').dataset.piece, '-1');
+  clickCell('e5');
+  check('吃过路兵：d6 是可走点（黑兵刚推两格留下的那个靶子）',
+    cellOf('d6').classList.contains('chess-cell--target'), true);
+  clickCell('d6');
+  const ep = fenOf();
+  check('吃过路兵：记作 exd6', moveSans(), ['exd6']);
+  check('吃过路兵：白兵落在 d6', ep.split(' ')[0], '4k3/8/3P4/8/8/8/8/4K3');
+  check('吃过路兵：被吃的黑兵在 d5 上消失（吃的不是目标格上的子）', pieceOn('d5'), null);
+  check('吃过路兵：过路兵靶子这一步之后就作废', ep.split(' ')[3], '-');
+
+  // --- 升变 ---
+  // 先验取消路径：浮层关掉等于「没走这一步」，不是「先落子再补一个子」
+  loadFen('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
+  clickCell('a7');
+  clickCell('a8');
+  check('升变：兵到末排先弹浮层、还没落子',
+    [btn('promo-dialog').open, moveListText()], [true, '还没有走棋']);
+  check('升变：四个选项是 后 / 车 / 象 / 马',
+    btn('promo-choices').children.map((c) => c.textContent), ['后', '车', '象', '马']);
+  check('升变：浮层开着的时候 a7 的兵还在原处', pieceOn('a7').dataset.piece, '1');
+  btn('promo-dialog').fire('cancel'); // Esc 走的就是这条
+  check('升变：Esc 取消 → 浮层关上、着法列表还是空的',
+    [btn('promo-dialog').open, moveListText()], [false, '还没有走棋']);
+  check('升变：取消之后棋盘没变（兵还在 a7、a8 上没子）',
+    [pieceOn('a7').dataset.piece, pieceOn('a8')], ['1', null]);
+
+  // 四种升变各走一次。按钮顺序 = config.js 的 PROMO_PIECES = 后 / 车 / 象 / 马，
+  // 断言里的棋子编码也是 config.js 的那一套（2 马 / 3 象 / 4 车 / 5 后）
+  const promos = [
+    { i: 0, pick: '后', san: 'a8=Q+', placement: 'Q3k3/8/8/8/8/8/8/4K3', code: '5' },
+    { i: 1, pick: '车', san: 'a8=R+', placement: 'R3k3/8/8/8/8/8/8/4K3', code: '4' },
+    { i: 2, pick: '象', san: 'a8=B', placement: 'B3k3/8/8/8/8/8/8/4K3', code: '3' },
+    { i: 3, pick: '马', san: 'a8=N', placement: 'N3k3/8/8/8/8/8/8/4K3', code: '2' },
+  ];
+  for (const p of promos) {
+    loadFen('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
+    clickCell('a7');
+    clickCell('a8');
+    btn('promo-choices').children[p.i].fire('click');
+    check(`升变：选「${p.pick}」→ ${p.san}（将军后缀只在该有的时候才有）`, moveSans(), [p.san]);
+    check(`升变：选「${p.pick}」之后局面首段对得上`, fenOf().split(' ')[0], p.placement);
+    check(`升变：a8 上那颗子的编码是 ${p.code}`, pieceOn('a8').dataset.piece, p.code);
+  }
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
