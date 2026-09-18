@@ -1099,21 +1099,33 @@ kbd {
   display: flex;
   flex-direction: column;
 }
-/* 标题行：h2 左边，复制按钮右边。h2 自己的 margin-bottom 留着当这一行的下边距 ——
-   去掉它的话（比如把 margin 挪到 .xq-moves-head 上）会和 `.panel h2` 打架，
-   以后改主题时容易两边都以为对方管着间距。 */
+/* 标题行：左「着法」、中「上一步 / 下一步」、右「复制」。
+   h2 自己的 margin-bottom 留着当这一行的下边距 —— 去掉它的话（比如把 margin 挪到
+   .xq-moves-head 上）会和 `.panel h2` 打架，以后改主题时容易两边都以为对方管着间距。
+
+   三列网格（1fr auto 1fr，两侧等分）让**单步按钮落在整行的中线上**：
+   原来是 flex + space-between，三个按钮全挤在右边缘，左边只有两个字，头重脚轻。
+   复制仍然贴右 —— 它是「把列表拿出去」的动作，和面板边对齐才像个出口；
+   单步是「翻列表」，居中反而离列表更近。 */
 .xq-moves-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
 }
-/* 「复制」是个次要动作（和列表同属一个面板，不该比「悔棋 / 重开」那些工具栏按钮显眼），
-   做成无边框的文字按钮，hover 才浮出色块 —— 同局面库行尾的 ✎ / ✕。
-   min-width 是为了「复制」变成「已复制」时右侧不抽动。 */
+/* 两个单步按钮包一层，占中间那列（一个 flex 项，别让网格把它们拆到两列去） */
+.xq-moves-steps {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* 这三个都是**次要动作**：和列表同属一个面板，不该比「悔棋 / 重开」那些工具栏按钮显眼。
+   做成无边框的文字按钮，hover 才浮出色块 —— 同局面库行尾的 ✎ / ✕。 */
+.xq-moves-step,
 .xq-moves-copy {
   flex-shrink: 0;
-  min-width: 4em;
   padding: 3px 8px;
   font-family: var(--font);
   font-size: 12px;
@@ -1122,17 +1134,27 @@ kbd {
   border: none;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
 }
+/* 只有「复制」需要固定最小宽度：它点完会变成「已复制」，不固定的话整排会左右抽一下 */
+.xq-moves-copy {
+  min-width: 4em;
+  /* **必须显式靠右**：网格项默认 stretch，按钮会被拉成整列宽（hover 色块一大条） */
+  justify-self: end;
+}
+.xq-moves-step:hover,
 .xq-moves-copy:hover {
   color: var(--accent);
   background: var(--bg);
 }
-/* 一步都没走时没东西可复制（见 main.js 的 updateButtons）。第二条要把 hover 抢回来，
+/* 到头了 / 没东西可复制时置灰（见 main.js 的 updateButtons）。第二条要把 hover 抢回来，
    否则鼠标一上去又变强调色，看着像能点 —— 同 .xq-io-btn:disabled:hover */
+.xq-moves-step:disabled,
 .xq-moves-copy:disabled {
   opacity: .45;
   cursor: not-allowed;
 }
+.xq-moves-step:disabled:hover,
 .xq-moves-copy:disabled:hover {
   color: var(--text-secondary);
   background: none;

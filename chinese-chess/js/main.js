@@ -36,6 +36,9 @@ const dom = {
   btnCopyFen: document.getElementById('btn-copy-fen'),
   btnCopyUrl: document.getElementById('btn-copy-url'),
   btnCopyMoves: document.getElementById('btn-copy-moves'),
+  // 着法面板右上角的单步回看（回看专用，和工具栏的「悔棋 / 重做」分开）
+  btnStepBack: document.getElementById('btn-step-back'),
+  btnStepFwd: document.getElementById('btn-step-fwd'),
   // 玩法说明：标题行的问号图标 + 它控制的那块说明（本体在标题行下面）
   btnHelp: document.getElementById('btn-help'),
   helpBody: document.getElementById('help-body'),
@@ -364,6 +367,23 @@ function stepAnimation(fromPly, toPly) {
   return movers;
 }
 
+/**
+ * 光标挪到第 toPly 步，并把界面刷一遍。
+ *
+ * 着法列表点击、重做、着法面板上的「上一步 / 下一步」全走这里 ——
+ * 它们是同一件事的四个入口（挪光标），区别只在怎么算出 toPly。
+ * 越界由 gotoPly 自己挡掉，所以「上一步」在 0 步、「下一步」在最后一步都不用特判。
+ */
+function gotoPlyAnimated(toPly) {
+  if (app.busy) return;
+  const animate = stepAnimation(app.game.cursor, toPly);
+  if (!G.gotoPly(app.game, toPly)) return;
+  clearSelection();
+  app.hint = 0;
+  refresh(animate);
+  saveSoon(app.game);
+}
+
 function moveSpan(i) {
   const el = document.createElement('span');
   el.className = 'xq-move';
@@ -371,14 +391,8 @@ function moveSpan(i) {
   el.textContent = app.game.moves[i].notation;
   el.title = `跳到第 ${i + 1} 步`;
   el.addEventListener('click', () => {
-    if (app.busy) return;
     if (app.game.cursor === i + 1) return; // 已经在这一步
-    const animate = stepAnimation(app.game.cursor, i + 1);
-    G.gotoPly(app.game, i + 1);
-    clearSelection();
-    app.hint = 0;
-    refresh(animate);
-    saveSoon(app.game);
+    gotoPlyAnimated(i + 1);
   });
   return el;
 }
@@ -398,6 +412,10 @@ function updateButtons() {
   // 复制着法跟「轮到谁」「AI 在不在想」都无关 —— 它只读列表。
   // 唯一的门槛是列表里得有东西：一步都没走时复制出来是空串，不如置灰。
   dom.btnCopyMoves.disabled = app.game.moves.length === 0;
+  // 回看单步：到两头就灰。busy 时也灰 —— 和工具栏那几个一样，
+  // AI 思考（含等补间跑完的那一段）期间不让用户改光标，否则会撞上「AI 落在回看状态上」。
+  dom.btnStepBack.disabled = app.busy || app.game.cursor <= 0;
+  dom.btnStepFwd.disabled = app.busy || app.game.cursor >= app.game.moves.length;
   dom.levelSelect.disabled = app.busy;
   // 双人模式下「执子」没有意义（两边都是人），禁掉免得让人以为它还有作用。
   // 想让黑方在下方，用「翻转」。
@@ -1425,15 +1443,14 @@ function bindToolbar() {
     saveSoon(app.game);
   });
 
-  dom.btnRedo.addEventListener('click', () => {
-    if (app.busy) return;
-    const animate = stepAnimation(app.game.cursor, app.game.cursor + 1);
-    if (!G.gotoPly(app.game, app.game.cursor + 1)) return;
-    clearSelection();
-    app.hint = 0;
-    refresh(animate);
-    saveSoon(app.game);
-  });
+  // 重做就是「往前走一步」，和着法面板上的「下一步」是同一个动作 ——
+  // 区别只在入口：重做是工具栏里的「撤销 / 重做」那一对，另两个是回看用的。
+  dom.btnRedo.addEventListener('click', () => gotoPlyAnimated(app.game.cursor + 1));
+
+  // 回看的单步走。**和「悔棋」不是一回事**：悔棋是「退到玩家走」（人机模式一次两步），
+  // 想一格一格翻棋谱用这两个。到头的那个由 updateButtons 置灰。
+  dom.btnStepBack.addEventListener('click', () => gotoPlyAnimated(app.game.cursor - 1));
+  dom.btnStepFwd.addEventListener('click', () => gotoPlyAnimated(app.game.cursor + 1));
 
   dom.btnReset.addEventListener('click', () => {
     if (app.busy) return;
