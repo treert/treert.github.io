@@ -1,0 +1,351 @@
+/**
+ * 棋盘渲染。DOM + CSS，不是 Canvas。
+ *
+ * 选 DOM 而不是 Canvas 的直接收益（design.md §3.2）：
+ *   - 颜色全部走 CSS 变量，深色模式自动生效，**不需要监听 themechange**
+ *   - 命中测试用事件委托，免费
+ *   - 64 格 + 32 子，DOM 完全够；格子是 <button>，键盘可遍历
+ *
+ * 国象比象棋简单的地方：**64 个格子本身就是答案** —— 不用像象棋那样在交叉点上拼十字线。
+ *
+ * 照搬象棋那三条（design.md §3.8，都是那边踩坑换来的结论）：
+ *   1. 重绘按格子 diff，不重建（否则同一个任务里连着两次 draw 会把正在做过渡的元素删掉）；
+ *   2. 补间跑完要有回调（AI 的应手排在动画后面）；
+ *   3. 只有相邻一两步才做补间（跨多步跳转直接落位）。
+ */
+
+import { FILES, RANKS, CELLS, EMPTY } from './config.js';
+import { fileOf, rankOf } from './position.js';
+import { moveFrom, moveTo } from './rules.js';
+
+/**
+ * 棋子图形：6 种形状各一段内联 SVG（viewBox 0 0 100 100）。
+ *
+ * **不用 Unicode ♔♕♖♗♘♙ 的理由**（design.md §3.3）：
+ *   1. U+265F 在有些平台会被渲染成 emoji 变体，一盘子混着彩色 emoji 和字形；
+ *   2. 字形只能整体 `color`，而白色棋子放在浅色格子上需要「浅填充 + 深描边」才看得清，
+ *      描边这一层字形给不了。
+ *
+ * 形状是刻意画的**简笔几何形**：轮廓由直线和几段曲线拼成，不做写实雕刻。
+ * 这样每种棋子只有一段路径、一眼能看出是什么，也让「描边跟着主题变色」这件事很简单
+ * （填充与描边各是一个 CSS 变量）。
+ */
+const PIECE_ART = {
+  1: // 兵
+    '<circle cx="50" cy="33" r="13"/>'
+    + '<path d="M37 46h26l-4 11H41z"/>'
+    + '<path d="M33 78c0-14 5-17 7-21h20c2 4 7 7 7 21z"/>'
+    + '<rect x="24" y="78" width="52" height="13" rx="3"/>',
+  2: // 马（朝左的马头，顶上带一只耳）
+    '<path d="M34 78V54C24 50 17 40 19 29 21 18 31 11 43 11l3-9 11 9c12 4 18 16 18 30v37z"/>'
+    + '<rect x="24" y="76" width="52" height="15" rx="3"/>',
+  3: // 象（带十字的尖顶）
+    '<rect x="46" y="4" width="8" height="16" rx="2"/>'
+    + '<rect x="41" y="8" width="18" height="7" rx="2"/>'
+    + '<path d="M50 14C63 20 70 30 70 39 70 48 64 55 56 57H44C36 55 30 48 30 39 30 30 37 20 50 14z"/>'
+    + '<path d="M38 57h24c2 8 6 11 6 21H32c0-10 4-13 6-21z"/>'
+    + '<rect x="24" y="76" width="52" height="15" rx="3"/>',
+  4: // 车（带城垛的塔）
+    '<path d="M26 22h10v8h9v-8h10v8h9v-8h10v18H26z"/>'
+    + '<path d="M34 40h32v30H34z"/>'
+    + '<path d="M30 70h40l6 12H24z"/>'
+    + '<rect x="22" y="78" width="56" height="13" rx="3"/>',
+  5: // 后（五个尖的冠）
+    '<circle cx="22" cy="26" r="7"/><circle cx="36" cy="20" r="7"/>'
+    + '<circle cx="50" cy="15" r="8"/><circle cx="64" cy="20" r="7"/>'
+    + '<circle cx="78" cy="26" r="7"/>'
+    + '<path d="M20 32h60l-8 24H28z"/>'
+    + '<path d="M29 56h42c2 9 6 12 6 22H23c0-10 4-13 6-22z"/>'
+    + '<rect x="20" y="76" width="60" height="15" rx="3"/>',
+  6: // 王（冠顶一个十字）
+    '<rect x="46" y="2" width="8" height="20" rx="2"/>'
+    + '<rect x="39" y="7" width="22" height="8" rx="2"/>'
+    + '<path d="M26 26h48l-6 20H32z"/>'
+    + '<path d="M32 46h36c2 10 6 13 6 32H26c0-19 4-22 6-32z"/>'
+    + '<rect x="20" y="76" width="60" height="15" rx="3"/>',
+};
+
+/**
+ * 造一枚棋子的 SVG 元素。升降选择那个浮层也用这个（同一份图形，不抄第二遍）。
+ * `piece` 是带符号的棋子编码；返回的元素上已经挂好 white / black 类，
+ * 颜色由 CSS 变量决定。
+ */
+export function createPieceSvg(piece) {
+  const abs = piece > 0 ? piece : -piece;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = PIECE_ART[abs] || '';
+  return svg;
+}
+
+function decoText(text) {
+  const el = document.createElement('span');
+  el.className = 'chess-deco-text';
+  el.textContent = text;
+  return el;
+}
+
+/**
+ * 棋盘装饰层：坐标。
+ *
+ * **坐标必须在棋盘盒子外面**（棋盘让出一圈 margin，这一层用负偏移站进去）——
+ * 棋子占了一格约 80% 的宽度，把字母 / 数字放进格子里必然被压住
+ * （象棋在同一个地方踩过坑，结论直接照搬）。
+ *
+ * 翻转时这一层跟着棋盘转 180°，里面的字各自反向转回来（见 style.css）。
+ */
+function buildDeco() {
+  const deco = document.createElement('div');
+  deco.className = 'chess-deco';
+  deco.setAttribute('aria-hidden', 'true'); // 纯装饰，读屏不必念
+
+  // 下沿 a..h（从左到右）
+  const files = document.createElement('div');
+  files.className = 'chess-coords chess-files';
+  for (let f = 0; f < FILES; f++) files.appendChild(decoText('abcdefgh'[f]));
+
+  // 左沿 8..1（从上到下：第 8 行在最上面，第 1 行在最下面）
+  const ranks = document.createElement('div');
+  ranks.className = 'chess-coords chess-ranks';
+  for (let r = RANKS - 1; r >= 0; r--) ranks.appendChild(decoText(String(r + 1)));
+
+  deco.append(files, ranks);
+  return deco;
+}
+
+/**
+ * 建好 64 个格子，返回一个渲染器。
+ *
+ * `wrapEl` 只用来挂 is-flipped 类 —— 翻转是纯 CSS 的（整块棋盘转 180°，
+ * 棋子与坐标文字再转回来），点击事件跟着 DOM 走，
+ * 所以 cellIndexOf 里**没有任何翻转换算**（这一条最容易写错，照搬象棋的结论）。
+ */
+export function createRenderer(boardEl, wrapEl) {
+  // 骨架里的 64 个占位格（没有 JS 时也能看见棋盘）到此为止，由这里接管重建
+  boardEl.textContent = '';
+
+  const cells = new Array(CELLS);
+  const pieceEls = new Map(); // 格子下标 -> 棋子元素
+  let flipTimer = 0;
+
+  // DOM 顺序 = 从上到下、从左到右，所以第一行是第 8 行（rank 7）
+  for (let rank = RANKS - 1; rank >= 0; rank--) {
+    for (let file = 0; file < FILES; file++) {
+      const i = rank * FILES + file;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = `chess-cell ${(file + rank) % 2 === 0 ? 'chess-cell--dark' : 'chess-cell--light'}`;
+      cell.dataset.index = String(i);
+      cell.dataset.coord = `${'abcdefgh'[file]}${rank + 1}`;
+      cell.setAttribute('aria-label', cell.dataset.coord);
+      boardEl.appendChild(cell);
+      cells[i] = cell;
+    }
+  }
+  boardEl.appendChild(buildDeco());
+
+  /**
+   * 格心 -> CSS 百分比。
+   *
+   * **第 1 行在最下面**（白方在下、黑方在上是通用摆法），所以纵坐标要翻过来：
+   * rank 0（第 1 行）→ 93.75%，rank 7（第 8 行）→ 6.25%。
+   */
+  function place(el, idx) {
+    el.style.left = `${((fileOf(idx) + 0.5) / FILES) * 100}%`;
+    el.style.top = `${((RANKS - 1 - rankOf(idx) + 0.5) / RANKS) * 100}%`;
+  }
+
+  function pieceEl(piece) {
+    const el = document.createElement('div');
+    el.className = `chess-piece ${piece > 0 ? 'chess-piece--white' : 'chess-piece--black'}`;
+    // 记下这个元素装的是哪个子。draw() 靠它判断「这个格子上的子换没换」（见 draw）
+    el.dataset.piece = String(piece);
+    el.appendChild(createPieceSvg(piece));
+    return el;
+  }
+
+  // === 补间的「还在跑吗 / 跑完叫我」 ===
+  // 给 main.js 用：AI 的应手要排在动画后面（不然棋子还在滑，AI 那步就落下来了）。
+  // 用**定时器**而不是 transitionend：元素可能在这一轮里被删掉（吃子、跳转），
+  // 事件就永远不来，AI 会一直卡着不动。
+  let animTimer = 0;
+  let animCallbacks = [];
+
+  /**
+   * 补间时长（毫秒）。**从棋子的 computed style 上量**，不在 JS 里再写一份：
+   * CSS 是时长的唯一出处，写两份迟早对不上。
+   */
+  function moveMs() {
+    const el = pieceEls.values().next().value;
+    if (!el) return 0;
+    let ms = 0;
+    for (const t of getComputedStyle(el).transitionDuration.split(',')) {
+      const v = parseFloat(t) || 0;
+      ms = Math.max(ms, t.trim().endsWith('ms') ? v : v * 1000);
+    }
+    return ms;
+  }
+
+  function scheduleAnimDone() {
+    clearTimeout(animTimer);
+    animTimer = setTimeout(() => {
+      animTimer = 0;
+      const fns = animCallbacks;
+      animCallbacks = [];
+      for (const fn of fns) fn();
+    }, moveMs() + 20); // +20：过渡要等下一帧才真正开始，卡太紧会差一帧
+  }
+
+  function isAnimating() { return animTimer !== 0; }
+
+  function afterAnimation(fn) {
+    if (!animTimer) { fn(); return; }
+    animCallbacks.push(fn);
+  }
+
+  /**
+   * 摘掉上一轮的标记。
+   *
+   * 棋子那半圈**必须清**：元素现在是留着复用的（见 draw），
+   * 不清就会累积出「早就不是那一步了、圈还亮着」这类幽灵高亮。
+   */
+  function clearHighlights() {
+    for (const cell of cells) {
+      cell.classList.remove('chess-cell--last', 'chess-cell--selected', 'chess-cell--target', 'chess-cell--check');
+    }
+    for (const el of pieceEls.values()) {
+      el.classList.remove('chess-piece--capture', 'chess-piece--check', 'chess-piece--hint');
+    }
+  }
+
+  function applyHighlights(pos, highlight = {}, movedTo = -1) {
+    // 上一步：起点与终点都走格子底色。棋子只占格子中间约 80%，
+    // 所以底色会露出一圈边框 —— 正好读成「这一格」
+    if (highlight.last) {
+      cells[moveFrom(highlight.last)].classList.add('chess-cell--last');
+      cells[movedTo >= 0 ? movedTo : moveTo(highlight.last)].classList.add('chess-cell--last');
+    }
+    if (highlight.selected >= 0) cells[highlight.selected].classList.add('chess-cell--selected');
+
+    for (const t of highlight.targets || []) {
+      // 空格 → 格心小圆点；有子可吃 → 棋子外面一圈**圆形**描边。
+      // **必须分开处理**：圆点画在格子上，而棋子不透明地盖住格心，那个点根本看不见。
+      // 也不能用 outline 画「可吃」—— 那是矩形，套在 SVG 上会画成一个方框。
+      const el = pieceEls.get(t);
+      if (el) el.classList.add('chess-piece--capture');
+      else cells[t].classList.add('chess-cell--target');
+    }
+
+    if (highlight.hint) {
+      // 起点与终点都要标：起点一定有子（画圆环）、终点是空格时画格心圆点
+      const from = moveFrom(highlight.hint);
+      const to = moveTo(highlight.hint);
+      const fromEl = pieceEls.get(from);
+      if (fromEl) fromEl.classList.add('chess-piece--hint');
+      const toEl = pieceEls.get(to);
+      if (toEl) toEl.classList.add('chess-piece--hint');
+      else cells[to].classList.add('chess-cell--target');
+    }
+
+    if (highlight.checked >= 0) {
+      cells[highlight.checked].classList.add('chess-cell--check');
+      const el = pieceEls.get(highlight.checked);
+      if (el) el.classList.add('chess-piece--check');
+    }
+    // highlight.turn 刻意不处理：国象这边「轮到谁走」只体现在棋盘上方的状态行，
+    // 不标满盘棋子（design.md §8.2 —— 象棋那圈紫环直接照搬会很难看）。
+  }
+
+  /**
+   * 重绘。
+   *
+   * **按格子 diff，不重建**：某个格子上还是同一个子，就把原来那个元素留着
+   * （连着它身上正在跑的过渡一起留着）；只有新出现的子才建元素、消失的子才删掉。
+   *
+   * 为什么必须这样：元素的 left / top 是在插入 DOM **之前**设好的，所以新建的元素
+   * 不会触发过渡 —— 靠这条，「棋子直接出现在该在的位置、不会满屏乱飞」是免费的。
+   * 但全量重建的代价是**同一个任务里的第二次 draw 会把第一次正在做过渡的元素删掉重建**，
+   * 过渡作废、棋子瞬间落位。
+   *
+   * `movers` 是**该滑过去的棋子**：`{ from, to }` 或数组（悔棋一次退两步时有两个）。
+   * 传了就在 diff 之前把这些元素的键从 from 挪到 to —— 于是它们既不会被当成
+   * 「消失的子」删掉、也不会被当成「新出现的子」重建，只改 left / top，过渡自然发生。
+   * 不传就纯 diff：新棋子的位置在插入前定好，所以跳转时直接出现在该在的位置。
+   */
+  function draw(pos, highlight = {}, movers = null) {
+    clearHighlights();
+
+    const list = movers ? (Array.isArray(movers) ? movers : [movers]) : [];
+
+    for (const mv of list) {
+      const el = pieceEls.get(mv.from);
+      if (!el || mv.from === mv.to) continue;
+      // 终点上那个（被吃的子）让位
+      const captured = pieceEls.get(mv.to);
+      if (captured) captured.remove();
+      pieceEls.delete(mv.from);
+      place(el, mv.to);
+      pieceEls.set(mv.to, el);
+    }
+
+    for (let i = 0; i < CELLS; i++) {
+      const v = pos.cells[i];
+      const el = pieceEls.get(i);
+
+      if (v === EMPTY) {
+        if (el) { el.remove(); pieceEls.delete(i); }
+        continue;
+      }
+      // 还是同一个子：元素原样留着 —— 连 left / top 都不用重设
+      if (el && Number(el.dataset.piece) === v) continue;
+      if (el) el.remove();
+
+      const fresh = pieceEl(v);
+      place(fresh, i); // 插入前定好位置 → 不触发过渡
+      boardEl.appendChild(fresh);
+      pieceEls.set(i, fresh);
+    }
+
+    applyHighlights(pos, highlight, list.length ? list[list.length - 1].to : -1);
+
+    // 记下这段补间什么时候跑完（afterAnimation 用它排队，AI 的应手就靠这个）
+    if (list.length) scheduleAnimDone();
+  }
+
+  /** 走子后的重绘：带移动补间。movers 同 draw() 的第 3 个参数 */
+  function drawAnimated(pos, highlight, movers) {
+    draw(pos, highlight, movers);
+  }
+
+  /** 从事件目标找到格子下标；不是格子则返回 -1 */
+  function cellIndexOf(node) {
+    const cell = node && node.closest ? node.closest('.chess-cell') : null;
+    if (!cell || !boardEl.contains(cell)) return -1;
+    return Number(cell.dataset.index);
+  }
+
+  /**
+   * 翻转棋盘。纯 CSS：整块棋盘转 180°，棋子和坐标文字各自转回来。
+   *
+   * 坐标文字的反向转是**瞬间**的 —— 棋盘在 0.3 秒里慢慢转，文字却在第一帧就拧回
+   * 正着的角度，看起来像文字自己在打转。所以动画期间给外层挂上 is-flipping，
+   * 把那几行字先藏起来，转完再淡回来（CSS 里的 .chess-deco-text）。
+   */
+  function setFlipped(flipped) {
+    const next = !!flipped;
+    if (next !== isFlipped()) {
+      wrapEl.classList.add('is-flipping');
+      clearTimeout(flipTimer);
+      flipTimer = setTimeout(() => wrapEl.classList.remove('is-flipping'), 320);
+    }
+    wrapEl.classList.toggle('is-flipped', next);
+  }
+
+  function isFlipped() { return wrapEl.classList.contains('is-flipped'); }
+
+  return {
+    draw, drawAnimated, cellIndexOf, setFlipped, isFlipped,
+    isAnimating, afterAnimation, cells, boardEl,
+  };
+}
