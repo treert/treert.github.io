@@ -86,6 +86,9 @@ const app = {
   selected: -1,
   targets: [],
   hint: 0,
+  // 这条提示是**针对哪个局面**算出来的（currentFen 的快照）。
+  // 局面一变就对不上，提示自动失效 —— 见 activeHint()。
+  hintFen: '',
   // 这一步提示是不是来自谱载解法 —— 只影响状态行文案（要跟「引擎算出来的」分开讲）
   hintFromBook: false,
   pos: null,
@@ -118,6 +121,19 @@ function checkedKingIdx(pos) {
   return isAttacked(pos.cells, king, -pos.side) ? king : -1;
 }
 
+/**
+ * 当前**有效**的提示着法（编码后的 move，0 = 没有提示）。
+ *
+ * 提示绑定的是「它被算出来时的那个局面」（hintFen 快照）：局面一变就对不上，
+ * 提示自动失效。走子、悔棋、回看跳转、换残局、载入 FEN 全都只改局面，
+ * 于是「清提示」不必在每个入口手写一遍 —— 漏掉一个也不会画出过期的建议。
+ *
+ * 关键：**选中棋子不改变局面**，所以选来选去不会把提示弄没。
+ */
+function activeHint() {
+  return app.hintFen === G.currentFen(app.game) ? app.hint : 0;
+}
+
 // === 渲染 ===
 
 /** 重绘棋盘 + 刷新面板。animate 传 { from, to } 时走子有补间动画 */
@@ -129,7 +145,7 @@ function refresh(animate = null) {
     last: G.lastMove(app.game),
     targets: app.targets,
     selected: app.selected,
-    hint: app.hint,
+    hint: activeHint(),
     checked: checkedKingIdx(app.pos),
     // 终局了就没有「轮到谁」可言，0 表示不画外圈
     turn: app.status.type === 'playing' ? G.sideToMove(app.game) : 0,
@@ -201,7 +217,7 @@ function updateChrome() {
     parts = ['轮到', { side }, tail];
     if (app.busy && app.pending === 'ai') parts = ['轮到', { side }, ' · AI 思考中'];
     // 提示来自棋谱而不是引擎时标出来 —— 两者可信度不同，用户要能分清
-    if (app.hint && app.hintFromBook) parts.push(' · 谱载解法');
+    if (activeHint() && app.hintFromBook) parts.push(' · 谱载解法');
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
       const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
@@ -440,7 +456,8 @@ function selectCell(idx) {
   app.targets = G.legalMoves(app.game)
     .filter((m) => moveFrom(m) === idx)
     .map(moveTo);
-  app.hint = 0;
+  // 这里**不清提示**：选中只是改 UI 状态、没有动局面，已经给出的建议仍然有效。
+  // 提示的失效统一交给 activeHint() 的局面快照判定（走子、悔棋、换局面时才过期）。
   refresh();
 }
 
@@ -589,6 +606,7 @@ function requestHint() {
   const fromBook = bookMoveNow();
   if (fromBook) {
     app.hint = fromBook;
+    app.hintFen = G.currentFen(app.game);
     app.hintFromBook = true;
     refresh();
     return;
@@ -630,6 +648,7 @@ function onWorkerMessage(e) {
 
   if (kind === 'hint') {
     app.hint = msg.move ? encodeMove(msg.move.from, msg.move.to) : 0;
+    app.hintFen = G.currentFen(app.game);
     refresh();
     return;
   }

@@ -505,6 +505,23 @@ kbd {
 .xq-cell--hint {
   background: radial-gradient(circle, var(--xq-hl-hint) 0 34%, transparent 35%);
 }
+/* 同一个格子同时命中两个高亮时，**显式把两层渐变叠起来**。
+   一条 `background` 只能有一个赢家（同优先级时按源码顺序，靠后的顶掉靠前的），
+   而这两条信息都值得看。
+
+   顺序：**小点在上面**。中心那个半径最小的点是「可走目标 / 上一步起点」最固定的信号，
+   让它在最上层，外圈留出琥珀色的提示环；反过来把 34% 的提示色压在上面，
+   中心的小点会被调成一块脏色，反而不容易认出「这里能走」。 */
+.xq-cell--target.xq-cell--hint {
+  background:
+    radial-gradient(circle, var(--xq-hl-target) 0 20%, transparent 21%),
+    radial-gradient(circle, var(--xq-hl-hint) 0 34%, transparent 35%);
+}
+.xq-cell--last.xq-cell--hint {
+  background:
+    radial-gradient(circle, var(--xq-hl-last) 0 30%, transparent 31%),
+    radial-gradient(circle, var(--xq-hl-hint) 0 34%, transparent 35%);
+}
 .xq-cell--selected {
   background: radial-gradient(circle, var(--xq-hl-last) 0 42%, transparent 43%);
 }
