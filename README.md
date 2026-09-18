@@ -8,12 +8,12 @@
 |------|------|------|
 | AI / LLM | [LLM Tokenizer](https://treert.github.io/llm-tokenizer/) | 浏览器中计算和可视化文本 Token，支持 DeepSeek 等模型 |
 | AI / LLM | [LLM-LENS](https://treert.github.io/llm-lens/) | 通过解剖开源 LLM 权重，理解大语言模型的工作原理 |
+| 游戏 | [中国象棋](./chinese-chess/index.html) | 单机对弈，四个挡位的 AI，中文记谱与复盘 |
+| 游戏 | [国际象棋](./chess/index.html) | 单机对弈，四个挡位的 AI，SAN 记谱与复盘，内置残局库与谱载解法 |
+| 游戏 | [斗地主](./doudizhu/index.html) | 单机斗地主，四挡 AI。隐藏信息在架构上隔离，带记牌器与提示 |
+| 游戏 | [Conway 生命游戏](./conway-life-game/index.html) | 元胞自动机演示，内置 20 个经典结构，支持 Life 1.06 导入导出 |
 | 小工具 | [字符编码工具](./char_code_tool/index.html) | 字符串与 UTF-8 转义互转，查看码点与字节 |
 | 小工具 | [字体显示测试](./test_font/index.html) | 常见中英文字体渲染对比，支持自定义文字与字体 |
-| 折腾 / 好玩 | [Conway 生命游戏](./conway-life-game/index.html) | 元胞自动机演示，内置 20 个经典结构，支持 Life 1.06 导入导出 |
-| 折腾 / 好玩 | [中国象棋](./chinese-chess/index.html) | 单机对弈，四个挡位的 AI，中文记谱与复盘 |
-| 折腾 / 好玩 | [国际象棋](./chess/index.html) | 单机对弈，四个挡位的 AI，SAN 记谱与复盘，内置残局库与谱载解法 |
-| 折腾 / 好玩 | [斗地主](./doudizhu/index.html) | 单机斗地主，四挡 AI。隐藏信息在架构上隔离，带记牌器与提示 |
 | 折腾 / 好玩 | [水波效果](https://treert.github.io/jquery.ripples/html) | 学习 WebGL，一个鼠标交互的水波纹特效 |
 | — | [404](./404.html) | 自定义 404 页面 |
 
