@@ -404,6 +404,13 @@ function updateButtons() {
   // 双人对弈时两边都能要提示 —— 它是给「当前走棋的人」用的，不专属某一方
   dom.btnHint.disabled = app.busy || !playing
     || (!two && G.sideToMove(app.game) !== app.game.playerSide);
+  // 复制着法跟「轮到谁」「AI 在不在想」都无关 —— 它只读列表。
+  // 唯一的门槛是列表里得有东西：一步都没走时复制出来是空串，不如置灰。
+  dom.btnCopyMoves.disabled = app.game.moves.length === 0;
+  // 回看单步：到两头就灰。busy 时也灰 —— 和工具栏那几个一样，
+  // AI 思考（含等补间跑完的那一段）期间不让用户改光标，否则会撞上「AI 落在回看状态上」。
+  dom.btnStepBack.disabled = app.busy || app.game.cursor <= 0;
+  dom.btnStepFwd.disabled = app.busy || app.game.cursor >= app.game.moves.length;
   dom.levelSelect.disabled = app.busy;
   // 双人模式下「执子」没有意义（两边都是人），禁掉免得让人以为它还有作用。
   // 想让黑方在下方，用「翻转」。
@@ -590,6 +597,139 @@ function onWorkerMessage(e) {
   applyMove(encodeMove(msg.move.from, msg.move.to, msg.move.promo || 0), true);
 }
 
+/**
+ * 提示：让当前挡位的 AI 给一步建议，画在棋盘上。
+ *
+ * 高亮画在**起点和终点**（见 renderer 的 chess-piece--hint），不真的走子 ——
+ * 用户要的是「建议」，不是「帮我把棋走了」。
+ */
+function requestHint() {
+  if (!app.canAct()) return;
+
+  app.busy = true;
+  app.pending = 'hint';
+  dom.thinking.hidden = false;
+  updateChrome();
+
+  app.worker.postMessage({
+    type: 'search',
+    id: ++app.searchId,
+    fen: G.currentFen(app.game),
+    level: app.game.level,
+  });
+}
+
+// === 把局面 / 棋谱拿出去 ===
+//
+// 三个入口，给的东西不同，但都是同一族动作（「出」）：
+//   复制 FEN    一段文本，对方自己找地方粘
+//   复制链接    一条链接，点开就是同一个局面（Task 9 用 share.js 生成）
+//   复制（着法） 棋谱文本，贴进棋谱软件 / 论坛 / 聊天里
+//
+// 复制成功的提示做在按钮自己身上（文字短暂变成「已复制」）——
+// 它们没有弹窗可以显示提示，而工具栏就在棋盘下方、视线落点上。
+// 每个按钮各记一个定时器：连点两个按钮时，不会互相把对方的提示提前收掉。
+const copyFlashTimers = new WeakMap();
+
+function flashCopied(btn, original) {
+  btn.textContent = '已复制';
+  clearTimeout(copyFlashTimers.get(btn));
+  copyFlashTimers.set(btn, setTimeout(() => { btn.textContent = original; }, 1600));
+}
+
+/** 弹窗底部的提示行（几个弹窗共用一套样式，各用各的元素） */
+function setMsg(el, text, isError = false) {
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.classList.toggle('chess-dialog-msg--error', !!isError);
+}
+
+const setIoMsg = (text, isError = false) => setMsg(dom.ioMsg, text, isError);
+
+/**
+ * 剪贴板不可用时的退路：把要复制的东西塞进「保存 / 导入」弹窗的文本框，
+ * 让人手动复制。
+ *
+ * 剪贴板 API 要安全上下文（https / localhost），而 `file://` 打开本模块时它就没有
+ *（本模块本来也不推荐 file://，但分享链接这类操作很容易在那时候撞上）。
+ * 那个框本来是用来粘贴导入的，这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
+ *
+ * **顺序不能反**：先填值再开弹窗。Task 11 的 openIo 会把 FEN 框预填成当前局面，
+ * 所以它那边必须先 openIo 再填值 —— 两条路径的填值时机是相反的，别合并。
+ */
+function clipboardFallback(text, label) {
+  dom.fenInput.value = text;
+  if (!dom.ioDialog.open) dom.ioDialog.showModal();
+  setIoMsg(`剪贴板不可用，${label}已填在下面的框里，手动复制即可`);
+  dom.fenInput.focus();
+  dom.fenInput.select(); // 顺手全选：Ctrl+C 一步就能拿走
+}
+
+/** 把当前局面的 FEN 复制到剪贴板。入口在棋盘下方的工具栏 */
+async function copyCurrentFen() {
+  const fen = G.currentFen(app.game);
+  try {
+    await navigator.clipboard.writeText(fen);
+    flashCopied(dom.btnCopyFen, '复制 FEN');
+  } catch {
+    clipboardFallback(fen, 'FEN ');
+  }
+}
+
+/**
+ * 复制**分享链接**（先用 `?fen=` 拼出来；Task 9 会换成 share.js 的实现，
+ * 那边负责「清掉旧参数、空格编成 %20」这些细节）。
+ */
+async function copyShareUrl() {
+  const url = new URL(location.href);
+  url.hash = '';
+  url.search = '';
+  url.search = `?fen=${encodeURIComponent(G.currentFen(app.game))}`;
+  try {
+    await navigator.clipboard.writeText(url.toString());
+    flashCopied(dom.btnCopyUrl, '复制链接');
+  } catch {
+    clipboardFallback(url.toString(), '链接');
+  }
+}
+
+/**
+ * 把着法列表拼成一段文本 —— 一行一个回合，「1. e4 e5」。
+ *
+ * 抄的是**列表里显示的全部着法**（`game.moves`，不是 `moveList()` 那个到游标为止的切片）：
+ * 界面上列出来多少就复制多少。回看状态下若只复制到游标，用户会发现自己
+ * 「照着屏幕数出来的步数」和复制出来的对不上。
+ *
+ * 不做列对齐：SAN 长短不一，按字符数补空格在等宽字体里也未必好看，
+ * 单空格分隔在各种编辑器里都不会错位。
+ */
+function movesText() {
+  const moves = app.game.moves;
+  const lines = [];
+  for (let i = 0; i < moves.length; i += 2) {
+    const head = `${i / 2 + 1}. ${moves[i].san}`;
+    // 奇数步数时最后一回合没有黑方着法，别留个尾空格
+    lines.push(moves[i + 1] ? `${head} ${moves[i + 1].san}` : head);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 复制着法列表。入口在「着法」面板标题右边。
+ *
+ * 它给的是**过程**，FEN 给的是**局面** —— 两者刚好互补，都放在「拿出去」这一族里。
+ */
+async function copyMoves() {
+  const text = movesText();
+  if (!text) return; // 没走过棋（按钮本来也是灰的）
+  try {
+    await navigator.clipboard.writeText(text);
+    flashCopied(dom.btnCopyMoves, '复制');
+  } catch {
+    clipboardFallback(text, '着法');
+  }
+}
+
 // === 工具栏 ===
 
 function bindToolbar() {
@@ -639,8 +779,14 @@ function bindToolbar() {
     refresh(animate);
   });
 
-  // 重做就是「往前走一步」，和着法列表的点击是同一个动作（挪光标）
+  // 重做就是「往前走一步」，和着法面板上的「下一步」是同一个动作 ——
+  // 区别只在入口：重做是工具栏里的「撤销 / 重做」那一对，另两个是回看用的。
   dom.btnRedo.addEventListener('click', () => gotoPlyAnimated(app.game.cursor + 1));
+
+  // 回看的单步走。**和「悔棋」不是一回事**：悔棋是「退到玩家走」（人机模式一次两步），
+  // 想一格一格翻棋谱用这两个。到头的那个由 updateButtons 置灰。
+  dom.btnStepBack.addEventListener('click', () => gotoPlyAnimated(app.game.cursor - 1));
+  dom.btnStepFwd.addEventListener('click', () => gotoPlyAnimated(app.game.cursor + 1));
 
   dom.btnReset.addEventListener('click', () => {
     if (app.busy) return;
@@ -655,6 +801,11 @@ function bindToolbar() {
   dom.btnFlip.addEventListener('click', () => {
     app.renderer.setFlipped(!app.renderer.isFlipped());
   });
+
+  dom.btnHint.addEventListener('click', requestHint);
+  dom.btnCopyFen.addEventListener('click', copyCurrentFen);
+  dom.btnCopyUrl.addEventListener('click', copyShareUrl);
+  dom.btnCopyMoves.addEventListener('click', copyMoves);
 }
 
 function bindHelp() {
@@ -686,10 +837,19 @@ function bindKeyboard() {
     if (e.key === 'Escape') {
       clearSelection();
       refresh();
+    } else if (e.key === 'h' || e.key === 'H') {
+      requestHint();
     } else if (e.key === 'f' || e.key === 'F') {
       app.renderer.setFlipped(!app.renderer.isFlipped());
     } else if (e.key === '?') {
       dom.btnHelp.click();
+    } else if (e.key === 'ArrowLeft') {
+      // 单步回看。着法列表上方就有这两个按钮，键盘也走同一条路
+      e.preventDefault();
+      dom.btnStepBack.click();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      dom.btnStepFwd.click();
     } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
       dom.btnUndo.click();

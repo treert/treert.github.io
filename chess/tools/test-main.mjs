@@ -157,6 +157,19 @@ globalThis.window = {
 // transitionDuration 是 renderer 唯一读的样式
 globalThis.getComputedStyle = () => ({ transitionDuration: '0.18s' });
 
+// 剪贴板与地址栏：复制那几个按钮要读它们（Node 里的 navigator 是只读的 getter，得定义属性）
+let clipboard = '';
+Object.defineProperty(globalThis, 'navigator', {
+  value: { clipboard: { writeText: async (text) => { clipboard = text; } } },
+  configurable: true,
+  writable: true,
+});
+Object.defineProperty(globalThis, 'location', {
+  value: { href: 'https://example.com/chess/' },
+  configurable: true,
+  writable: true,
+});
+
 // === 进程内的 Worker 桥 ===
 // 主线程 → Worker 走 setTimeout（真实 Worker 也是异步的）；Worker → 主线程直接回调。
 // 这样连 worker.js 一起测到了，不用在测试里另抄一份「选着法」的逻辑。
@@ -408,6 +421,78 @@ console.log('\n=== 切回人机模式 ===');
   check('「执子」重新可用', btn('side-select').disabled, false);
   check('状态行重新标出「你 / AI」', statusText(), '轮到白方（你）');
   check('「执子」下拉里是白方', btn('side-select').value, '1');
+}
+
+// --- 提示 ---
+console.log('\n=== 提示 ===');
+{
+  // 提示本身也是一次搜索。用入门挡位，几毫秒就回来（中级要等上百毫秒）
+  btn('level-select').value = 'novice';
+  btn('level-select').fire('change');
+
+  const before = moveSans();
+  btn('btn-hint').fire('click');
+  check('提示期间按钮置灰', btn('btn-hint').disabled, true);
+  check('提示期间显示「思考中」', btn('thinking').hidden, false);
+
+  await waitTurn();
+  check('提示**不会**替用户落子（着法列表没变）', moveSans(), before);
+  check('棋盘上画出了提示高亮',
+    piecesOnBoard().some((c) => c.classList.contains('chess-piece--hint')), true);
+  check('提示结束之后按钮恢复', btn('btn-hint').disabled, false);
+
+  // 点一下棋盘就把提示收掉（提示是「当前这一步」的建议，走一步就过期了）
+  clickCell('a2');
+  check('点格子之后提示高亮被清掉',
+    piecesOnBoard().some((c) => c.classList.contains('chess-piece--hint')), false);
+  arrowKeys('Escape');
+}
+
+// --- 单步回看 ---
+console.log('\n=== 单步回看（上一步 / 下一步）===');
+{
+  check('已经在最后一步时「下一步」是灰的', btn('btn-step-fwd').disabled, true);
+
+  btn('btn-step-back').fire('click');
+  check('退一步：状态行标出正在回看', statusText().startsWith('正在回看第 1 步'), true);
+  check('「下一步」变得可用', btn('btn-step-fwd').disabled, false);
+
+  btn('btn-step-back').fire('click');
+  check('再退一步到开局', statusText().startsWith('正在回看开局'), true);
+  check('到开局时「上一步」是灰的', btn('btn-step-back').disabled, true);
+
+  arrowKeys('ArrowRight');
+  check('按 → 前进一步', statusText().startsWith('正在回看第 1 步'), true);
+  arrowKeys('ArrowRight');
+  check('再按 → 回到最后一步', statusText().startsWith('正在回看'), false);
+  check('回到最后「下一步」又灰了', btn('btn-step-fwd').disabled, true);
+
+  // 回看单步和「悔棋」不是一回事：着法一个都没丢
+  check('着法列表始终是完整的', moveSans(), ['e4', 'd5']);
+}
+
+// --- 复制 ---
+console.log('\n=== 复制 ===');
+{
+  clipboard = '';
+  btn('btn-copy-fen').fire('click');
+  await sleep(10);
+  check('复制 FEN：是规范化的六段 FEN', clipboard.split(' ').length, 6);
+  check('复制 FEN：就是当前局面', clipboard.startsWith('rnbqkbnr/'), true);
+  check('复制 FEN：按钮上给了反馈', btn('btn-copy-fen').textContent, '已复制');
+
+  clipboard = '';
+  btn('btn-copy-moves').fire('click');
+  await sleep(10);
+  check('复制着法：一行一个回合', clipboard, '1. e4 d5');
+  check('复制着法：按钮上给了反馈', btn('btn-copy-moves').textContent, '已复制');
+
+  clipboard = '';
+  btn('btn-copy-url').fire('click');
+  await sleep(10);
+  check('复制链接：是绝对地址', clipboard.startsWith('https://example.com/chess/'), true);
+  check('复制链接：带上了 fen 参数', clipboard.includes('?fen='), true);
+  check('复制链接：链接里没有裸空格', clipboard.includes(' '), false);
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
