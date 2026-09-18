@@ -134,23 +134,86 @@ export function createRenderer(boardEl, wrapEl) {
     const red = piece > 0;
     const el = document.createElement('div');
     el.className = `xq-piece ${red ? 'xq-piece--red' : 'xq-piece--black'}`;
+    // 记下这个元素装的是哪个子。draw() 靠它判断「这个格子上的子换没换」，
+    // 没换就把元素留着 —— 见 draw() 的注释。
+    el.dataset.piece = String(piece);
     const span = document.createElement('span');
     span.textContent = (red ? RED_NAMES : BLACK_NAMES)[Math.abs(piece)];
     el.appendChild(span);
     return el;
   }
 
+  /**
+   * 摘掉上一轮的标记（格子上的 + 棋子上的）。
+   *
+   * 棋子那半圈**必须清**：元素现在是留着复用的（见 draw()），
+   * 不清就会累积出「早就不是他的回合了、外圈还亮着」这种幽灵高亮 ——
+   * 从前靠「每次重建所有棋子」顺带清掉了，现在得自己来。
+   */
+  // === 补间的「还在跑吗 / 跑完叫我」 ===
+  // 给 main.js 用：AI 的应手要排在动画后面（不然棋子还在滑，AI 那步就落下来了）。
+  // 用**定时器**而不是 transitionend：元素可能在这一轮里被删掉（吃子、跳转），
+  // 事件就永远不来，AI 会一直卡着不动。
+  let animTimer = 0;
+  let animCallbacks = [];
+
+  /**
+   * 补间时长（毫秒）。**从棋子的 computed style 上量**，不在 JS 里再写一份：
+   * CSS 是时长的唯一出处，写两份迟早对不上（也挡住「想调慢一点」的人改 CSS）。
+   */
+  function moveMs() {
+    const el = pieceEls.values().next().value;
+    if (!el) return 0;
+    let ms = 0;
+    for (const t of getComputedStyle(el).transitionDuration.split(',')) {
+      const v = parseFloat(t) || 0;
+      ms = Math.max(ms, t.trim().endsWith('ms') ? v : v * 1000);
+    }
+    return ms;
+  }
+
+  function scheduleAnimDone() {
+    clearTimeout(animTimer);
+    animTimer = setTimeout(() => {
+      animTimer = 0;
+      const fns = animCallbacks;
+      animCallbacks = [];
+      for (const fn of fns) fn();
+    }, moveMs() + 20); // +20：过渡要等下一帧才真正开始，卡太紧会差一帧
+  }
+
+  /** 还有棋子在滑吗 */
+  function isAnimating() {
+    return animTimer !== 0;
+  }
+
+  /** 棋子滑到位之后执行 fn；没有补间时立刻执行 */
+  function afterAnimation(fn) {
+    if (!animTimer) {
+      fn();
+      return;
+    }
+    animCallbacks.push(fn);
+  }
+
   function clearHighlights() {
     for (const cell of cells) {
       cell.classList.remove('xq-cell--last', 'xq-cell--target', 'xq-cell--hint', 'xq-cell--selected');
     }
+    for (const el of pieceEls.values()) {
+      el.classList.remove(
+        'xq-piece--last', 'xq-piece--checked', 'xq-piece--turn',
+        'xq-piece--capture', 'xq-piece--hint',
+      );
+    }
   }
 
-  function applyHighlights(pos, highlight, animate) {
+  /** movedTo：正在滑过去的那一步的落点（-1 = 没有），用它替代 highlight.last 的终点 */
+  function applyHighlights(pos, highlight, movedTo) {
     if (highlight.last) {
       // 起点现在是空的，高亮格子；终点被棋子盖住，所以圈画在棋子上
       cells[moveFrom(highlight.last)].classList.add('xq-cell--last');
-      const target = animate ? animate.to : moveTo(highlight.last);
+      const target = movedTo >= 0 ? movedTo : moveTo(highlight.last);
       const el = pieceEls.get(target);
       if (el) el.classList.add('xq-piece--last');
     }
@@ -191,54 +254,75 @@ export function createRenderer(boardEl, wrapEl) {
   /**
    * 重绘。
    *
-   * animate 传 `{ from, to }` 时会**复用起点上的那个棋子元素**，
-   * 只改它的 left / top，让 CSS 过渡接管 —— 于是走子有动画。
-   * 不传就是全量重建：因为元素的 left / top 是在插入 DOM **之前**设好的，
-   * 不会触发过渡，所以复盘跳转和悔棋时棋子直接出现在该在的位置，不会满屏乱飞。
+   * **按格子 diff，不重建**：某个格子上还是同一个子，就把原来那个元素留着
+   * （连着它身上正在跑的过渡一起留着）；只有新出现的子才建元素、消失的子才删掉。
+   *
+   * 为什么必须这样：元素的 left / top 是在插入 DOM **之前**设好的，所以新建的元素
+   * 不会触发过渡 —— 靠这条，「棋子直接出现在该在的位置、不会满屏乱飞」是免费的。
+   * 但全量重建的代价是**同一个任务里的第二次 draw 会把第一次正在做过渡的元素删掉重建**，
+   * 过渡作废、棋子瞬间落位。谱载解法正好是这种情况：玩家走完一步，
+   * requestAiMove() 里那句 applyMove(fromBook) 是同步执行的，两次 draw 挤在一个任务里。
+   * （`tools/` 里没有 DOM 测试，这一条只能手动验：走一步后棋子的轨迹应该经过中间格。）
+   *
+   * animate 是**该滑过去的棋子**：`{ from, to }` 或数组（悔棋一次退两步时有两个）。
+   * 传了就在 diff 之前把这些元素的键从 from 挪到 to —— 于是它们既不会被当成
+   * 「消失的子」删掉、也不会被当成「新出现的子」重建，只改 left / top，过渡自然发生。
+   * 不传就纯 diff：新棋子的位置在插入前定好，所以跳转时直接出现在该在的位置。
+   *
+   * 参数里没有对应的元素（比如被吃掉的子正好也是另一个 mover 的起点）时**跳过**，
+   * 不报错：那种情况下这个子只能直接落位，不值得为它绕路。
    */
   function draw(pos, highlight = {}, animate = null) {
-    const movedEl = animate ? pieceEls.get(animate.from) || null : null;
-    const capturedEl = animate ? pieceEls.get(animate.to) || null : null;
+    // 先在**最前面**清标记，再挪元素、再 diff：这样复用的元素是干净的，
+    // 下面 applyHighlights 只管往上加，不用操心上一轮还剩什么。
+    clearHighlights();
 
-    // 复用元素时要把上次的标记清掉 —— 它不会像其它棋子那样被重建，
-    // 否则会带着上一轮的「上一步 / 被将军 / 轮到我方 / 可吃 / 提示」显示出来。
-    if (movedEl) {
-      movedEl.classList.remove(
-        'xq-piece--last', 'xq-piece--checked', 'xq-piece--turn',
-        'xq-piece--capture', 'xq-piece--hint',
-      );
-    }
+    const movers = animate ? (Array.isArray(animate) ? animate : [animate]) : [];
 
-    // 清掉所有棋子，但要留住正在移动的那一个
-    for (const el of pieceEls.values()) {
-      if (el !== movedEl) el.remove();
+    for (const mv of movers) {
+      const el = pieceEls.get(mv.from);
+      if (!el || mv.from === mv.to) continue;
+
+      // 终点上那个（被吃的子）让位
+      const captured = pieceEls.get(mv.to);
+      if (captured) captured.remove();
+
+      pieceEls.delete(mv.from);
+      place(el, mv.to);
+      pieceEls.set(mv.to, el);
     }
-    pieceEls.clear();
-    if (capturedEl) capturedEl.remove();
 
     for (let i = 0; i < CELLS; i++) {
       const v = pos.cells[i];
-      if (v === EMPTY) continue;
+      const el = pieceEls.get(i);
 
-      if (movedEl && animate.to === i) {
-        // 复用：元素已在 DOM 里，只改位置，过渡动画自然发生
-        place(movedEl, i);
-        pieceEls.set(i, movedEl);
+      if (v === EMPTY) {
+        if (el) {
+          el.remove();
+          pieceEls.delete(i);
+        }
         continue;
       }
-      const el = pieceEl(v);
-      place(el, i);
-      boardEl.appendChild(el);
-      pieceEls.set(i, el);
+      // 还是同一个子：元素原样留着 —— **连 left / top 都不用重设**，
+      // 重设同一个值虽然不会触发过渡，但省掉这一句，「没变就不碰」这条更干净
+      if (el && Number(el.dataset.piece) === v) continue;
+      if (el) el.remove();
+
+      const fresh = pieceEl(v);
+      place(fresh, i); // 插入前定好位置 → 不触发过渡
+      boardEl.appendChild(fresh);
+      pieceEls.set(i, fresh);
     }
 
-    clearHighlights();
-    applyHighlights(pos, highlight, animate);
+    applyHighlights(pos, highlight, movers.length ? movers[movers.length - 1].to : -1);
+
+    // 记下这段补间什么时候跑完（afterAnimation 用它排队，AI 的应手就靠这个）
+    if (movers.length) scheduleAnimDone();
   }
 
-  /** 走子后的重绘：带移动动画 */
-  function drawAnimated(pos, highlight, from, to) {
-    draw(pos, highlight, { from, to });
+  /** 走子后的重绘：带移动动画。movers 同 draw() 的第 3 个参数 */
+  function drawAnimated(pos, highlight, movers) {
+    draw(pos, highlight, movers);
   }
 
   /** 从事件目标找到格子下标；不是格子则返回 -1 */
@@ -271,5 +355,8 @@ export function createRenderer(boardEl, wrapEl) {
     return wrapEl.classList.contains('is-flipped');
   }
 
-  return { draw, drawAnimated, cellIndexOf, setFlipped, isFlipped, cells, boardEl };
+  return {
+    draw, drawAnimated, cellIndexOf, setFlipped, isFlipped,
+    isAnimating, afterAnimation, cells, boardEl,
+  };
 }

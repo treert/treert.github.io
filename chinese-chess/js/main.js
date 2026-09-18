@@ -131,7 +131,9 @@ function refresh(animate = null) {
     // 终局了就没有「轮到谁」可言，0 表示不画外圈
     turn: app.status.type === 'playing' ? G.sideToMove(app.game) : 0,
   };
-  if (animate) app.renderer.drawAnimated(app.pos, highlight, animate.from, animate.to);
+  // animate：null / { from, to } / [{ from, to }, ...]，见 renderer.js 的 draw()。
+  // 走子、悔棋、回看都从这一条路进来，区别只在传不传、传几个 mover。
+  if (animate) app.renderer.drawAnimated(app.pos, highlight, animate);
   else app.renderer.draw(app.pos, highlight);
 
   updateChrome();
@@ -330,6 +332,38 @@ function scrollCurrentIntoView() {
   }
 }
 
+// 超过这个步数就不做补间：那已经不是「走了一步」，而是「换了个局面」。
+// 2 是留给悔棋的 —— 人机模式下它一次退两步（玩家那手 + AI 的应手），
+// 那是一个来回，两个子一起滑回去正好读成「把刚才那回合收回来」。
+const MAX_ANIMATED_PLIES = 2;
+
+/**
+ * 从 fromPly 走到 toPly，哪些棋子该滑过去。返回值直接给 refresh() 当 animate 用，
+ * 不需要动画时返回 null。
+ *
+ * **只给相邻一两步动画。** 跨多步跳转（点第 30 步跳回第 3 步）如果也动画，
+ * 要么整盘棋子一起飞、要么得逐步回放等好几秒 —— 两种都看不出「发生了什么」；
+ * 单步时「哪个子从哪来、到哪去」是唯一的，滑一下正好帮人看清。
+ *
+ * 反向（往回想）时 from / to 要**对调**：现在停在落点上的那个子要滑回起点。
+ */
+function stepAnimation(fromPly, toPly) {
+  const step = Math.abs(toPly - fromPly);
+  if (step === 0 || step > MAX_ANIMATED_PLIES) return null;
+
+  const forward = toPly > fromPly;
+  const lo = Math.min(fromPly, toPly);
+  const movers = [];
+  for (let p = lo; p < lo + step; p++) {
+    const m = app.game.moves[p];
+    if (!m) return null; // 越界（理论上到不了），宁可不动画
+    movers.push(forward
+      ? { from: moveFrom(m.move), to: moveTo(m.move) }
+      : { from: moveTo(m.move), to: moveFrom(m.move) });
+  }
+  return movers;
+}
+
 function moveSpan(i) {
   const el = document.createElement('span');
   el.className = 'xq-move';
@@ -339,10 +373,11 @@ function moveSpan(i) {
   el.addEventListener('click', () => {
     if (app.busy) return;
     if (app.game.cursor === i + 1) return; // 已经在这一步
+    const animate = stepAnimation(app.game.cursor, i + 1);
     G.gotoPly(app.game, i + 1);
     clearSelection();
     app.hint = 0;
-    refresh();
+    refresh(animate);
     saveSoon(app.game);
   });
   return el;
@@ -465,6 +500,24 @@ function requestAiMove() {
   // 而关掉开关时又需要能立刻把 AI 拉回来接着走，那由下面的判断自然处理。
   if (app.game.twoPlayer) return;
   if (G.sideToMove(app.game) === app.game.playerSide) return;
+
+  // 棋子还在滑就等它滑完再动。不等的话，AI 那一步（谱载解法是**同步**落的，
+  // 引擎也常常两百毫秒就回来）会在玩家的棋子还在半路上时落下来，
+  // 看着像「没轮到它就动了」。等待期间**照样占住 busy** —— 不然这 200ms 里
+  // 用户能点着法列表跳转，回来 AI 却落在回看状态上，那一步会把后面的分支截掉。
+  if (app.renderer.isAnimating()) {
+    app.busy = true;
+    app.pending = 'ai';
+    dom.thinking.hidden = false;
+    updateChrome();
+    app.renderer.afterAnimation(() => {
+      app.busy = false;
+      app.pending = null;
+      dom.thinking.hidden = true;
+      requestAiMove(); // 递归一层：里面会把上面的前置条件重判一遍
+    });
+    return;
+  }
 
   // 谱上优先：这一步按谱走。同步落子、没有搜索等待，所以不进 busy 状态
   //（状态行也就不会闪一下「AI 思考中」）。
@@ -1363,19 +1416,22 @@ function bindToolbar() {
   dom.btnUndo.addEventListener('click', () => {
     if (app.busy) return;
     // 用 undoToPlayer：只退一步的话，玩家会看到 AI 立刻又走一步，等于「悔棋没生效」
+    const before = app.game.cursor;
     if (!G.undoToPlayer(app.game)) return;
+    const animate = stepAnimation(before, app.game.cursor);
     clearSelection();
     app.hint = 0;
-    refresh();
+    refresh(animate);
     saveSoon(app.game);
   });
 
   dom.btnRedo.addEventListener('click', () => {
     if (app.busy) return;
+    const animate = stepAnimation(app.game.cursor, app.game.cursor + 1);
     if (!G.gotoPly(app.game, app.game.cursor + 1)) return;
     clearSelection();
     app.hint = 0;
-    refresh();
+    refresh(animate);
     saveSoon(app.game);
   });
 
