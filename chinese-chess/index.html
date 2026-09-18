@@ -99,20 +99,23 @@
         <div class="xq-board-wrap" id="board-wrap">
           <div class="xq-board" id="board"></div>
         </div>
-      </div>
 
-      <div class="xq-toolbar">
-        <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
-        <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
-        <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
-        <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
-        <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
-        <!-- 「把当前局面拿出去」——和悔棋 / 翻转同类，都是对当前局面的即时动作 -->
-        <button class="btn btn-ghost xq-copy-fen" id="btn-copy-fen"
-                title="把当前局面的 FEN 复制到剪贴板">复制 FEN</button>
-        <!-- 同一件事的另一种形式：FEN 要对方自己找地方粘，链接点开就是 -->
-        <button class="btn btn-ghost xq-copy-fen" id="btn-copy-url"
-                title="复制分享链接 —— 别人打开链接就能直接看到这个局面">复制链接</button>
+        <!-- 工具栏**跟着棋盘走**，所以它属于棋盘列，不单独占一个网格行。
+             另起一行的话它的位置由「更高的那一列」决定 —— 着法列表一长就会被顶下去，
+             棋盘和工具栏之间空一大块。详见 style.css 的「布局」那一段。 -->
+        <div class="xq-toolbar">
+          <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
+          <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
+          <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
+          <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
+          <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
+          <!-- 「把当前局面拿出去」——和悔棋 / 翻转同类，都是对当前局面的即时动作 -->
+          <button class="btn btn-ghost xq-copy-fen" id="btn-copy-fen"
+                  title="把当前局面的 FEN 复制到剪贴板">复制 FEN</button>
+          <!-- 同一件事的另一种形式：FEN 要对方自己找地方粘，链接点开就是 -->
+          <button class="btn btn-ghost xq-copy-fen" id="btn-copy-url"
+                  title="复制分享链接 —— 别人打开链接就能直接看到这个局面">复制链接</button>
+        </div>
       </div>
 
       <aside class="xq-side">
