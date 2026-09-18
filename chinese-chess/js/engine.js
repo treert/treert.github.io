@@ -5,7 +5,10 @@
  * 不影响调用方。这是「方便后续优化」的落点。
  */
 
-import { CELLS, EMPTY, K, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS, LEVELS } from './config.js';
+import {
+  CELLS, EMPTY, K, P, RED,
+  PIECE_VALUE, PIECE_SQUARE, PASSED_PAWN_BONUS, MIRROR_INDEX, LEVELS,
+} from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
 import {
   generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
@@ -49,14 +52,16 @@ const MATE_PROBE_MAX_MS = 1400;
 const TIMEOUT = { timeout: true };
 
 /**
- * 静态评估：只算子力和兵是否过河。
+ * 静态评估：子力 + 位置表 + 兵过河。
  *
  * 返回**轮走方视角**的分值 —— 负极大值搜索要求「分数总是对当前走子方有利为正」。
  *
- * 刻意不加机动性、位置表这类项：
- *   - 机动性需要生成全部着法，而评估在叶节点被调用上百万次，等于把搜索成本翻倍
- *   - 位置表要维护 7 × 90 格的数据，是独立的一块手工维护点，留到棋力不够时再加
- * 想提升棋力，正确的下一步是加 90 格位置表（O(1) 查表），不是加任何需要生成着法的项。
+ * 位置项（`config.js` 的 PIECE_SQUARE）是必需的，不是锦上添花：没有它的时候开局的
+ * 所有着法分值一模一样，AI 选哪个纯凭搜索先试到谁，于是会走「弃炮换马」这类
+ * 只有浅层才看着划算的着法。
+ *
+ * 刻意**不加任何需要生成着法的项**（机动性、威胁数…）：评估在叶节点被调用上百万次，
+ * 生成着法等于把搜索成本翻倍。位置表是 O(1) 查表，这才是对的方向。
  */
 export function evaluate(cells, side) {
   let score = 0; // 先按红方视角累加
@@ -65,13 +70,15 @@ export function evaluate(cells, side) {
     if (v === EMPTY) continue;
 
     const abs = Math.abs(v);
-    let value = PIECE_VALUE[abs];
+    const red = v > 0;
+    // 黑方按 y 镜像查同一张表（左右对称，不必再镜像横轴）
+    let value = PIECE_VALUE[abs] + PIECE_SQUARE[abs * CELLS + (red ? i : MIRROR_INDEX[i])];
     if (abs === P) {
       const y = yOf(i);
-      const crossed = v > 0 ? y <= 4 : y >= 5;
+      const crossed = red ? y <= 4 : y >= 5;
       if (crossed) value += PASSED_PAWN_BONUS;
     }
-    score += v > 0 ? value : -value;
+    score += red ? value : -value;
   }
   return side === RED ? score : -score;
 }

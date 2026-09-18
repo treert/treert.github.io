@@ -51,6 +51,79 @@ export const PIECE_VALUE = [0, 0, 200, 200, 400, 900, 450, 100];
 // 兵 / 卒过河的额外加分
 export const PASSED_PAWN_BONUS = 50;
 
+// === 位置表（piece-square） ===
+//
+// 评估里唯一的位置项。没有它的时候，开局的 44 个着法分值**一模一样**（全是 0，
+// 因为评估只有子力），选哪个纯凭搜索先试到谁 —— 于是 AI 会走「借对方的炮当炮架、
+// 一个炮换一个马」这类只在浅层看着划算的着法，也就是人一眼就说「哪有这么开局的」。
+//
+// 只表达几条**能讲出理由**的常识，不追求精确（第一版）：
+//   马 / 炮 用中路的纵线、过河是好事（鼓励出子、中炮）
+//   炮 待在自己或对方的底线上是死子
+//   车 离开底线、占到中间几行是好事
+//   帅 / 将 离开底线是坏事
+//   仕 / 相 在九宫中心 / 中路象位是好事
+//   兵 / 卒 不另开表：它的位置分就是已有的过河加分（PASSED_PAWN_BONUS）
+//
+// **写成「纵线分 + 行分」两张小表再铺开，不是 90 格逐格手填。** 逐格手填的 630 个数
+// 没人复核得了，也没人知道为什么是那个值；可分离的形式下每个数都对应上面一条理由，
+// 将来要从引擎（Pikafish）换算实测表，替换的也只是这一块数据。
+//
+// 红方视角：y=0 是黑方底线、y=9 是红方底线、x=4 是中路。左右对称（只依赖 |x-4|），
+// 所以黑方按 y 镜像查同一张表就够（见 MIRROR_INDEX 与 engine.js 的 evaluate）。
+const FILE_BY_DISTANCE = {
+  [N]: [0, -6, -12, -18, -24],   // 马：越靠边越别扭
+  [C]: [12, 8, 2, 0, 0],         // 炮：中路最好（这就是「中炮」的道理），其次三七路
+};
+
+const RANK_BONUS = {
+  [N]: [-6, -2, 2, 6, 6, 4, 2, 0, -8, -18],  // 马：过河最好，压在底线上最差（催它出子）
+  [C]: [-24, 0, 4, 8, 6, 6, 4, 0, -2, -10],  // 炮：敌方底线是死子，我方底线只是过渡
+  [R]: [4, 6, 6, 6, 8, 8, 8, 6, 2, 0],       // 车：出到中间几行就好
+  [K]: [0, 0, 0, 0, 0, 0, 0, -40, -18, 0],   // 帅 / 将：待在底线，别乱动
+};
+
+/** 单点加分，[x, y, 分] —— 只有这两个点值得单说 */
+const SPOT_BONUS = {
+  [A]: [[4, 8, 6]],   // 仕在九宫中心
+  [B]: [[4, 7, 6]],   // 相在中路象位
+};
+
+/**
+ * 铺成一张平表：索引 = 棋子编码 * 90 + 格子。铺一次，评估里只剩一次查表 ——
+ * evaluate() 在叶节点会被调用上百万次，多一层数组套数组都嫌贵。
+ */
+export const PIECE_SQUARE = (() => {
+  const table = new Int16Array(8 * CELLS);
+  for (let piece = 0; piece < 8; piece++) {
+    const file = FILE_BY_DISTANCE[piece];
+    const rank = RANK_BONUS[piece];
+    for (let idx = 0; idx < CELLS; idx++) {
+      const x = idx % COLS;
+      const y = (idx - x) / COLS;
+      let v = (file ? file[Math.abs(x - 4)] : 0) + (rank ? rank[y] : 0);
+      for (const [sx, sy, sv] of SPOT_BONUS[piece] || []) if (sx === x && sy === y) v += sv;
+      table[piece * CELLS + idx] = v;
+    }
+  }
+  return table;
+})();
+
+/**
+ * 黑方查表用的下标映射：上下镜像（x 不变）。
+ *
+ * 位置表左右对称，所以不必再镜像横轴 —— 于是开局那种左右对称的局面两边加起来
+ * 正好抵消，静态评估仍然是 0（`test-engine.mjs` 里有这条断言）。
+ */
+export const MIRROR_INDEX = (() => {
+  const m = new Int16Array(CELLS);
+  for (let idx = 0; idx < CELLS; idx++) {
+    const x = idx % COLS;
+    m[idx] = (ROWS - 1 - (idx - x) / COLS) * COLS + x;
+  }
+  return m;
+})();
+
 // === AI 挡位 ===
 // 每个挡位是一组声明式参数，弱化手段都在这里调，不要散到 engine.js 的 if 里。
 //

@@ -169,6 +169,29 @@ console.log('AI 层测试\n');
     const cells = build(['K@3,9', 'k@5,0']).cells;
     check('只有两个将时分值为 0', evaluate(cells, 1), 0);
   }
+
+  // 位置表（config.js 的 PIECE_SQUARE）
+  //
+  // **只钉方向，不钉数值** —— 数值是会调的（那是这块数据的全部意义），
+  // 但「中路比边路值钱、出子比压底线值钱」这些方向不能反过来，
+  // 否则 AI 又会变成开局乱走。没有位置项时，下面每一条都会是「相等」。
+  {
+    const line = (specs) => evaluate(build(specs).cells, 1);
+    const alone = (spec) => ['K@3,9', 'k@5,0', spec];
+
+    check('炮在中路比在边路值钱（「中炮」的道理）',
+      line(alone('C@4,7')) > line(alone('C@0,7')), true);
+    check('马出子比压在底线上值钱', line(alone('N@1,7')) > line(alone('N@1,9')), true);
+    check('车出来比压在底线上值钱', line(alone('R@4,5')) > line(alone('R@4,9')), true);
+    check('帅留在底线比走出来值钱', line(['K@4,9', 'k@5,0']) > line(['K@4,7', 'k@5,0']), true);
+    check('炮待在对方底线上是死子，减分',
+      line(alone('C@4,0')) < line(alone('C@4,4')), true);
+
+    // 黑方按 y 镜像查同一张表：镜像局面两边抵消，评估正好差一个负号
+    check('黑方按 y 镜像查表（红黑对称）',
+      evaluate(build(['K@3,9', 'k@5,0', 'N@1,7']).cells, 1),
+      -evaluate(build(['K@3,9', 'k@5,0', 'n@1,2']).cells, 1));
+  }
 }
 
 // --- 搜索：negamax + alpha-beta ---
@@ -415,54 +438,101 @@ console.log('AI 层测试\n');
   }
 }
 
-// --- 循环规则（长将） ---
-// 搜索里「走回路径上出现过的局面」就当作循环成立，按长将定性：连续将军的一方判负。
-// 关键是**对局历史也要喂进去**：只看搜索树的话，「AI 上一步将军、这一步再将军」这种
-// 循环有一半在树外，引擎会以为它随时能收手（树里确实能），于是一路将军走到底。
-//
-// 同一局面、同一挡位，只翻「有没有喂历史」这一个开关，结论必须反过来：
-//   不喂 → 引擎每步都将军（均势时所有着法同分，根节点按「将军优先」的排序取第一个），
-//          走成循环后按长将判负 —— 这正是要修的那个「AI 用长将耍赖」的行为
-//   喂了 → 引擎在第二次将军前收手，这一局正常结束
-//
-// 局面：红车 (3,2) 对黑车 (0,0)，均势。黑将只有 (3,0)/(4,0) 两条逃路，
-// 红车在两条纵线之间来回就每一步都在将军 —— 棋规里的长将。
+// --- 回归：开局不许「用炮换马」 ---
+// 用户报过这一步：高级挡位的第一手走 炮八进七 —— 借对方的炮当炮架，一个炮换一个马。
+// 成因是**评估没有位置项**：开局所有安静的着法分值一模一样（全是 0），而这一步在
+// 浅层搜索里看着是赚的（先吃马，「被吃回来」是下一层的事），于是总被选中。
+// 加了位置表（config.js 的 PIECE_SQUARE）之后它不该再出现；这条钉的就是用户看得见的那一步。
 {
   const { search } = await load('engine.js');
-  const G = await load('game.js');
-
-  const lv = { id: 'rep', name: '循环', depth: 5, timeLimitMs: 60000,
+  const lv = { id: 'open', name: '开局', depth: 6, timeLimitMs: 60000,
                quiescence: true, noise: 0, blunderRate: 0 };
+  const r = search(START_FEN, lv);
 
-  // 红方走引擎（可选择喂不喂历史），黑方走第一个合法着法 —— 双方都是确定的
-  const play = (withHistory) => {
-    const g = G.createGame({ initialFen: 'r3k4/9/3R5/9/9/9/9/9/9/5K3 w - - 0 1' });
-    for (let i = 0; i < 16; i++) {
-      const st = G.evaluateStatus(g);
-      if (st.type !== 'playing') return st;
+  // (1,0) 与 (7,0) 是黑方两只马所在的格子：从开局一步走到那里，只可能是炮借炮架吃马
+  check('开局第一手不是「用炮换马」那一步（炮八进七 / 炮二进七）',
+    ['1,0', '7,0'].includes(coordOf(r.to)), false);
+}
 
-      let move;
-      if (G.sideToMove(g) === 1) {
-        const history = [g.initialFen];
-        for (let k = 0; k < g.cursor; k++) history.push(g.moves[k].fenAfter);
-        const r = search(G.currentFen(g), lv, withHistory ? { history } : {});
-        move = r.from * 90 + r.to;
-      } else {
-        move = G.legalMoves(g)[0];
-      }
-      if (!G.playMove(g, move).ok) return { type: 'illegal' };
+// --- 循环规则（长将） ---
+// 搜索里「走回路径上出现过的局面」就当作循环成立，按长将定性：连续将军的一方判负。
+// 这一组**白盒驱动 Searcher**：手动走完一个循环、把局面压进搜索路径 ——
+// negamax 内部做的正是这件事（见 engine.js 的 negamax / repetitionScore）。
+//
+// 为什么不用「让 AI 真下出来」那种端到端写法：它依赖「几个着法同分时，根节点按
+// 将军优先的排序取第一个」这条**排序**性质。评估函数一改（加了位置表），同分没了、
+// 引擎改走别的着法，测试就判不了对错 —— 那是测试的依赖太脆，不是特性坏了。
+// 规则层的端到端（真走出长将、真的判负）在 `test-game.mjs` 里，那边不依赖评估。
+{
+  const { Searcher } = await load('engine.js');
+  const { parseFen } = await load('position.js');
+  const { generateLegalMoves } = await load('rules.js');
+
+  const lv = { id: 'rep', name: '循环', depth: 4, timeLimitMs: 60000,
+               quiescence: false, noise: 0, blunderRate: 0 };
+  const mv = (a, b) => idxOf(a) * 90 + idxOf(b);
+
+  /** 走完 loop 里的每一步（顺手校验合法性），并把局面压进搜索路径 */
+  const drive = (fen, loop, history = []) => {
+    const pos = parseFen(fen);
+    const s = new Searcher(pos.cells, pos.side, lv, Math.random, history);
+    const start = s.key;
+    const allLegal = [];
+    for (const m of loop) {
+      allLegal.push(generateLegalMoves({ cells: s.cells, side: s.side }).includes(m));
+      s.make(m);
+      s.pathKeys.push(s.key);
+      s.pathFlags.push(s.inCheck(s.side) ? 1 : 0);
     }
-    return { type: 'unfinished' };
+    return { s, start, allLegal };
   };
 
-  const without = play(false);
-  const seeded = play(true);
+  // 红车在 3 / 4 两条纵线之间来回、每一步都将军；黑将只能在 (3,0) / (4,0) 之间来回。
+  // 循环长这样：车(3,2)->(4,2)+ 将(4,0)->(3,0) 车(4,2)->(3,2)+ 将(3,0)->(4,0)
+  const P = '4k4/9/3R5/9/9/9/9/9/9/5K3 w - - 0 1';
+  const LOOP = [mv('3,2', '4,2'), mv('4,0', '3,0'), mv('4,2', '3,2'), mv('3,0', '4,0')];
 
-  check('不喂历史：引擎一路将军，最后按长将判负（红方输）',
-    [without.type, without.winner], ['perpetual-check', -1]);
-  check('喂了历史：引擎会收手，不再是长将判负', seeded.type === 'perpetual-check', false);
-  check('喂了历史：这一局正常结束',
-    ['checkmate', 'stalemate', 'repetition'].includes(seeded.type), true);
+  {
+    const { s, start, allLegal } = drive(P, LOOP);
+    check('长将循环：四步都合法', allLegal, [true, true, true, true]);
+    check('长将循环：走完一圈确实回到同一个局面', s.key, start);
+    check('长将循环：红方每步都将军 → 判红方长将负',
+      s.repetitionScore() < -10000, true);
+  }
+
+  // 对照组：同样的局面、同样的循环长度，只是红方**不将军**（车在同一纵线上来回）
+  {
+    const { s, start } = drive('4k4/9/9/9/9/9/9/9/9/R4K3 w - - 0 1',
+      [mv('0,9', '0,8'), mv('4,0', '3,0'), mv('0,8', '0,9'), mv('3,0', '4,0')]);
+    check('对照：没人长将时判和（0）', [s.key === start, s.repetitionScore()], [true, 0]);
+  }
+
+  // 反方向：**对手**在长将 → 引擎看到的是「对手判负、我们胜」
+  {
+    const { s, start } = drive('5k3/9/9/9/9/9/9/4r4/9/4K4 w - - 0 1',
+      [mv('4,9', '3,9'), mv('4,7', '3,7'), mv('3,9', '4,9'), mv('3,7', '4,7')]);
+    check('对手在长将 → 我们看到的是自己胜', [s.key === start, s.repetitionScore() > 10000],
+      [true, true]);
+  }
+
+  // **对局历史接在路径前面**：AI 上一步将军之后，这一步只要再将军，就已经接上了
+  // 历史里那个循环 —— 不必等搜索树里也走满一圈（树里那条线是可以随时收手的，
+  // 引擎会以为没事，这正是「AI 一路将军走成长将」的成因）。
+  {
+    // 上一轮循环走过的四个局面（最后一项就是现在的 P —— 历史必须以「当前局面」收尾）
+    const A1 = '4k4/9/4R4/9/9/9/9/9/9/5K3 b - - 0 2';
+    const C2 = '3k5/9/4R4/9/9/9/9/9/9/5K3 w - - 0 3';
+    const C3 = '3k5/9/3R5/9/9/9/9/9/9/5K3 b - - 0 4';
+
+    // 走到的是 A1（轮黑），所以这个分是**黑方**视角：红方长将判负 → 黑方胜
+    const withHistory = drive(P, [LOOP[0]], [P, A1, C2, C3, P]);
+    check('有对局历史：这一步将军当场被认成循环（红方长将负，黑方胜）',
+      withHistory.s.repetitionScore() > 10000, true);
+
+    const without = drive(P, [LOOP[0]]);
+    check('对照：没有历史时，同一步还不构成循环',
+      without.s.repetitionScore(), null);
+  }
 }
 
 // --- 回归：quiesce 在「被将军且无着法」时不能返回 -INF ---
