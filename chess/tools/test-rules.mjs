@@ -261,6 +261,31 @@ console.log('\n=== 升变 ===\n');
 }
 
 // ============================================================
+// 四之二、UCI 坐标（离线工具与解法数据用它）
+// ============================================================
+console.log('\n=== UCI 坐标 ===');
+{
+  const uci = (from, to, promo = 0) => Ru.moveToUci(Ru.encodeMove(at(from), at(to), promo));
+
+  check('普通着法：e2e4', uci('e2', 'e4'), 'e2e4');
+  check('吃子也不带标记：e4d5', uci('e4', 'd5'), 'e4d5');
+  // **升变必须写成第 5 个字符** —— 少一个字母 Stockfish 会拒收整条命令
+  check('升变成后：e7e8q', uci('e7', 'e8', Q), 'e7e8q');
+  check('升变成马：e7e8n', uci('e7', 'e8', N), 'e7e8n');
+  check('升变成车 / 象：e7e8r / e7e8b', [uci('e7', 'e8', R), uci('e7', 'e8', B)], ['e7e8r', 'e7e8b']);
+  check('易位只是「王的起点终点」：e1g1', uci('e1', 'g1'), 'e1g1');
+
+  check('moveOfUci 往返', ['e2e4', 'e7e8q', 'e1g1'].map((t) => Ru.moveToUci(Ru.moveOfUci(t))),
+    ['e2e4', 'e7e8q', 'e1g1']);
+  check('moveOfUci 认出升变种类',
+    ['e7e8q', 'e7e8n', 'e7e8r', 'e7e8b'].map((t) => Ru.movePromo(Ru.moveOfUci(t))),
+    [Q, N, R, B]);
+  check('moveOfUci 拒绝乱写的坐标',
+    ['', 'e2', 'e2e4x', 'z2e4', 'e9e4', 'e7e8k'].map((t) => Ru.moveOfUci(t)),
+    [-1, -1, -1, -1, -1, -1]);
+}
+
+// ============================================================
 // 五、将死 / 逼和 / 50 步 / 子力不足
 // ============================================================
 console.log('\n=== 终局判定 ===\n');

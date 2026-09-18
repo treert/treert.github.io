@@ -38,10 +38,16 @@ export const FLAG_EP = 1;
 export const FLAG_CASTLE = 2;
 export const FLAG_DOUBLE = 3;
 
-/** 着法 → UCI 文本（`e2e4` / `e7e8q`）。离线工具（Stockfish / 表库）那边用这个格式 */
+/**
+ * 着法 → UCI 文本（`e2e4` / `e7e8q`）。离线工具（Stockfish / 表库）那边用这个格式。
+ *
+ * **升变必须写成第 5 个字符**，漏了它 Stockfish 会拒收这条命令。
+ * 字母表按「升变种类 2..5」直接索引（`promo - 2`）—— 写成「下标 = 棋子编码」的
+ * 数组时最容易少一个空位，整个字母表就整体错位一格（`e8=Q` 变成 `undefined`）。
+ */
 export function moveToUci(move) {
   const promo = movePromo(move);
-  const letter = promo ? ' nbrq'[promo] : '';
+  const letter = promo ? 'nbrq'[promo - 2] : '';
   return `${sq(moveFrom(move))}${sq(moveTo(move))}${letter}`;
 }
 
