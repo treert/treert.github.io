@@ -346,7 +346,11 @@ export function solutionOf(id) {
 function writeUnfinished(work) {
   const rows = ENDGAMES.map((eg) => ({ eg, r: work[eg.id] })).filter((x) => x.r);
   const solved = rows.filter((x) => x.r.mate > 0);
-  const draws = rows.filter((x) => x.eg.result === 'draw');
+  // 「谱载非胜」= 和棋 + 黑胜。它们本来就没有「正解着一说」，找杀天然无效，单列末尾备查。
+  // （`result === 'loss'` 是 2026-09 核对卷六时新加的类型：谱载黑胜、红方守不住。）
+  const nonWin = rows.filter((x) => x.eg.result !== 'win');
+  const draws = nonWin.filter((x) => x.eg.result === 'draw');
+  const losses = nonWin.filter((x) => x.eg.result === 'loss');
   const noMate = rows.filter((x) => x.eg.result === 'win' && !(x.r.mate > 0));
   const reversed = noMate.filter((x) => x.r.mate !== null && x.r.mate <= 0)
     .sort((a, b) => a.r.mate - b.r.mate);
@@ -372,8 +376,9 @@ function writeUnfinished(work) {
 |---|---|---|
 | 全库 | ${rows.length} | |
 | 已解出（在 \`js/solutions.js\` 里） | ${solved.length} | 「提示」直接给正解、AI 按谱应着 |
-| **没解出来** | ${noMate.length + draws.length} | 下面逐个列出 |
+| **没解出来** | ${noMate.length + nonWin.length} | 下面逐个列出 |
 | └ 其中谱载「和」 | ${draws.length} | **不是问题**：和局本来就没有「正解着一说」，列在文件末尾备查 |
+| └ 其中谱载「黑胜」 | ${losses.length} | 同上 —— 红方守不住的局，也没有「正解着一说」 |
 | └ 其中谱载「胜」 | ${noMate.length} | 即 A + B + C 三组 |
 
 ## A. 反杀（谱载「胜」，引擎却判定红方被杀）—— ${reversed.length} 局
@@ -401,12 +406,12 @@ ${nearZero.map(line).join('\n')}
 ${HEAD}
 ${bigEdge.map(line).join('\n')}
 
-## 谱载「和」的 ${draws.length} 局（不解，仅备查）
+## 谱载非胜的 ${nonWin.length} 局（不解，仅备查）
 
-它们本来就没有「正解着一说」，找杀对它们天然无效；而且 **0 局被引擎找到杀**，
-与谱载「和」的判定一致。
+和棋与黑胜本来就没有「正解着一说」，找杀对它们天然无效 —— 与谱载判定一致。
+其中 ${losses.length} 局是**黑胜**（红方守不住，本模块标 \`result: 'loss'\`）。
 
-${draws.map((x) => `- \`${x.eg.id}\`　${x.eg.name}`).join('\n')}
+${nonWin.map((x) => `- \`${x.eg.id}\`　${x.eg.name}${x.eg.result === 'loss' ? '　**黑胜**' : ''}`).join('\n')}
 `;
 
   writeFileSync(UNFINISHED_FILE, md);
@@ -423,10 +428,14 @@ function issues() {
     const r = work[eg.id];
     if (!r) { groups.notRun.push(eg); continue; }
 
-    if (r.mate !== null && r.mate <= 0) groups.reversed.push({ eg, r });
-    else if (!(r.mate > 0)) {
-      if (eg.result === 'draw') {
-        if (r.cp !== null && Math.abs(r.cp) > 200) groups.winLowCp.push({ eg, r, why: '和局但评估偏离 0' });
+    // 谱载「胜」却被判被杀 = 反杀，最可疑；谱载「和 / 黑胜」被杀是**一致**，不是疑点
+    if (r.mate !== null && r.mate <= 0) {
+      if (eg.result === 'win') groups.reversed.push({ eg, r });
+    } else if (!(r.mate > 0)) {
+      if (eg.result !== 'win') {
+        if (r.cp !== null && Math.abs(r.cp) > 200) {
+          groups.winLowCp.push({ eg, r, why: `${eg.result === 'draw' ? '和局' : '黑胜'}但评估偏离 0` });
+        }
       } else groups.unsolved.push({ eg, r });
     } else if (eg.result === 'draw') {
       groups.drawWithMate.push({ eg, r });

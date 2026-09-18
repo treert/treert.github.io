@@ -204,8 +204,10 @@ function updateChrome() {
   const eg = G.endgameOf(app.game);
   const free = isFreePosition();
   if (eg && eg.result && over) {
-    // 「胜」局看先手方有没有赢；「和」局看有没有走到判和
-    const met = eg.result === 'win' ? st.winner === 1 : st.type === 'repetition';
+    // 「胜」局看先手方有没有赢，「负」局看黑方有没有赢，「和」局看有没有走到判和
+    const met = eg.result === 'win' ? st.winner === 1
+      : eg.result === 'loss' ? st.winner === -1
+        : st.type === 'repetition';
     parts.push(met ? ' · 达成目标' : ' · 未达成目标');
   }
 
@@ -586,6 +588,7 @@ function tabOf(id) {
 // === 列表过滤 ===
 //
 // 内置库从 15 局收成《适情雅趣》全谱 551 局之后，滚动列表就不好使了，所以加一道过滤。
+// （551 局现在拆在「杀局」「和局」两个页签下，这条过滤的用途没变。）
 //
 // **只匹配名字。** 名字是列表上唯一显示的文本，也是唯一同时带着局号与局名的地方
 // （「第473局 中外义安」），所以「473」「中外」「473 中外」都能命中。
