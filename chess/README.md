@@ -42,6 +42,7 @@ chess/
 ├── index.html                页面骨架，只放 DOM，逻辑全在 js/
 ├── style.css                 模块样式，复用 ../global.css 的 CSS 变量
 ├── README.md                 本文件
+├── chess-icons/              12 个棋子 SVG（Cburnett 棋子集，**保持原样**，见该目录 README）
 ├── docs/
 │   ├── design.md             设计文档 —— 决策、理由、踩过的坑
 │   ├── plan.md               实施计划（Task 0~12）与验收清单
@@ -55,7 +56,7 @@ chess/
 │   ├── engine.js             评估 + 搜索（迭代加深 αβ）                  ← 纯逻辑
 │   ├── endgames.js           残局库数据 + 查询入口（唯一需要手工维护的数据文件）
 │   ├── custom-endgames.js    FEN 校验（两档）+ 自定义局面的 localStorage  ← 纯逻辑
-│   ├── pieces.js             棋子图形（**生成物，别手改**；来源与署名见文件头）
+│   ├── piece-art.js          棋子图形：读 chess-icons/*.svg，把两个色值换成 CSS 变量
 │   ├── solutions.js          谱载解法（**生成物，别手改**）
 │   ├── solution-book.js      解法展开与查表（键带 ply）                  ← 纯逻辑
 │   ├── share.js              分享链接的编解码（局面 ⇄ URL）              ← 纯逻辑
@@ -109,15 +110,16 @@ chess/
 **棋子必须是 SVG**：`♔`/`♟` 这类字形在移动端会被渲染成 emoji（尺寸、颜色都不受控），
 而白棋在当前色系下会和浅格糊成一片 —— 字形只能整体 `color`，描不了边。
 
-图形用的是 **Cburnett 棋子集**（作者 Colin M. L. Burnett）：12 个 45×45 的 SVG 抓一次、
-内联进 `js/pieces.js`（**生成物**，生成器是 `tools/gen-pieces.mjs`），
-所以网页这边仍然没有图片文件、不引图标库、不联网。
-变换只有一件事：两个色值换成 `--chess-p-fill` / `--chess-p-stroke`，
-**路径数据一个字符都没改**（生成器写盘后会读回来逐字自校验）。
-它是**黑 / 白两套路径**（细节不同，比如马的鬃毛），所以查表的键是带符号的编码；
-颜色仍由白 / 黑两个类给的那两个变量说了算，深浅主题只换变量。
+图形用的是 **Cburnett 棋子集**（作者 Colin M. L. Burnett），12 个 45×45 的 SVG
+放在 `chess-icons/` 里（**保持原素材的样子**：能直接打开看、能跟下载下来的文件 diff）。
+`js/piece-art.js` 在装配页面之前把它们读进来，运行时只做两件事：
+取出 `<svg>` 里的标记、把两个色值换成 `--chess-p-fill` / `--chess-p-stroke`
+（**路径数据一个字符都没改**）。这套图形是**黑白两套路径**（细节不同，比如马的鬃毛），
+而颜色仍然只由那两个变量说了算 —— 深浅主题只换变量、不换图形。
 
-> 这部分图形来自外部棋子集，署名与许可写在 `js/pieces.js` 的文件头里。
+> 不引图标库、不联网、也没有图片文件，但多了 12 个 SVG 文件，
+> 于是**必须走 http**：`file://` 下 fetch 会被拦，棋盘会退化成占位圆圈（状态行会提示原因）。
+> 署名与许可在 `chess-icons/README.md`。
 > 更早那版是手写的「简笔几何形」，能认但难看 —— 换掉的理由见 `docs/design.md` §3.3。
 
 **坐标放在棋盘外面**（棋盘留 margin，坐标行用负偏移站进去）——
@@ -307,7 +309,6 @@ node chess/tools/gen-solutions.mjs emit
 | `node chess/tools/selfplay.mjs [白挡位] [黑挡位] [上限]` | 自对弈冒烟：不崩、不超时、着法全合法、终局类型合理 |
 | `node chess/tools/verify-endgames.mjs` | 残局库入库闸门（含解法线逐步复核） |
 | `node chess/tools/gen-solutions.mjs <local\|stockfish\|emit\|check>` | 离线生成解法（**需要引擎的那条路要先装 Stockfish**） |
-| `node chess/tools/gen-pieces.mjs <素材目录>` | 重新生成 `js/pieces.js`（把 12 个 Cburnett 的 SVG 转成内联图形；写完会读回来逐字自校验） |
 
 改着法生成或搜索之后，除了跑对应测试，建议再跑一次自对弈。
 
@@ -321,7 +322,8 @@ node chess/tools/gen-solutions.mjs emit
    `verify-endgames.mjs` 只校验**局面合法性与解法线可走**，不证明胜负。
 5. **AI 思考期间不能中断**：最长 1.5 秒内禁用操作，不做取消。
 6. **移动端不做拖拽**：触屏走「点选 → 点目标」两步，与象棋一致。
-7. **必须走 http 服务**：ES Module 与 Worker 在 `file://` 下都不工作。
+7. **必须走 http 服务**：ES Module、Worker，以及棋子图形的 `fetch` 在 `file://` 下都不工作
+   （棋子会退化成占位圆圈，状态行会写明原因）。
 8. **不做 PGN 导入导出、不做棋钟、不做变例树**；不做局面编辑器
    （但可以把当前局面存成自定义局面，或粘一段 FEN 载入棋盘）。
 9. **锦标赛细则不做**：三次重复 / 50 步由本模块自动判和，不需要对局者提出。

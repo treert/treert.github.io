@@ -17,23 +17,33 @@
 import { FILES, RANKS, CELLS, EMPTY } from './config.js';
 import { fileOf, rankOf } from './position.js';
 import { moveFrom, moveTo } from './rules.js';
-// 棋子图形是**生成物**（Cburnett 棋子集）：来路、变换规则、署名都在 pieces.js 的文件头里，
-// 生成器是 tools/gen-pieces.mjs。不用 Unicode ♔♕♖♗♘♙ 的理由见 design.md §3.3
+// 棋子图形从 chess-icons/*.svg 读进来（Cburnett 棋子集）：读取与着色在 piece-art.js，
+// 来路与署名见 chess-icons/README.md。不用 Unicode ♔♕♖♗♘♙ 的理由见 design.md §3.3
 //（字形在有些平台会被渲染成 emoji，而且只能整体改 color、描不了边）。
-import { PIECE_ART } from './pieces.js';
+import { pieceArt } from './piece-art.js';
+
+/**
+ * 图形没读出来时的占位：一个圆圈。
+ *
+ * **宁可画个明显的圆圈，也不要画「什么都没有」** —— 空着的话看起来像棋子丢了，
+ * 而圆圈看起来像「这一格有东西，只是图形没加载」（状态行还会给出原因）。
+ */
+const FALLBACK_ART = '<circle cx="22.5" cy="22.5" r="15"'
+  + ' style="fill:var(--chess-p-fill); stroke:var(--chess-p-stroke); stroke-width:1.5;"/>';
 
 /**
  * 造一枚棋子的 SVG 元素。升变选择那个浮层也用这个（同一份图形，不抄第二遍）。
  *
- * `piece` 是**带符号**的棋子编码，直接拿它查 `PIECE_ART` —— 这套棋子的黑白是两套路径
- *（细节不同，比如马的鬃毛），所以键也带符号。颜色不在这里管：图形自己的 `style` 里
- * 引的是 `--chess-p-fill` / `--chess-p-stroke` 这两个变量，由外层的白 / 黑类定义。
+ * `piece` 是**带符号**的棋子编码，直接拿它取图形 —— 这套棋子的黑白是两套路径
+ *（细节不同，比如马的鬃毛），所以键也带符号。
+ * 颜色不在这里管：图形自己的 `style` 里引的是 `--chess-p-fill` / `--chess-p-stroke`
+ * 这两个变量，由外层的白 / 黑类定义。
  */
 export function createPieceSvg(piece) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 45 45');
   svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = PIECE_ART[piece] || '';
+  svg.innerHTML = pieceArt(piece) || FALLBACK_ART;
   return svg;
 }
 

@@ -14,6 +14,7 @@ import * as G from './game.js';
 import { createRenderer, createPieceSvg } from './renderer.js';
 import { attachInteraction } from './interaction.js';
 import { PIECE_NAMES } from './notation.js';
+import { loadPieceArt, pieceArtReport } from './piece-art.js';
 import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { shareUrl, readShareFen } from './share.js';
 import { endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
@@ -207,6 +208,10 @@ function updateChrome() {
       parts = [`正在回看${where} · `, ...parts];
     }
   }
+
+  // 棋子图形没读出来**不是棋局状态，是环境问题**（多半是用 file:// 打开的，fetch 被拦），
+  // 但必须说出来：否则用户看到一盘子圆圈只会以为模块坏了。
+  if (pieceArtReport().failed.length) parts.push(' · 棋子图形未加载（本项目要用 http 打开）');
 
   setStatus(...parts);
   dom.status.classList.toggle('chess-status--over', over);
@@ -1518,4 +1523,8 @@ function init() {
   if (shareError) setStatus(shareError);
 }
 
+// **先读棋子图形，再装配页面。** 顺序反过来的话，第一次 draw 只能画占位圆圈，
+// 等图形读回来了才「啪」地跳成真棋子 —— 一进页面就闪一下，很难看。
+// ES Module 里顶层 await 是合法的（`file://` 下这一句就会失败，兜底见 piece-art.js）。
+await loadPieceArt();
 init();

@@ -20,7 +20,8 @@
  */
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 // === 最小 DOM 替身 ===
 // 只实现 renderer.js 真正用到的那几个成员，不做通用 DOM。
@@ -100,9 +101,29 @@ globalThis.getComputedStyle = () => ({ transitionDuration: '0.18s' });
 const HERE = dirname(fileURLToPath(import.meta.url));
 const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href);
 
+// === fetch 桩：棋子图形现在是独立的 SVG 文件，运行时用 fetch 读 ===
+//
+// Node 这边没有能读文件的 fetch，所以按文件名从磁盘读 —— **用的是真素材**
+//（`chess-icons/*.svg`），不是另抄一份假数据。路径取本文件所在目录的 `../chess-icons`，
+// 与浏览器里 piece-art.js 用 `import.meta.url` 解析出来的位置是同一个。
+const ICONS = resolve(HERE, '../chess-icons');
+globalThis.fetch = async (url) => {
+  const name = String(url).split('/').pop();
+  try {
+    const text = readFileSync(join(ICONS, name), 'utf8');
+    return { ok: true, status: 200, text: async () => text };
+  } catch {
+    return { ok: false, status: 404, text: async () => '' };
+  }
+};
+
 const Pos = await load('position.js');
 const Ru = await load('rules.js');
 const { createRenderer, createPieceSvg } = await load('renderer.js');
+const { loadPieceArt, extractMarkup, colorize } = await load('piece-art.js');
+
+// 先读图形再断言（页面里也是这个顺序，见 main.js 末尾的顶层 await）
+const artReport = await loadPieceArt();
 
 let failed = 0;
 function check(name, actual, expected) {
@@ -306,22 +327,39 @@ console.log('\n=== 翻转 ===');
   check('翻回来', r.isFlipped(), false);
 }
 
-// --- 棋子图形 ---
+// --- 棋子图形（独立文件 chess-icons/*.svg + piece-art.js）---
 console.log('\n=== 棋子图形 ===');
 {
-  const art = [1, 2, 3, 4, 5, 6].map((p) => createPieceSvg(p).innerHTML.length);
-  check('六种棋子都有图形', art.every((n) => n > 20), true);
-  // 这套棋子（pieces.js，Cburnett）黑白是**两套路径** —— 细节不同，比如马的鬃毛、象的帽缝。
+  const CODES = [1, 2, 3, 4, 5, 6, -1, -2, -3, -4, -5, -6];
+
+  check('十二张图形都从 chess-icons/ 读到了', artReport, { loaded: 12, failed: [] });
+  check('每种棋子都画得出图形',
+    CODES.every((p) => createPieceSvg(p).innerHTML.length > 20), true);
+  // 这套棋子（Cburnett）黑白是**两套路径** —— 细节不同，比如马的鬃毛、象的帽缝。
   // 所以这里钉的是「两套都在」，而不是「共用一份」。
   check('黑白的图形是两套（这套棋子的黑白细节不同）',
     createPieceSvg(5).innerHTML !== createPieceSvg(-5).innerHTML, true);
+
   // 真正要紧的那条不变量：**图形里不能出现写死的颜色**，否则深色主题会瞎。
   // 颜色只能以 var(--chess-p-*) 的形式出现，由外面的白 / 黑类给值。
-  const all = [...[1, 2, 3, 4, 5, 6], ...[-1, -2, -3, -4, -5, -6]]
-    .map((p) => createPieceSvg(p).innerHTML).join('');
+  const all = CODES.map((p) => createPieceSvg(p).innerHTML).join('');
   check('十二张图形里没有写死的颜色', /#[0-9a-fA-F]{3,6}\b/.test(all), false);
   check('颜色走的是 CSS 变量', all.includes('var(--chess-p-fill)') && all.includes('var(--chess-p-stroke)'), true);
   check('图形里带 viewBox', createPieceSvg(6).attrs.viewBox, '0 0 45 45');
+
+  // 取不到的图形要画占位圆圈：空着的话，看起来像棋子丢了
+  check('取不到图形时画占位圆圈', createPieceSvg(99).innerHTML.includes('circle'), true);
+
+  // 运行时那两个变换单独钉一下 —— 它们是「读文件」这条路上唯一会出错的地方
+  check('extractMarkup 只取 <svg> 里面的内容',
+    extractMarkup('<?xml version="1.0"?><svg width="45"><path d="M1 2"/></svg>'), '<path d="M1 2"/>');
+  // 同一个色值在白棋 / 黑棋身上换到**不同**的一边 —— 这条搞反了，黑棋会变成白棋
+  check('colorize：同一个 #000000，白棋当「墨」、黑棋当主体',
+    [colorize('#000000', 1), colorize('#000000', -1)],
+    ['var(--chess-p-stroke)', 'var(--chess-p-fill)']);
+  check('colorize：同一个 #ffffff 反过来',
+    [colorize('#ffffff', 1), colorize('#ffffff', -1)],
+    ['var(--chess-p-fill)', 'var(--chess-p-stroke)']);
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

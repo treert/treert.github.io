@@ -22,7 +22,8 @@
  */
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 // ============================================================
 // 最小 DOM 替身（只实现本模块用到的成员，不做通用 DOM）
@@ -282,6 +283,18 @@ function pieceOn(coord) {
 }
 
 console.log('装配层端到端测试\n');
+
+// 棋子图形是独立文件（chess-icons/*.svg），main.js 在装配前会顶层 await 把它们读进来。
+// Node 这边没有能读文件的 fetch，所以给个桩：按文件名从磁盘读**真素材**。
+globalThis.fetch = async (url) => {
+  const name = String(url).split('/').pop();
+  try {
+    const text = readFileSync(join(resolve(HERE, '../chess-icons'), name), 'utf8');
+    return { ok: true, status: 200, text: async () => text };
+  } catch {
+    return { ok: false, status: 404, text: async () => '' };
+  }
+};
 
 // worker.js 先加载（把 onmessage 挂到 self 上），再加载 main.js
 await load('worker.js');

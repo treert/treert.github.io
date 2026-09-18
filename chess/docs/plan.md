@@ -194,10 +194,10 @@ export function createRenderer(boardEl, wrapEl) -> {
 **要点**
 
 - 64 个 `<button class="chess-cell">`（键盘可遍历），格心就是落点，棋子绝对定位用 `left/top` 百分比。
-- 棋子：内联 SVG（图形是生成物 `js/pieces.js`，Cburnett 棋子集；`fill` / `stroke` 走 CSS 变量），
+- 棋子：内联 SVG（图形是 `chess-icons/*.svg`，Cburnett 棋子集，装配前读进来；`fill` / `stroke` 走 CSS 变量），
   **理由见 `design.md` §3.3（Unicode 会被渲染成 emoji、白棋在浅格上糊成一片）**。
-  （期间试过手绘一版，最终换成 Cburnett：手绘在棋盘尺寸下「王和象分不开、马像个团块」——
-  原因与三条踩过的坑都记在 design.md §3.3。）
+  （期间试过手绘一版，最终换成 Cburnett：手绘在棋盘尺寸下「王和象分不开、马像个团块」；
+  代价是页面必须走 http。原因与三条踩过的坑都记在 design.md §3.3。）
 - 坐标 `a-h` / `1-8` 放在棋盘**外面**（棋盘留 margin，坐标行用负偏移站进去）——
   象棋在同一个地方踩过坑（数字被棋子压住），照搬它「放到棋盘外」的结论。
 - 高亮清单见 `design.md` §8.2。**不要**照搬象棋的「整方棋子加紫圈」（SVG 上 `outline` 是矩形）。
