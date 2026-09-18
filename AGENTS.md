@@ -10,7 +10,7 @@
 
 | 形式 | 位置 | 首页链接 | 现有模块 |
 |------|------|----------|----------|
-| 本地子目录 | 本仓库一级子目录 | 相对路径，如 `./char_code_tool/index.html` | `char_code_tool/`、`test_font/`、`conway-life-game/` |
+| 本地子目录 | 本仓库一级子目录 | 相对路径，如 `./char_code_tool/index.html` | `char_code_tool/`、`test_font/`、`conway-life-game/`、`chess/` |
 | 独立仓库 | **另一个 git 仓库**，单独部署 | 绝对地址，如 `https://treert.github.io/llm-tokenizer/` | `llm-tokenizer`、`llm-lens`、`jquery.ripples` |
 
 **独立仓库的模块不在本仓库里**，看不到源码是正常的。不要去找、不要在本地新建同名目录来「补上」，

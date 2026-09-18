@@ -12,6 +12,7 @@
 | 小工具 | [字体显示测试](./test_font/index.html) | 常见中英文字体渲染对比，支持自定义文字与字体 |
 | 折腾 / 好玩 | [Conway 生命游戏](./conway-life-game/index.html) | 元胞自动机演示，内置 20 个经典结构，支持 Life 1.06 导入导出 |
 | 折腾 / 好玩 | [中国象棋](./chinese-chess/index.html) | 单机对弈，四个挡位的 AI，中文记谱与复盘 |
+| 折腾 / 好玩 | [国际象棋](./chess/index.html) | 单机对弈，四个挡位的 AI，SAN 记谱与复盘，内置残局库与谱载解法 |
 | 折腾 / 好玩 | [斗地主](./doudizhu/index.html) | 单机斗地主，四挡 AI。隐藏信息在架构上隔离，带记牌器与提示 |
 | 折腾 / 好玩 | [水波效果](https://treert.github.io/jquery.ripples/html) | 学习 WebGL，一个鼠标交互的水波纹特效 |
 | — | [404](./404.html) | 自定义 404 页面 |
