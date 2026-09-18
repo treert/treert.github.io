@@ -18,7 +18,7 @@ const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href)
 
 const { START_FEN } = await load('config.js');
 const { parseFen, toFen, positionSignature, clonePosition } = await load('position.js');
-const { generateLegalMoves, gameStatus, isThreefoldRepetition } = await load('rules.js');
+const { generateLegalMoves, gameStatus, classifyRepetition, inCheck } = await load('rules.js');
 const { toNotation } = await load('notation.js');
 const { search } = await load('engine.js');
 
@@ -28,6 +28,10 @@ const maxPlies = Number(process.argv[4] || 120);
 
 const pos = parseFen(START_FEN);
 const signatures = [positionSignature(START_FEN)];
+// 循环判定（长将）要用的三样东西：每一步的走子方、是否将军，以及整条线的局面
+const sides = [];
+const checks = [];
+const fens = [START_FEN];   // 同一份历史也喂给引擎 —— 真实对局里主线程就是这么喂的
 let plies = 0;
 let failures = 0;
 
@@ -40,14 +44,18 @@ while (plies < maxPlies) {
       + `${status.winner === 1 ? '红方' : '黑方'}胜`);
     break;
   }
-  if (isThreefoldRepetition(signatures)) {
-    console.log(`\n第 ${plies} 半回合：三次重复，判和`);
+
+  const verdict = classifyRepetition(signatures, sides, checks);
+  if (verdict) {
+    console.log(verdict.type === 'repetition'
+      ? `\n第 ${plies} 半回合：三次重复，判和`
+      : `\n第 ${plies} 半回合：长将判负，${verdict.loser === 1 ? '红方' : '黑方'}输`);
     break;
   }
 
   const mover = pos.side === 1 ? '红' : '黑';
   const level = pos.side === 1 ? redLevel : blackLevel;
-  const result = search(toFen(pos), level);
+  const result = search(toFen(pos), level, { history: fens });
 
   if (!result) { console.log('搜索返回空结果，中止'); failures++; break; }
 
@@ -62,10 +70,15 @@ while (plies < maxPlies) {
   const notation = toNotation(pos, result.move);
   const from = Math.floor(result.move / 90), to = result.move % 90;
   const captured = pos.cells[to];
+  const moverSide = pos.side;
   pos.cells[to] = pos.cells[from];
   pos.cells[from] = 0;
   pos.side = -pos.side;
   signatures.push(positionSignature(toFen(pos)));
+  // 走完之后轮到对方，对方被将军就说明这一步将军了
+  sides.push(moverSide);
+  checks.push(inCheck(pos.cells, pos.side));
+  fens.push(toFen(pos));
 
   plies++;
   const eaten = captured === 0 ? '  ' : ' 吃';

@@ -300,7 +300,8 @@ console.log('规则引擎测试\n');
 
 // --- 终局判定 ---
 {
-  const { gameStatus, isThreefoldRepetition } = await load('rules.js');
+  const { gameStatus, isThreefoldRepetition, perpetualChecker, classifyRepetition } =
+    await load('rules.js');
 
   check('起始局面是进行中', gameStatus(startPosition()).type, 'playing');
 
@@ -329,6 +330,47 @@ console.log('规则引擎测试\n');
   check('三次重复：轮走方不同算不同局面',
     isThreefoldRepetition(['A w', 'A b', 'A w']), false);
   check('三次重复：空序列不判和', isThreefoldRepetition([]), false);
+
+  // 长将：循环里有一方每一步都在将军
+  //
+  // 四个着法的循环（红、黑、红、黑），checks 与 sides 一一对应。
+  // 三种结论各钉一条，外加「互将判和」这一条 —— 它是唯一的例外，
+  // 只钉「有人长将」的话，把互将也判成某一方负是看不出来的。
+  check('长将：红方每步都将军 → 长将方是红',
+    perpetualChecker([1, -1, 1, -1], [true, false, true, false]), 1);
+  check('长将：黑方每步都将军 → 长将方是黑',
+    perpetualChecker([1, -1, 1, -1], [false, true, false, true]), -1);
+  check('长将：都没将军 → 0（普通重复判和）',
+    perpetualChecker([1, -1, 1, -1], [false, false, false, false]), 0);
+  check('长将：双方都在将军（互将）→ 0（棋规判和）',
+    perpetualChecker([1, -1, 1, -1], [true, true, true, true]), 0);
+  check('长将：空循环 → 0', perpetualChecker([], []), 0);
+
+  // 定性：三次重复 ≠ 一定是和棋
+  {
+    // 8 步的循环：红黑各走 4 步，起始局面 A 在第 0、4、8 步出现三次
+    const sigs = ['A w', 'B b', 'C w', 'D b', 'A w', 'B b', 'C w', 'D b', 'A w'];
+    const sides = [1, -1, 1, -1, 1, -1, 1, -1];
+
+    check('定性：没有三次重复时返回 null',
+      classifyRepetition(['A w', 'B b', 'A w'], [1, -1], [true, false]), null);
+    check('定性：没人长将 → 普通判和',
+      classifyRepetition(sigs, sides, sides.map(() => false)), { type: 'repetition' });
+    check('定性：红方每步都将军 → 红方判负',
+      classifyRepetition(sigs, sides, [true, false, true, false, true, false, true, false]),
+      { type: 'perpetual-check', loser: 1 });
+    check('定性：黑方每步都将军 → 黑方判负',
+      classifyRepetition(sigs, sides, [false, true, false, true, false, true, false, true]),
+      { type: 'perpetual-check', loser: -1 });
+    check('定性：互将 → 普通判和',
+      classifyRepetition(sigs, sides, sides.map(() => true)), { type: 'repetition' });
+
+    // 只看**最近**一个循环：前半段红方将军、后半段谁都没将军，
+    // 不能拿前面那个已经走完的循环去指控红方 —— 那一段已经不重复了。
+    check('定性：只看最近一个循环，前面那段不追究',
+      classifyRepetition(sigs, sides, [true, false, true, false, false, false, false, false]),
+      { type: 'repetition' });
+  }
 }
 
 // === 收尾 ===

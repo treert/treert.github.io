@@ -312,8 +312,8 @@ export function gameStatus(pos) {
  * signatures 是按时间顺序排列的「局面签名」（positionSignature 的输出）。
  * 必须是签名而不是完整 FEN —— 回合数字段每次都变，用完整 FEN 永远比不出重复。
  *
- * 设计文档 §5.3 明确不做中国象棋的循环规则（长将 / 长捉判负），
- * 这一条是唯一的循环兜底，保证对局不会无限进行下去。
+ * 它是循环的**兜底**：三次重复本身不分胜负，只有循环里没人长将时才是和棋
+ * （长将判负见 classifyRepetition）。
  */
 export function isThreefoldRepetition(signatures) {
   const count = new Map();
@@ -323,6 +323,64 @@ export function isThreefoldRepetition(signatures) {
     count.set(s, n);
   }
   return false;
+}
+
+/**
+ * 「长将」判定 —— 一段循环里，有没有哪一方**每一步都在将军**。
+ *
+ * sides / checks 是同一段循环里的着法，按时间顺序一一对应：
+ *   sides[i]  第 i 步的走子方（±1）
+ *   checks[i] 第 i 步是否将军
+ *
+ * 返回长将方的阵营（±1）；**双方都在长将、或者都没长将时返回 0** ——
+ * 那两种情况都按判和处理：互将棋规判和，没人长将也只是普通重复。
+ *
+ * ## 为什么只做「长将」，不做长捉 / 长兑 / 一将一杀
+ *
+ * 循环规则里其余几条都要逐子比较「捉了谁、捉得比上次重不重」，实现和测试成本
+ * 完全不是一个量级（见 design.md §5.3 的裁剪记录）。而长将是唯一一条在普通对局里
+ * 真会反复出现、并且直接决定胜负的：拿长将当耍赖手段。只做这一条，覆盖面最大。
+ */
+export function perpetualChecker(sides, checks) {
+  let redAll = true;
+  let blackAll = true;
+  for (let i = 0; i < sides.length; i++) {
+    if (checks[i]) continue;
+    if (sides[i] === RED) redAll = false;
+    else blackAll = false;
+  }
+  // 两边都为真（互将）或都为假（都没长将）→ 0，判和
+  if (redAll === blackAll) return 0;
+  return redAll ? RED : -RED;
+}
+
+/**
+ * 三次重复的**定性**：普通判和，还是一方长将判负。
+ *
+ * @param {string[]} signatures 局面签名，signatures[0] 是起点（长度 = 步数 + 1）
+ * @param {number[]} sides      每一步的走子方（±1），与 checks 等长
+ * @param {boolean[]} checks    每一步是否将军
+ * @returns {null | { type: 'repetition' } | { type: 'perpetual-check', loser: number }}
+ *          null = 还没有三次重复，对局继续进行
+ */
+export function classifyRepetition(signatures, sides, checks) {
+  if (!isThreefoldRepetition(signatures)) return null;
+
+  const last = signatures.length - 1;
+  // 判重的那一个是**当前局面**（走成三次重复之后 playMove 就拦住了，不会再多走）。
+  // 上面那条不成立时（调用方给了别的序列）宁可判和，也不要拿一个只出现过两次的
+  // 循环去指控谁长将。
+  let seen = 0;
+  for (const s of signatures) if (s === signatures[last]) seen++;
+  if (seen < 3) return { type: 'repetition' };
+
+  // 只看最近这一个循环：当前局面上一次出现 → 现在。更早的那些循环不用管，
+  // 因为它们已经完整地过去了一遍（再走一遍就是当前这个）。
+  const prev = signatures.lastIndexOf(signatures[last], last - 1);
+  if (prev < 0) return { type: 'repetition' };
+
+  const checker = perpetualChecker(sides.slice(prev, last), checks.slice(prev, last));
+  return checker === 0 ? { type: 'repetition' } : { type: 'perpetual-check', loser: checker };
 }
 
 // 士 / 仕 的五个斜点（黑方视角）

@@ -185,6 +185,31 @@ console.log('对局状态机测试\n');
   check('重复判和时没有胜方', G.evaluateStatus(g).winner, null);
 }
 
+// --- 长将判负 ---
+// 同一段循环，唯一的差别是**红方每一步都在将军**：车在 3 / 4 两条纵线之间来回、
+// 每一步都将军，黑将只能跟着来回（(3,1) 被车封住、(5,0) 与红帅照面），
+// 于是红方每步都在将军 —— 棋规判红方负，不是判和。
+//
+// **和上一节正好是一组对照**：同样的循环长度、同样的着法结构，只是有没有将军。
+// 只测长将的话，把「所有重复都判某方负」这种错误是看不出来的。
+{
+  const startFen = '4k4/9/3R5/9/9/9/9/9/9/5K3 w - - 0 1';
+  const cycle = [mk('3,2', '4,2'), mk('4,0', '3,0'), mk('4,2', '3,2'), mk('3,0', '4,0')];
+  const g = G.createGame({ initialFen: startFen });
+
+  let ok = true;
+  for (const m of cycle) if (!G.playMove(g, m).ok) ok = false;
+  check('长将循环：第一轮着法全程合法', ok, true);
+  check('长将循环：回到起始局面时还只是「进行中」（出现 2 次）',
+    G.evaluateStatus(g).type, 'playing');
+
+  for (const m of cycle) G.playMove(g, m);
+  const st = G.evaluateStatus(g);
+  check('长将循环：起始局面第 3 次出现，判为长将', st.type, 'perpetual-check');
+  check('长将判负：长将的红方输，胜方是黑方', st.winner, -1);
+  check('长将判负后不能再走子', G.playMove(g, cycle[0]).ok, false);
+}
+
 // --- 人机对弈用的悔棋：一次退到玩家走棋 ---
 {
   const g = G.createGame({ playerSide: 1 });

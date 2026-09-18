@@ -415,6 +415,56 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 循环规则（长将） ---
+// 搜索里「走回路径上出现过的局面」就当作循环成立，按长将定性：连续将军的一方判负。
+// 关键是**对局历史也要喂进去**：只看搜索树的话，「AI 上一步将军、这一步再将军」这种
+// 循环有一半在树外，引擎会以为它随时能收手（树里确实能），于是一路将军走到底。
+//
+// 同一局面、同一挡位，只翻「有没有喂历史」这一个开关，结论必须反过来：
+//   不喂 → 引擎每步都将军（均势时所有着法同分，根节点按「将军优先」的排序取第一个），
+//          走成循环后按长将判负 —— 这正是要修的那个「AI 用长将耍赖」的行为
+//   喂了 → 引擎在第二次将军前收手，这一局正常结束
+//
+// 局面：红车 (3,2) 对黑车 (0,0)，均势。黑将只有 (3,0)/(4,0) 两条逃路，
+// 红车在两条纵线之间来回就每一步都在将军 —— 棋规里的长将。
+{
+  const { search } = await load('engine.js');
+  const G = await load('game.js');
+
+  const lv = { id: 'rep', name: '循环', depth: 5, timeLimitMs: 60000,
+               quiescence: true, noise: 0, blunderRate: 0 };
+
+  // 红方走引擎（可选择喂不喂历史），黑方走第一个合法着法 —— 双方都是确定的
+  const play = (withHistory) => {
+    const g = G.createGame({ initialFen: 'r3k4/9/3R5/9/9/9/9/9/9/5K3 w - - 0 1' });
+    for (let i = 0; i < 16; i++) {
+      const st = G.evaluateStatus(g);
+      if (st.type !== 'playing') return st;
+
+      let move;
+      if (G.sideToMove(g) === 1) {
+        const history = [g.initialFen];
+        for (let k = 0; k < g.cursor; k++) history.push(g.moves[k].fenAfter);
+        const r = search(G.currentFen(g), lv, withHistory ? { history } : {});
+        move = r.from * 90 + r.to;
+      } else {
+        move = G.legalMoves(g)[0];
+      }
+      if (!G.playMove(g, move).ok) return { type: 'illegal' };
+    }
+    return { type: 'unfinished' };
+  };
+
+  const without = play(false);
+  const seeded = play(true);
+
+  check('不喂历史：引擎一路将军，最后按长将判负（红方输）',
+    [without.type, without.winner], ['perpetual-check', -1]);
+  check('喂了历史：引擎会收手，不再是长将判负', seeded.type === 'perpetual-check', false);
+  check('喂了历史：这一局正常结束',
+    ['checkmate', 'stalemate', 'repetition'].includes(seeded.type), true);
+}
+
 // --- 回归：quiesce 在「被将军且无着法」时不能返回 -INF ---
 // 不处理的话 best 会停在 alpha（-INF），取负变成 +INF，
 // iterativeDeepen 判断「找到杀棋」的条件是 |score| > MATE - 1000，

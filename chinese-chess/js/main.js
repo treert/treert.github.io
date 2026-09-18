@@ -186,6 +186,11 @@ function updateChrome() {
 
   if (st.type === 'checkmate') { parts = ['将死 · ', { side: st.winner }, '胜']; over = true; }
   else if (st.type === 'stalemate') { parts = ['困毙 · ', { side: st.winner }, '胜']; over = true; }
+  // 长将判负：说的是**输的那一方**（连续将军的一方），所以取 winner 的对面
+  else if (st.type === 'perpetual-check') {
+    parts = ['长将判负 · ', { side: -st.winner }, '负'];
+    over = true;
+  }
   else if (st.type === 'repetition') { parts = ['三次重复 · 判和']; over = true; }
   else {
     const side = G.sideToMove(app.game);
@@ -509,6 +514,23 @@ function bookMoveNow() {
 // === Worker ===
 
 /**
+ * 喂给引擎的**对局历史**：当前这条线上的每个局面，含起始局面，最后一个是现状。
+ *
+ * 引擎自己只能看见搜索树，而「长将」这种循环有一半在搜索树之外 ——
+ * AI 上一步将军、这一步再将军，前半个循环是**已经走过的历史**。
+ * 不喂历史的话，引擎会以为它随时能收手（在树里确实能），于是一路将军下去，
+ * 到第 3 次重复时按长将判负。传 FEN 而不是哈希：主线程不必知道引擎怎么算哈希，
+ * 两边只约定「局面」这一件事。
+ *
+ * 回看（cursor 在后面）时给的是到 cursor 为止的那条线 —— 与界面上正在下的这盘一致。
+ */
+function historyFens() {
+  const out = [app.game.initialFen];
+  for (let i = 0; i < app.game.cursor; i++) out.push(app.game.moves[i].fenAfter);
+  return out;
+}
+
+/**
  * 派发一次 AI 搜索。不是 AI 的回合、或者已经有请求在飞，就直接返回。
  */
 function requestAiMove() {
@@ -555,6 +577,7 @@ function requestAiMove() {
     id: ++app.searchId,
     fen: G.currentFen(app.game),
     level: app.game.level,
+    history: historyFens(),
   });
 }
 
@@ -582,6 +605,7 @@ function requestHint() {
     id: ++app.searchId,
     fen: G.currentFen(app.game),
     level: app.game.level,
+    history: historyFens(),
   });
 }
 

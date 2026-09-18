@@ -17,7 +17,10 @@
 
 import { START_FEN, RED } from './config.js';
 import { parseFen, toFen, positionSignature } from './position.js';
-import { generateLegalMoves, gameStatus, isThreefoldRepetition, moveFrom, moveTo } from './rules.js';
+import {
+  generateLegalMoves, gameStatus, isThreefoldRepetition, classifyRepetition,
+  inCheck, moveFrom, moveTo,
+} from './rules.js';
 import { toNotation } from './notation.js';
 import { findEndgame } from './endgames.js';
 
@@ -72,16 +75,47 @@ function signatures(game) {
 }
 
 /**
- * 终局判定。除了将死 / 困毙，还要看三次重复 —— 设计文档 §5.3 明确不做
- * 中国象棋的循环规则（长将 / 长捉判负），这一条是唯一的循环兜底。
+ * 每一步的「走子方 + 有没有将军」。
+ *
+ * **不额外存字段**，用的时候从走完之后的 FEN 现算：走完之后轮到对方，
+ * 对方被将军就是这一步将军了。同一份 FEN 既是棋盘也是这些事实的唯一来源，
+ * 存档里也不用为它升版本号（老存档里的 fenAfter 一样算得出来）。
+ */
+function moveFacts(game) {
+  const sides = [];
+  const checks = [];
+  for (let i = 0; i < game.cursor; i++) {
+    const after = parseFen(game.moves[i].fenAfter);
+    sides.push(-after.side);
+    checks.push(inCheck(after.cells, after.side));
+  }
+  return { sides, checks };
+}
+
+/**
+ * 终局判定：将死 / 困毙，以及走成循环时的三种结果。
+ *
+ * 循环规则只做**长将**（连续将军的一方判负），长捉 / 长兑 / 一将一杀不做 ——
+ * 裁剪的理由写在 rules.js 的 perpetualChecker() 里。三次重复仍然是兜底，
+ * 只是现在要分两种情况：
+ *   循环里有人长将 → 长将方判负（perpetual-check，winner 是对方）
+ *   没有             → 判和（repetition，winner 为 null）
  *
  * 三次重复只看**当前这条线**（起始局面 + moves[0..cursor)），不看被截断的分支。
  */
 export function evaluateStatus(game) {
   const st = gameStatus(currentPosition(game));
   if (st.type !== 'playing') return { type: st.type, winner: st.winner };
-  if (isThreefoldRepetition(signatures(game))) return { type: 'repetition', winner: null };
-  return { type: 'playing', winner: null };
+
+  const sigs = signatures(game);
+  if (!isThreefoldRepetition(sigs)) return { type: 'playing', winner: null };
+
+  // 「每一步有没有将军」只在真的判重时才现算。放到上面去算的话，每次 refresh
+  //（点一下棋盘就会调一次）都要把整盘棋的 FEN 重解析一遍，白白花掉几十毫秒级的时间。
+  const { sides, checks } = moveFacts(game);
+  const verdict = classifyRepetition(sigs, sides, checks);
+  if (!verdict || verdict.type === 'repetition') return { type: 'repetition', winner: null };
+  return { type: 'perpetual-check', winner: -verdict.loser };
 }
 
 export function playMove(game, move) {

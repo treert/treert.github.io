@@ -7,11 +7,26 @@
 
 import { CELLS, EMPTY, K, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS, LEVELS } from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
-import { generateMoves, generateLegalMoves, isAttacked, findKing, moveFrom, moveTo } from './rules.js';
+import {
+  generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
+  perpetualChecker, moveFrom, moveTo,
+} from './rules.js';
 
 const INF = 1e9;
 /** 将死分值。带上「离根多远」，让引擎偏好更快的杀棋、更晚的被杀 */
 const MATE = 100000;
+
+/**
+ * 「长将」的分值。
+ *
+ * 长将在棋规里是**判负**（见 rules.js 的 perpetualChecker），所以这个分值必须
+ * 高于任何子力优势（满盘子力也就五千出头）—— 这样 AI 才会去把对手逼成长将，
+ * 也才会在自己要走进长将时改走别的。
+ *
+ * 但它必须**明显低于 MATE**：iterativeDeepen 用「|score| > MATE - 1000」判断
+ * 「已经找到杀棋、不必再加深」，长将不是杀棋，混进那个量级会让搜索提前收手。
+ */
+const REPETITION_WIN = 20000;
 
 // 置换表条目类型：精确值 / 只证明了下界 / 只证明了上界
 const TT_EXACT = 0;
@@ -68,7 +83,7 @@ export function evaluate(cells, side) {
  * 这是引擎里唯一「可变」的地方 —— 对外暴露的 search() 每次都会新建一个。
  */
 export class Searcher {
-  constructor(cells, side, level, rng = Math.random) {
+  constructor(cells, side, level, rng = Math.random, history = []) {
     this.cells = cells;
     this.side = side;
     this.key = zobristKey(cells, side);
@@ -90,6 +105,40 @@ export class Searcher {
 
     // 将军延伸的预算：一条线最多多搜几层。0 = 不延伸（弱挡位用）
     this.checkExtension = level.checkExtension || 0;
+
+    // 搜索路径，只为循环规则（长将）服务，见 repetitionScore()：
+    //   pathKeys[i]  第 i 个局面的哈希
+    //   pathFlags[i] 「走到那个局面的那一步是否将军」
+    // 前半段是**对局历史**（主线程喂进来的），后半段是搜索树上的节点，
+    // 由 negamax 自己压 / 弹。
+    //
+    // 历史必须喂进来：只看搜索树的话，「AI 上一步将军、这一步再将军」这种循环
+    // 有一半在树外 —— 引擎会以为它随时能收手（树里确实能），于是一路将军下去，
+    // 到第 3 次重复时按长将判负。把历史接在路径前面，这种循环一进入就被认出来。
+    this.pathKeys = [];
+    this.pathFlags = [];
+    for (const fen of history) {
+      const p = parseFen(fen);
+      this.pathKeys.push(zobristKey(p.cells, p.side));
+      this.pathFlags.push(inCheck(p.cells, p.side) ? 1 : 0);
+    }
+
+    // 历史只建一次索引：搜索里每个节点都要问一次「这个局面走过吗」，
+    // 扫数组的话历史一长（一局棋上百步）就是每个节点上百次比较。
+    this.historyIndex = new Map();
+    for (let i = 0; i < this.pathKeys.length; i++) this.historyIndex.set(this.pathKeys[i], i);
+    this.seeded = this.pathKeys.length;
+
+    // 路径里必须有当前局面本身（历史为空时只有它，历史非空时它本来就是最后一项）。
+    // 不一致时补一个兜底项：宁可多算一个局面，也不能漏掉「走回当前局面」这种循环。
+    if (this.pathKeys.length === 0 || this.pathKeys[this.pathKeys.length - 1] !== this.key) {
+      this.pathKeys.push(this.key);
+      this.pathFlags.push(0);
+    }
+
+    // repetitionRule = false 用来做对照实验：验证循环规则只改变循环局面下的结论。
+    // 与 useTT 同一套路（测试用的开关，挡位表里不写它 → 默认开着）。
+    this.repetitionRule = level.repetitionRule !== false;
 
     // 时间控制：Date.now() 本身不便宜，所以每 1024 个节点才查一次
     this.deadline = Infinity;
@@ -195,6 +244,49 @@ export class Searcher {
   }
 
   /**
+   * 当前局面在搜索路径上重复过吗？重复的话按循环规则给一个分值。
+   *
+   * 只判**长将**：循环里只有一方每步都在将军 → 那一方判负（棋规），
+   * 双方都在将军、或都没将军 → 判和。长捉 / 长兑不做（见 rules.js 的说明）。
+   *
+   * **「第二次出现」就当作循环成立** —— 与棋规的「三次重复」差一次，但搜索里
+   * 不必真把三次走完：能原样回来一次，就能一直回来。这样 AI 既不会自己走进长将判负，
+   * 也能主动把对手逼进去（残局里这是很实际的取胜手段）。
+   *
+   * 返回 null 表示没有重复；否则返回**当前走子方**视角的分值。
+   */
+  repetitionScore() {
+    const p = this.pathKeys.length - 1;
+    const key = this.pathKeys[p];
+
+    // 先在搜索树那一段里从近往远找（最近的重复才是刚形成的那个循环），
+    // 找不到再查对局历史的下标索引 —— 那一段不参与搜索，只建过一次 Map，不用扫。
+    let q = -1;
+    for (let i = p - 1; i >= this.seeded; i--) {
+      if (this.pathKeys[i] === key) { q = i; break; }
+    }
+    if (q < 0) {
+      const i = this.historyIndex.get(key);
+      if (i !== undefined) q = i;
+    }
+    if (q < 0) return null;
+
+    // 局面哈希含轮走方（hashSide），所以 q 与 p 的轮走方相同、p - q 必为偶数，
+    // 循环里的第一步就是**当前走子方**走的 —— 奇偶直接定出每一步的走子方。
+    const sides = [];
+    const checks = [];
+    for (let i = q + 1; i <= p; i++) {
+      sides.push((i - q) % 2 === 1 ? this.side : -this.side);
+      checks.push(this.pathFlags[i] === 1);
+    }
+
+    const checker = perpetualChecker(sides, checks);
+    if (checker === this.side) return -REPETITION_WIN;  // 我们在长将 → 棋规判我们负
+    if (checker === -this.side) return REPETITION_WIN;  // 对手在长将 → 他们判负，我们胜
+    return 0;                                           // 和棋
+  }
+
+  /**
    * 静态搜索：只搜吃子，把「兑子序列没走完就评估」这个水平线效应消掉。
    *
    * 被将军时改为搜全部着法 —— 只看吃子的话会漏掉「唯一的应将手段」，
@@ -255,6 +347,11 @@ export class Searcher {
    * 不消耗深度 —— 因为被将军时合法着法往往只有一两个，多搜一层很便宜，
    * 而**连杀的正解恰恰整条都在将军里**：不延伸就只能在固定深度上横向看，
    * 十几步的连杀永远看不见。这是「排局提示多半是错的」那个问题的根因。
+   *
+   * 这一层只做三件事：数节点 / 查超时、把当前局面压进搜索路径（循环规则要用）、
+   * 再把路径弹回去。**用 try/finally 而不是在每条返回路径上各弹一次** ——
+   * 本体有好几条 return，超时还是从中间穿出去的异常；路径不还原的话，
+   * search() 里紧接着施加挡位弱化时就会读到一个错乱的路径。
    */
   negamax(depth, alpha, beta, ply, ext = 0) {
     this.nodes++;
@@ -264,7 +361,31 @@ export class Searcher {
       if (Date.now() >= this.deadline) throw TIMEOUT;
     }
 
-    if (ext > 0 && this.inCheck(this.side)) {
+    // 本层是否被将军。将军延伸要用它；它同时就是「**上一步**是否将军」——
+    // 循环规则（长将）要按步记这个标记，所以只算一次，两处共用。
+    const checked = this.inCheck(this.side);
+    this.pathKeys.push(this.key);
+    this.pathFlags.push(checked ? 1 : 0);
+
+    try {
+      return this.negamaxNode(depth, alpha, beta, ply, ext, checked);
+    } finally {
+      this.pathKeys.pop();
+      this.pathFlags.pop();
+    }
+  }
+
+  /** negamax 的本体。拆出来只是为了让上面那个 try/finally 能包住全部返回路径 */
+  negamaxNode(depth, alpha, beta, ply, ext, checked) {
+    // 走成循环了就按循环规则结算，不再往下搜。这个分值取决于**路径**上有没有
+    // 那个循环，不是局面本身的性质（同一个局面在别处可能完全正常），所以既不查、
+    // 也不写置换表 —— 在这里直接返回，正好绕开本体末尾那次写入。
+    if (this.repetitionRule) {
+      const rep = this.repetitionScore();
+      if (rep !== null) return rep;
+    }
+
+    if (ext > 0 && checked) {
       depth++;
       ext--;
     }
@@ -320,8 +441,10 @@ export class Searcher {
     // 一步都走不了 = 被将死或困毙，两种情况在中国象棋里都是走子方负
     if (legalCount === 0) return -MATE + ply;
 
-    // 杀棋分值带「离根多远」的信息，换一层深度就不对了，所以不存进置换表
-    if (this.useTT && Math.abs(best) < MATE - 1000) {
+    // 杀棋分值带「离根多远」的信息，换一层深度就不对了；长将分值取决于搜索路径上
+    // 有没有那个循环，同一个局面换个路径就不是这个分。两种都不能进置换表。
+    // （MATE 约 1e5、长将 2e4，都高于任何子力分，一道阈值就够了。）
+    if (this.useTT && Math.abs(best) < REPETITION_WIN) {
       const flag = best <= alphaOrig ? TT_UPPER : best >= beta ? TT_LOWER : TT_EXACT;
       this.tt.set(this.key, { depth, score: best, flag, move: bestMove });
     }
@@ -410,6 +533,7 @@ export class Searcher {
     const savedSide = this.side;
     const savedKey = this.key;
     const savedKings = this.kings.slice();
+    const savedPath = this.pathKeys.length;
     try {
       return fn();
     } finally {
@@ -417,6 +541,10 @@ export class Searcher {
       this.side = savedSide;
       this.key = savedKey;
       this.kings = savedKings;
+      // 搜索路径同理。negamax 的 try/finally 已经保证了平衡，这里是兜底 ——
+      // 万一以后有人加了一条能穿出去的异常路径，也不至于把路径留在错乱状态。
+      this.pathKeys.length = savedPath;
+      this.pathFlags.length = savedPath;
     }
   }
 
@@ -537,13 +665,17 @@ export class Searcher {
  * level 可以是挡位 id，也可以直接是一个挡位对象 ——
  * 测试需要构造「深度 1、无随机性」这类自定义挡位，走对象形式最省事。
  * options.rng 用来注入随机源，默认 Math.random；测试传固定种子以得到确定结果。
+ * options.history 是**对局历史**（从起始局面到当前局面的 FEN 数组，最后一项就是
+ * `fen`）—— 循环规则（长将）要用，见 Searcher 的 repetitionScore()。不传也行，
+ * 只是引擎就看不见搜索树之外的循环了。
  */
 export function search(fen, level, options = {}) {
   const lv = typeof level === 'string' ? LEVELS.find((l) => l.id === level) : level;
   if (!lv) throw new Error(`未知挡位：${level}`);
 
   const pos = parseFen(fen);
-  const searcher = new Searcher(pos.cells, pos.side, lv, options.rng || Math.random);
+  const searcher = new Searcher(pos.cells, pos.side, lv, options.rng || Math.random,
+    options.history || []);
 
   const started = Date.now();
   const limit = lv.timeLimitMs;
