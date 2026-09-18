@@ -219,12 +219,16 @@ export function createRenderer(boardEl, wrapEl) {
     }
   }
 
-  function applyHighlights(pos, highlight = {}, movedTo = -1) {
+  function applyHighlights(pos, highlight = {}) {
     // 上一步：起点与终点都走格子底色。棋子只占格子中间约 80%，
-    // 所以底色会露出一圈边框 —— 正好读成「这一格」
+    // 所以底色会露出一圈边框 —— 正好读成「这一格」。
+    //
+    // **终点恒取 `moveTo(last)`，不跟着补间走。** 象棋那边是「终点画在棋子上」，
+    // 所以补间期间要改成棋子正在滑向的那一格；国象这边两格都画在**格子**上，
+    // 而悔棋时正在滑的棋子是往反方向走的 —— 跟着它会高亮到一个跟「上一步」无关的格子上。
     if (highlight.last) {
       cells[moveFrom(highlight.last)].classList.add('chess-cell--last');
-      cells[movedTo >= 0 ? movedTo : moveTo(highlight.last)].classList.add('chess-cell--last');
+      cells[moveTo(highlight.last)].classList.add('chess-cell--last');
     }
     if (highlight.selected >= 0) cells[highlight.selected].classList.add('chess-cell--selected');
 
@@ -307,7 +311,7 @@ export function createRenderer(boardEl, wrapEl) {
       pieceEls.set(i, fresh);
     }
 
-    applyHighlights(pos, highlight, list.length ? list[list.length - 1].to : -1);
+    applyHighlights(pos, highlight);
 
     // 记下这段补间什么时候跑完（afterAnimation 用它排队，AI 的应手就靠这个）
     if (list.length) scheduleAnimDone();
