@@ -311,9 +311,17 @@ console.log('\n=== 棋子图形 ===');
 {
   const art = [1, 2, 3, 4, 5, 6].map((p) => createPieceSvg(p).innerHTML.length);
   check('六种棋子都有图形', art.every((n) => n > 20), true);
-  check('黑白用的是同一份图形（颜色交给 CSS 变量）',
-    createPieceSvg(5).innerHTML === createPieceSvg(-5).innerHTML, true);
-  check('图形里带 viewBox', createPieceSvg(6).attrs.viewBox, '0 0 100 100');
+  // 这套棋子（pieces.js，Cburnett）黑白是**两套路径** —— 细节不同，比如马的鬃毛、象的帽缝。
+  // 所以这里钉的是「两套都在」，而不是「共用一份」。
+  check('黑白的图形是两套（这套棋子的黑白细节不同）',
+    createPieceSvg(5).innerHTML !== createPieceSvg(-5).innerHTML, true);
+  // 真正要紧的那条不变量：**图形里不能出现写死的颜色**，否则深色主题会瞎。
+  // 颜色只能以 var(--chess-p-*) 的形式出现，由外面的白 / 黑类给值。
+  const all = [...[1, 2, 3, 4, 5, 6], ...[-1, -2, -3, -4, -5, -6]]
+    .map((p) => createPieceSvg(p).innerHTML).join('');
+  check('十二张图形里没有写死的颜色', /#[0-9a-fA-F]{3,6}\b/.test(all), false);
+  check('颜色走的是 CSS 变量', all.includes('var(--chess-p-fill)') && all.includes('var(--chess-p-stroke)'), true);
+  check('图形里带 viewBox', createPieceSvg(6).attrs.viewBox, '0 0 45 45');
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

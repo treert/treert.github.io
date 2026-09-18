@@ -17,81 +17,23 @@
 import { FILES, RANKS, CELLS, EMPTY } from './config.js';
 import { fileOf, rankOf } from './position.js';
 import { moveFrom, moveTo } from './rules.js';
+// 棋子图形是**生成物**（Cburnett 棋子集）：来路、变换规则、署名都在 pieces.js 的文件头里，
+// 生成器是 tools/gen-pieces.mjs。不用 Unicode ♔♕♖♗♘♙ 的理由见 design.md §3.3
+//（字形在有些平台会被渲染成 emoji，而且只能整体改 color、描不了边）。
+import { PIECE_ART } from './pieces.js';
 
 /**
- * 棋子图形：6 种形状各一段内联 SVG（viewBox 0 0 100 100）。
+ * 造一枚棋子的 SVG 元素。升变选择那个浮层也用这个（同一份图形，不抄第二遍）。
  *
- * **不用 Unicode ♔♕♖♗♘♙ 的理由**（design.md §3.3）：
- *   1. U+265F 在有些平台会被渲染成 emoji 变体，一盘子混着彩色 emoji 和字形；
- *   2. 字形只能整体 `color`，而白色棋子放在浅色格子上需要「浅填充 + 深描边」才看得清，
- *      描边这一层字形给不了。
- *
- * 形状是刻意画的**简笔几何形**：轮廓由直线和几段曲线拼成，不做写实雕刻 ——
- * 一格才 60px 上下，细节多了只会糊成一团。三条把六种分开的规矩：
- *
- *   - **十字只给王**。象原来是「尖顶 + 十字」，缩到棋盘尺寸和王几乎一样（王是「冠 + 十字」），
- *     所以象改成**尖顶帽 + 顶上小球**，十字成了王的专属标记。
- *   - **马要是骑士侧影，不是一团几何块**。按标准骑士的样子画：口鼻前伸并在嘴的位置留一道缝、
- *     鼻孔、额上一只尖耳、鬃毛沿颈后那条边下来、胸脯收进底座 ——
- *     全靠 `chess-piece-ink` / `chess-piece-ink-line` 那几个反色笔触把「缝、鼻孔、眼睛、鬃」画出来。
- *   - **每种底座宽度不同**（兵 48 / 象 44 / 王 52 / 马 52 / 车 56 / 后 56）——
- *     底座是缩小时最先糊掉的部分，宽窄拉开一点，一眼还能认出是哪一种。
- *
- * 颜色全部来自 CSS 变量（`--chess-p-fill` / `--chess-p-stroke`，见 style.css），
- * 所以**白/黑共用同一份图形**，只有那两个带 `chess-piece-ink*` 类的细节用反色的「墨色」。
- */
-const PIECE_ART = {
-  1: // 兵
-    '<circle cx="50" cy="31" r="12"/>'
-    + '<path d="M41 43h18l-3 10H44z"/>'
-    + '<path d="M35 76c0-13 4-16 7-21h16c3 5 7 8 7 21z"/>'
-    + '<rect x="26" y="76" width="48" height="13" rx="4"/>',
-  2: // 马（朝左的骑士侧影：口鼻前伸、嘴是一条墨色缝、鬃毛沿颈后下来、胸脯收进底座）
-    '<path d="M38 78C36 68 34 58 33 52 30 50 26 48 22 46 18 44 15 41 13 36'
-    + 'C13 32 16 30 20 29 28 26 34 21 39 15L44 9 48 2 53 11'
-    + 'C58 16 62 22 65 30 68 42 70 60 70 78Z"/>'
-    + '<path class="chess-piece-ink-line" d="M52 15C58 21 61 28 63 38 65 50 66 64 66 77"/>'
-    + '<path class="chess-piece-ink-line" d="M15 38C19 38 24 38 28 36"/>'
-    + '<circle class="chess-piece-ink" cx="38" cy="27" r="3"/>'
-    + '<circle class="chess-piece-ink" cx="19" cy="33" r="2.5"/>'
-    + '<rect x="30" y="78" width="46" height="13" rx="4"/>',
-  3: // 象（尖顶帽 + 顶上小球，斜缝是帽子的开口）
-    '<circle cx="50" cy="14" r="6"/>'
-    + '<path d="M50 21c11 8 17 18 17 26 0 9-7 15-17 16-10-1-17-7-17-16 0-8 6-18 17-26z"/>'
-    + '<path class="chess-piece-ink-line" d="M43 51c4-7 9-12 15-17"/>'
-    + '<path d="M42 63h16c3 7 6 9 6 15H36c0-6 3-8 6-15z"/>'
-    + '<rect x="28" y="78" width="44" height="13" rx="4"/>',
-  4: // 车（带城垛的塔）
-    '<path d="M26 20h11v8h9v-8h10v8h9v-8h10v18H26z"/>'
-    + '<path d="M33 40h34v30H33z"/>'
-    + '<path d="M29 70h42l6 12H23z"/>'
-    + '<rect x="22" y="78" width="56" height="13" rx="4"/>',
-  5: // 后（五个尖的冠）
-    '<circle cx="22" cy="26" r="7"/><circle cx="36" cy="20" r="7"/>'
-    + '<circle cx="50" cy="15" r="8"/><circle cx="64" cy="20" r="7"/>'
-    + '<circle cx="78" cy="26" r="7"/>'
-    + '<path d="M20 32h60l-8 24H28z"/>'
-    + '<path d="M29 56h42c2 9 6 12 6 22H23c0-10 4-13 6-22z"/>'
-    + '<rect x="22" y="76" width="56" height="15" rx="4"/>',
-  6: // 王（冠顶一个**大**十字 —— 又高又宽，和象的小球一眼分开）
-    '<rect x="45" y="1" width="10" height="27" rx="2"/>'
-    + '<rect x="36" y="8" width="28" height="10" rx="2"/>'
-    + '<path d="M27 30h46l-6 16H33z"/>'
-    + '<path d="M36 48h28c3 10 7 13 7 30H29c0-17 4-20 7-30z"/>'
-    + '<rect x="24" y="78" width="52" height="13" rx="4"/>',
-};
-
-/**
- * 造一枚棋子的 SVG 元素。升降选择那个浮层也用这个（同一份图形，不抄第二遍）。
- * `piece` 是带符号的棋子编码；返回的元素上已经挂好 white / black 类，
- * 颜色由 CSS 变量决定。
+ * `piece` 是**带符号**的棋子编码，直接拿它查 `PIECE_ART` —— 这套棋子的黑白是两套路径
+ *（细节不同，比如马的鬃毛），所以键也带符号。颜色不在这里管：图形自己的 `style` 里
+ * 引的是 `--chess-p-fill` / `--chess-p-stroke` 这两个变量，由外层的白 / 黑类定义。
  */
 export function createPieceSvg(piece) {
-  const abs = piece > 0 ? piece : -piece;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('viewBox', '0 0 45 45');
   svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = PIECE_ART[abs] || '';
+  svg.innerHTML = PIECE_ART[piece] || '';
   return svg;
 }
 

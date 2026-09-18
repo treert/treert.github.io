@@ -372,8 +372,10 @@ kbd {
 }
 
 /* === 棋子 ===
-   内联 SVG（形状见 renderer.js）：`fill` / `stroke` 分别走变量，
-   于是「白棋浅填充 + 深描边」和「黑棋深填充 + 浅描边」在两套主题下各调一次即可。 */
+   内联 SVG，图形见 `js/pieces.js`（生成物，Cburnett 棋子集）。
+   颜色仍走两个变量：`--chess-p-fill` / `--chess-p-stroke` ——
+   图形自己的 style 里引它们，于是「白棋浅填充 + 深描边」「黑棋深填充 + 浅描边」
+   在两套主题下各调一次即可（换的是变量，不是图形）。 */
 .chess-piece {
   position: absolute;
   z-index: 2;               /* 最高层：盖住格子与格子高亮 */
@@ -388,17 +390,15 @@ kbd {
   transition: left .18s ease-out, top .18s ease-out;
 }
 .chess-piece svg {
-  width: 80%;
-  height: 80%;
+  width: 88%;
+  height: 88%;
   overflow: visible;
 }
-.chess-piece svg * {
-  fill: var(--chess-p-fill);
-  stroke: var(--chess-p-stroke);
-  stroke-width: 5;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
+/* **这里没有 `svg *` 那条统一上色规则，是故意的。**
+   棋子图形（pieces.js，生成物）自己带着 fill / stroke，里面引的就是下面这两个变量 ——
+   而且有相当一部分路径**靠 `<g>` 的继承**拿颜色（车、象的内部路径就没写 fill）。
+   要是再按 `svg *` 给每个子元素硬塞一个 fill，那些「只想描边」的路径会被填成实心块。
+   所以：颜色仍是这两个变量说了算，只是挂在图形的 style 上，不在这里统一套。 */
 .chess-piece--white {
   --chess-p-fill: var(--chess-white-fill);
   --chess-p-stroke: var(--chess-white-stroke);
@@ -406,21 +406,6 @@ kbd {
 .chess-piece--black {
   --chess-p-fill: var(--chess-black-fill);
   --chess-p-stroke: var(--chess-black-stroke);
-}
-/* 棋子上的「墨色」细节（马的眼睛、象帽子的斜缝）。它们是**反色**的笔触，
-   所以不能走上面那条 `svg *` 的统一规则，得用多一个类压过它（`.x svg *` 是 0,1,1，
-   这里是 0,2,1）。取值取 stroke 色：白棋上是深墨、黑棋上是浅墨，两套主题自动成立。
-   升变浮层那四个按钮里是同一份图形，所以选择器也要带上它那一族。 */
-.chess-piece svg .chess-piece-ink,
-.chess-promo-btn svg .chess-piece-ink {
-  fill: var(--chess-p-stroke);
-  stroke: none;
-}
-.chess-piece svg .chess-piece-ink-line,
-.chess-promo-btn svg .chess-piece-ink-line {
-  fill: none;
-  stroke: var(--chess-p-stroke);
-  stroke-width: 3;
 }
 
 /* 可吃的子：棋子外面一圈**圆形**描边。
@@ -945,14 +930,8 @@ kbd {
   width: 40px;
   height: 40px;
 }
-/* 浮层里那几枚棋子跟着「当前走子方」上色 —— 升变的颜色是走子方的 */
-.chess-promo-btn svg * {
-  fill: var(--chess-p-fill);
-  stroke: var(--chess-p-stroke);
-  stroke-width: 5;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
+/* 浮层里那几枚棋子跟着「当前走子方」上色 —— 升变的颜色是走子方的。
+   （同样没有 `svg *` 那条统一规则，理由见上面「棋子」那一段的注释。） */
 .chess-promo-btn--white {
   --chess-p-fill: var(--chess-white-fill);
   --chess-p-stroke: var(--chess-white-stroke);

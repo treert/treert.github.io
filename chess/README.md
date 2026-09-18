@@ -55,6 +55,7 @@ chess/
 │   ├── engine.js             评估 + 搜索（迭代加深 αβ）                  ← 纯逻辑
 │   ├── endgames.js           残局库数据 + 查询入口（唯一需要手工维护的数据文件）
 │   ├── custom-endgames.js    FEN 校验（两档）+ 自定义局面的 localStorage  ← 纯逻辑
+│   ├── pieces.js             棋子图形（**生成物，别手改**；来源与署名见文件头）
 │   ├── solutions.js          谱载解法（**生成物，别手改**）
 │   ├── solution-book.js      解法展开与查表（键带 ply）                  ← 纯逻辑
 │   ├── share.js              分享链接的编解码（局面 ⇄ URL）              ← 纯逻辑
@@ -106,11 +107,18 @@ chess/
 - 64 格 + 32 子，DOM 性能完全够
 
 **棋子必须是 SVG**：`♔`/`♟` 这类字形在移动端会被渲染成 emoji（尺寸、颜色都不受控），
-而白棋在当前色系下会和浅格糊成一片。所以 6 种形状各写一段**简笔几何图形**
-（只用 circle / rect / path，`viewBox 0 0 100 100`），以字符串常量放在 `renderer.js`
-的 `PIECE_ART` 里 —— 没有图片文件、不引图标库、不联网。
-颜色不写在图形里：白 / 黑两个类各给一组 `--chess-p-fill` / `--chess-p-stroke`，
-由 `svg *` 统一套上去，深浅两套主题只换变量（升变浮层复用同一个 `createPieceSvg()`）。
+而白棋在当前色系下会和浅格糊成一片 —— 字形只能整体 `color`，描不了边。
+
+图形用的是 **Cburnett 棋子集**（作者 Colin M. L. Burnett）：12 个 45×45 的 SVG 抓一次、
+内联进 `js/pieces.js`（**生成物**，生成器是 `tools/gen-pieces.mjs`），
+所以网页这边仍然没有图片文件、不引图标库、不联网。
+变换只有一件事：两个色值换成 `--chess-p-fill` / `--chess-p-stroke`，
+**路径数据一个字符都没改**（生成器写盘后会读回来逐字自校验）。
+它是**黑 / 白两套路径**（细节不同，比如马的鬃毛），所以查表的键是带符号的编码；
+颜色仍由白 / 黑两个类给的那两个变量说了算，深浅主题只换变量。
+
+> 这部分图形来自外部棋子集，署名与许可写在 `js/pieces.js` 的文件头里。
+> 更早那版是手写的「简笔几何形」，能认但难看 —— 换掉的理由见 `docs/design.md` §3.3。
 
 **坐标放在棋盘外面**（棋盘留 margin，坐标行用负偏移站进去）——
 象棋在同一个地方踩过坑（数字被棋子压住），照搬那个结论。
@@ -299,6 +307,7 @@ node chess/tools/gen-solutions.mjs emit
 | `node chess/tools/selfplay.mjs [白挡位] [黑挡位] [上限]` | 自对弈冒烟：不崩、不超时、着法全合法、终局类型合理 |
 | `node chess/tools/verify-endgames.mjs` | 残局库入库闸门（含解法线逐步复核） |
 | `node chess/tools/gen-solutions.mjs <local\|stockfish\|emit\|check>` | 离线生成解法（**需要引擎的那条路要先装 Stockfish**） |
+| `node chess/tools/gen-pieces.mjs <素材目录>` | 重新生成 `js/pieces.js`（把 12 个 Cburnett 的 SVG 转成内联图形；写完会读回来逐字自校验） |
 
 改着法生成或搜索之后，除了跑对应测试，建议再跑一次自对弈。
 
