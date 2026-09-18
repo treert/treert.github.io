@@ -407,6 +407,21 @@ kbd {
   --chess-p-fill: var(--chess-black-fill);
   --chess-p-stroke: var(--chess-black-stroke);
 }
+/* 棋子上的「墨色」细节（马的眼睛、象帽子的斜缝）。它们是**反色**的笔触，
+   所以不能走上面那条 `svg *` 的统一规则，得用多一个类压过它（`.x svg *` 是 0,1,1，
+   这里是 0,2,1）。取值取 stroke 色：白棋上是深墨、黑棋上是浅墨，两套主题自动成立。
+   升变浮层那四个按钮里是同一份图形，所以选择器也要带上它那一族。 */
+.chess-piece svg .chess-piece-ink,
+.chess-promo-btn svg .chess-piece-ink {
+  fill: var(--chess-p-stroke);
+  stroke: none;
+}
+.chess-piece svg .chess-piece-ink-line,
+.chess-promo-btn svg .chess-piece-ink-line {
+  fill: none;
+  stroke: var(--chess-p-stroke);
+  stroke-width: 3;
+}
 
 /* 可吃的子：棋子外面一圈**圆形**描边。
    **不能用 outline** —— 那是矩形，套在 SVG 上会画成一个方框（象棋的紫圈就踩过这个）。
