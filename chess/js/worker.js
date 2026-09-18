@@ -9,7 +9,8 @@
  *
  * 协议（design.md §7.4）：
  *   主线程 → Worker   { type: 'search', id, fen, level }
- *   Worker → 主线程   { type: 'result', id, move: { from, to, promo } | null, ... }
+ *   Worker → 主线程   { type: 'result', id, move: { from, to, promo } | null,
+ *                       score, depth, nodes, timeMs, blundered }
  *                     { type: 'error',  id, message }
  *
  * **promo 必须回**：国象的升变是「同一个起点终点、四个不同着法」，
@@ -19,47 +20,28 @@
  *（玩家自己走的棋也要记谱），Worker 再算一遍是重复劳动，还让 Worker 多依赖一个模块。
  */
 
-import { parseFen } from './position.js';
-import { generateLegalMoves, moveFrom, moveTo, movePromo } from './rules.js';
-
-/**
- * 选一步棋。
- *
- * **当前是随机挑一步合法着法**，只为把「主线程 ↔ Worker」这条链路跑通
- *（Task 6 的验证是「能人机走完一盘」）。真正的引擎在 engine.js，
- * 由它替换掉这个函数 —— 协议与其余代码都不用动。
- */
-function pickMove(fen) {
-  const moves = generateLegalMoves(parseFen(fen));
-  if (moves.length === 0) return null;
-  const move = moves[Math.floor(Math.random() * moves.length)];
-  return { move, nodes: moves.length, depth: 1 };
-}
+import { search } from './engine.js';
 
 self.onmessage = (e) => {
   const msg = e.data;
   if (!msg || msg.type !== 'search') return;
 
-  const started = Date.now();
   try {
-    const picked = pickMove(msg.fen);
-    if (!picked) {
+    const result = search(msg.fen, msg.level);
+    if (!result) {
       // 无着法可走（局面已经终局），回一个空着法让上层按状态行处理
       self.postMessage({ type: 'result', id: msg.id, move: null });
       return;
     }
-    const move = picked.move;
     self.postMessage({
       type: 'result',
       id: msg.id,
-      move: {
-        from: moveFrom(move),
-        to: moveTo(move),
-        promo: movePromo(move),
-      },
-      nodes: picked.nodes,
-      depth: picked.depth,
-      timeMs: Date.now() - started,
+      move: { from: result.from, to: result.to, promo: result.promo },
+      score: result.score,
+      depth: result.depth,
+      nodes: result.nodes,
+      timeMs: result.timeMs,
+      blundered: result.blundered,
     });
   } catch (err) {
     self.postMessage({ type: 'error', id: msg.id, message: String((err && err.message) || err) });
