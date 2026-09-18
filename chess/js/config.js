@@ -46,8 +46,12 @@ export const PIECE_OF_FEN = {
   K, Q, R, B, N, P,
 };
 
-/** SAN 里的棋子字母。兵不写字母，所以索引 0（P）是空串 */
-export const SAN_LETTER = ['', 'N', 'B', 'R', 'Q', 'K'];
+/**
+ * SAN 里的棋子字母。**索引 = 棋子编码**（0 占位、1 = P 不写字母），
+ * 所以是 `['', '', 'N', 'B', 'R', 'Q', 'K']` —— 一共 7 项，别漏了那个空串，
+ * 否则整套记谱会整体错位一格（写成 Bf3 / Qe2 这种）。
+ */
+export const SAN_LETTER = ['', '', 'N', 'B', 'R', 'Q', 'K'];
 
 export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
