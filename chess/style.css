@@ -169,9 +169,15 @@ kbd {
 }
 
 /* === 布局 ===
-   棋盘在第 1 行第 1 列、侧栏在第 1 行第 2 列、工具栏在第 2 行第 1 列。
-   工具栏**必须**独立成一行 —— 塞回棋盘列的话第 1 行会变成「棋盘 + 工具栏」，
-   侧栏跟着变高，着法列表就伸到棋盘下沿之外了。 */
+   棋盘列在第 1 行第 1 列、侧栏在第 1 行第 2 列。工具栏在**棋盘列内部**。
+
+   工具栏的位置踩过两次坑，方向相反：
+   1. 塞进棋盘列、但不管侧栏高度 → 着法列表一长，第 1 行被侧栏撑高，
+      工具栏被顶到列表下面（棋盘和工具栏之间空一大块）；
+   2. 改成「独立成第 2 行」→ 一点没变好：第 2 行的位置仍然由第 1 行的高度决定，
+      侧栏一长，工具栏照样被顶下去。
+   所以真正的约束是「**侧栏不能比棋盘列高**」（见 .chess-panel--moves 的高度上限），
+   工具栏放在棋盘列里只是顺带保证「它永远贴着棋盘下面」。 */
 .chess-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -179,7 +185,6 @@ kbd {
   row-gap: 14px;
 }
 .chess-board-col { grid-area: 1 / 1; min-width: 0; }
-.chess-toolbar   { grid-area: 2 / 1; }
 .chess-side      { grid-area: 1 / 2; }
 
 /* 窄屏改回单列，顺序由 DOM 决定（棋盘 → 工具栏 → 侧栏） */
@@ -188,7 +193,6 @@ kbd {
     grid-template-columns: 1fr;
   }
   .chess-board-col,
-  .chess-toolbar,
   .chess-side {
     grid-area: auto;
   }
@@ -460,6 +464,9 @@ kbd {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
+  /* 与棋盘之间的间距现在得自己给：工具栏在棋盘列内部，吃不到 .chess-stage 的 row-gap。
+     值取 14px 是为了和原来那版（row-gap 给的间距）**一模一样** —— 改布局不该顺手改间距。 */
+  margin-top: 14px;
 }
 /* 复制 FEN / 复制链接 点完会把文字短暂换成「已复制」。
    给个固定最小宽度 —— 工具栏是居中对齐的，按钮一缩一放会让整排左右抖一下 */
@@ -942,10 +949,19 @@ kbd {
 
 /* === 着法列表 === */
 /* 面板吃掉侧栏剩余高度、列表再吃掉面板剩余高度 —— 两层 flex 传递之后，
-   列表的下沿就落在棋盘下沿上（侧栏与棋盘等高，见 .chess-stage 的注释） */
+   列表的下沿就落在棋盘下沿上（侧栏与棋盘等高，见 .chess-stage 的注释）。
+
+   **max-height 是这套做法的前提，不是保险丝。** flex: 1 只在「面板比棋盘列矮」时成立；
+   少了上限，着法一多侧栏就比棋盘列高，第 1 行被撑高 → 工具栏（在棋盘列里）
+   下面会空出一大块。上限本身不需要猜：棋盘列的高度是定值（棋盘 max-width 560px
+   + 状态行 + 工具栏 ≈ 680px），侧栏 = 对局面板（≈150px）+ 间距 + 着法面板，
+   所以着法面板最多 ≈ 490px。超出的部分由 .chess-move-list 自己滚
+   （main.js 的 scrollCurrentIntoView 也只在「列表会滚」的前提下才有意义）。
+   min(…, 52vh) 那一层是给矮窗口的：窗口只有 600px 高时不该还给列表 490px。 */
 .chess-panel--moves {
   flex: 1;
   min-height: 0;
+  max-height: min(52vh, 490px);
   display: flex;
   flex-direction: column;
 }
