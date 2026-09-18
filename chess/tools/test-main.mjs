@@ -61,7 +61,15 @@ class El {
   set className(v) { this._classes = new Set(String(v).split(/\s+/).filter(Boolean)); }
   get className() { return [...this._classes].join(' '); }
 
-  set textContent(v) { this.children = []; this._text = String(v ?? ''); }
+  // 忠实还原真实 DOM 的语义：`textContent = 'x'` 是「子节点换成一个**文本节点**」，
+  // `= ''` 才是「清空子节点」。早先的实现只记在 _text 里、顺手把 children 清空，
+  // 于是「先写文字、再 appendChild 一个徽标」会把文字丢掉 ——
+  // 而页签名 + 徽标在浏览器里就是并列的两个子节点（renderTabs 正是这么建的）。
+  set textContent(v) {
+    const s = String(v ?? '');
+    this._text = s;
+    this.children = s ? [textNode(s)] : [];
+  }
   get textContent() {
     return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text;
   }
@@ -124,17 +132,20 @@ class El {
   getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0 }; }
 }
 
+/** 造一个文本节点（`textContent` 的 setter 与 document.createTextNode 共用） */
+function textNode(text) {
+  const e = new El('#text');
+  e._text = String(text ?? '');
+  return e;
+}
+
 const byId = new Map();
 const winHandlers = {};
 
 globalThis.document = {
   createElement: (tag) => new El(tag),
   createElementNS: (_ns, tag) => new El(tag),
-  createTextNode: (text) => {
-    const e = new El('#text');
-    e.textContent = text;
-    return e;
-  },
+  createTextNode: (text) => textNode(text),
   getElementById: (id) => {
     if (!byId.has(id)) {
       const e = new El('div');
@@ -152,10 +163,25 @@ globalThis.window = {
     for (const fn of winHandlers[type] || []) fn({ type, preventDefault() {}, ...event });
   },
   matchMedia: () => ({ matches: false }),
+  localStorage: fakeStorage(),
+  confirm: () => true,   // 删除自定义局面的确认框：测试里一律点「确定」
 };
 
 // transitionDuration 是 renderer 唯一读的样式
 globalThis.getComputedStyle = () => ({ transitionDuration: '0.18s' });
+
+/** 假 localStorage：存档与自定义局面都走它（测试不需要真的浏览器存储） */
+function fakeStorage() {
+  const map = new Map();
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { map.set(k, String(v)); },
+    removeItem: (k) => { map.delete(k); },
+    clear: () => map.clear(),
+    key: (i) => [...map.keys()][i] ?? null,
+    get length() { return map.size; },
+  };
+}
 
 // 剪贴板与地址栏：复制那几个按钮要读它们（Node 里的 navigator 是只读的 getter，得定义属性）
 let clipboard = '';
@@ -164,10 +190,10 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   writable: true,
 });
-// 地址栏里**故意带一段用不了的 FEN**：share 那条路要能优雅降级
-//（Task 11 会把这里换成一段可用的局面，那时才有点击「退出残局」回标准开局的入口）。
+// 地址栏里带一段**分享局面**：启动时应当直接摆出它（分享优先于存档）
+const SHARED_FEN = '4k3/8/8/8/8/8/8/3QK3 w - - 0 1';
 Object.defineProperty(globalThis, 'location', {
-  value: { href: `https://example.com/chess/?fen=${encodeURIComponent('你好世界')}`, pathname: '/chess/' },
+  value: { href: `https://example.com/chess/?fen=${encodeURIComponent(SHARED_FEN)}`, pathname: '/chess/' },
   configurable: true,
   writable: true,
 });
@@ -221,6 +247,9 @@ const statusText = () => btn('status-text').textContent;
 const moveListText = () => btn('move-list').textContent;
 const cellOf = (coord) => board().children.find((c) => c.dataset.coord === coord);
 const clickCell = (coord) => board().fire('click', { target: cellOf(coord) });
+// 页签上的条数徽标：页签名是一个文本节点、徽标是它的**兄弟**，
+// 所以只能按 class 找，不能拿 children[0]（那读到的是名字）
+const badgeOf = (tab) => tab.querySelector('.chess-tab-count').textContent;
 const piecesOnBoard = () => board().children.filter((c) => c.classList.contains('chess-piece'));
 const arrowKeys = (key, extra = {}) => globalThis.window.fire('keydown', {
   key, target: new El('body'), ctrlKey: false, ...extra,
@@ -254,18 +283,23 @@ console.log('装配层端到端测试\n');
 await load('worker.js');
 await load('main.js');
 
-// --- 分享链接（坏参数）---
-console.log('=== 分享链接（坏参数也要能用）===');
+// --- 分享链接 ---
+console.log('=== 分享链接（打开就是那个局面）===');
 {
-  check('坏链接：状态行第一句就是原因', statusText().includes('解析失败'), true);
-  check('坏链接：地址栏里的参数立刻被抹掉（否则刷新会一直被拽回去）', replacedWith, '/chess/');
-  check('坏链接：仍然从标准开局开始（32 枚棋子）', piecesOnBoard().length, 32);
-  check('坏链接：不影响标题行的局面名', btn('btn-open-picker').textContent, '局面库·标准开局');
+  check('地址栏里的参数立刻被抹掉（否则刷新会一直被拽回去）', replacedWith, '/chess/');
+  check('摆出来的就是链接里的局面', piecesOnBoard().length, 3);
+  check('d1 上是白后', pieceOn('d1').dataset.piece, '5');
+  check('状态行说轮到白方（你）', statusText(), '轮到白方（你）');
+  check('标题行标出这是临时局面', btn('btn-open-picker').textContent, '局面库·临时局面');
+  check('棋盘上方给出说明', btn('endgame-goal').textContent, '临时局面 · 已走 0 步');
+  check('「退出残局」按钮这时候是可见的', btn('btn-exit-endgame').hidden, false);
 
-  // 那只是一句提示，下一次刷新就会被覆盖 —— 这是有意的（提示不该赖在状态行上）
-  clickCell('a2');
-  arrowKeys('Escape');
-  check('下一次刷新之后状态行恢复正常', statusText(), '轮到白方（你）');
+  // 从分享来的局面能退回标准开局（否则用户会卡在一个不知道从哪来的局面上）
+  btn('btn-exit-endgame').fire('click');
+  check('退回标准开局：32 枚棋子', piecesOnBoard().length, 32);
+  check('标题行变回标准开局', btn('btn-open-picker').textContent, '局面库·标准开局');
+  check('那一行说明收起来了', btn('endgame-goal').hidden, true);
+  check('「退出残局」按钮也收起来', btn('btn-exit-endgame').hidden, true);
 }
 
 // --- 初始装配 ---
@@ -515,6 +549,164 @@ console.log('\n=== 复制 ===');
   check('复制链接：是绝对地址', clipboard.startsWith('https://example.com/chess/'), true);
   check('复制链接：带上了 fen 参数', clipboard.includes('?fen='), true);
   check('复制链接：链接里没有裸空格', clipboard.includes(' '), false);
+}
+
+// --- 局面库 ---
+console.log('\n=== 局面库（页签 / 列表 / 载入）===');
+{
+  btn('btn-open-picker').fire('click');
+  check('弹窗打开了', btn('picker').open, true);
+
+  const tabs = btn('endgame-tabs').children;
+  check('页签名称', tabs.map((t) => t.textContent.replace(/\d+$/, '')),
+    ['基础杀法', '兵类残局', '车兵类', '战术题', '自定义']);
+  check('页签徽标是各页条数', tabs.map(badgeOf), ['9', '6', '5', '5', '0']);
+  check('默认停在第一页', tabs[0].getAttribute('aria-selected'), 'true');
+
+  const rowOf = (name) => btn('endgame-list').children.find((r) => r.textContent.includes(name));
+  // 数行**必须认 class**：列表空着时 endgame-list 里放的是一条 <p> 空态提示，
+  // 拿 children.length 当行数会把那条也算进去（踩过：0 命中读成「1 行」）
+  const rows = () => btn('endgame-list').children.filter((r) => r.classList.contains('chess-endgame-row'));
+  const badges = () => btn('endgame-tabs').children.map(badgeOf);
+  const search = (word) => {
+    btn('endgame-search').value = word;
+    btn('endgame-search').fire('input');
+  };
+
+  check('第一页列出 9 行', rows().length, 9);
+  check('行里带结论与难度', rowOf('后对单王').textContent.includes('先手胜·难度1'), true);
+
+  // 过滤只在当前页签内生效。第一页（基础杀法）一条「兵」都没有，
+  // 所以这里要验的正是「没命中时怎么说」，跨页签的线索则交给徽标
+  search('兵');
+  check('当前页没命中 → 一行都没有', rows().length, 0);
+  check('空态里说清是过滤词没命中', btn('endgame-list').textContent.includes('没有匹配「兵」'), true);
+  check('空态里指出去哪一页找', btn('endgame-list').textContent.includes('兵类残局 6 条'), true);
+  check('徽标跟着变成各页命中数', badges(), ['0', '6', '2', '0', '0']);
+
+  // 带着过滤词切页签：过滤词还活着，这一页 6 条全中
+  tabs[1].fire('click');
+  check('切页签后过滤词仍然生效', rows().length, 6);
+
+  // 换个词：'车' 在四页里各有命中（第 3 页最多）
+  search('车');
+  check('过滤之后只剩匹配的行', rows().length, 1);
+  check('别的页签的命中数也看得见', badges(), ['2', '1', '5', '2', '0']);
+
+  // 清空 → 回到「当前页签的完整列表」
+  btn('btn-clear-search').fire('click');
+  check('清空过滤词之后恢复 6 行', rows().length, 6);
+  check('清空之后徽标回到各页条数', badges(), ['9', '6', '5', '5', '0']);
+
+  // 后面几步依赖「第一页」与「战术题」，先切回去
+  tabs[0].fire('click');
+  check('切回第一页又是 9 行', rows().length, 9);
+
+  // 切页签
+  tabs[3].fire('click');
+  check('切到战术题', tabs[3].getAttribute('aria-selected'), 'true');
+  check('战术题列出 5 行', btn('endgame-list').children.length, 5);
+
+  // 载入一局
+  rowOf('底线一步杀（车）').children[0].fire('click');
+  check('载入之后弹窗自动关上', btn('picker').open, false);
+  check('局面换成了那一局（6 枚棋子）', piecesOnBoard().length, 6);
+  check('标题行显示局名', btn('btn-open-picker').textContent, '局面库·底线一步杀（车）');
+  check('棋盘上方标出「有解法」', btn('endgame-goal').textContent.includes('有解法（1 步杀）'), true);
+  check('轮到白方（你）', statusText(), '轮到白方（你）');
+
+  // 谱载解法：提示一点就出，不用等引擎
+  btn('btn-hint').fire('click');
+  check('谱载提示不需要派发搜索（没有「思考中」）', btn('thinking').hidden, true);
+  check('状态行标明这是谱载解法', statusText().includes('谱载解法'), true);
+  check('提示画在棋盘上', piecesOnBoard().some((c) => c.classList.contains('chess-piece--hint')), true);
+
+  // 按谱走完（a1a8 是一步杀）
+  clickCell('a1');
+  clickCell('a8');
+  check('一步杀之后对局结束', statusText().startsWith('将死'), true);
+  check('胜方是白方', statusText().includes('白方胜'), true);
+}
+
+// --- 退出残局 ---
+console.log('\n=== 退出残局 / 临时局面 ===');
+{
+  btn('btn-exit-endgame').fire('click');
+  check('回到标准开局', piecesOnBoard().length, 32);
+  check('标题行变回标准开局', btn('btn-open-picker').textContent, '局面库·标准开局');
+}
+
+// --- 保存 / 导入 ---
+console.log('\n=== 保存 / 导入局面 ===');
+{
+  btn('btn-open-io').fire('click');
+  check('弹窗打开', btn('io-dialog').open, true);
+  check('FEN 框里已经是当前局面（六段）', btn('fen-input').value.split(' ').length, 6);
+  check('「载入到棋盘」这时候是灰的（框里就是当前局面）', btn('btn-load-fen').disabled, true);
+
+  // 存一段坏 FEN：必须给出原因，而且不关弹窗
+  btn('fen-input').value = '垃圾数据';
+  btn('btn-import-fen').fire('click');
+  check('坏 FEN 被拒并说明原因', btn('io-msg').textContent.includes('解析失败'), true);
+  check('弹窗没有关掉', btn('io-dialog').open, true);
+
+  // 重开一次弹窗再存。**importFen 只在成功时才清空 FEN 框**，
+  // 上面那段坏数据还留在框里 —— 不重开就等于拿它去存。
+  // 顺带验「打开时框里就是当前局面」这条在重开之后依然成立
+  btn('btn-close-io').fire('click');
+  btn('btn-open-io').fire('click');
+  check('重开之后框里又是当前局面', btn('fen-input').value.split(' ').length, 6);
+  check('重开之后旧的报错不再挂着', btn('io-msg').textContent, '');
+  check('重开之后「载入到棋盘」又是灰的', btn('btn-load-fen').disabled, true);
+
+  // 存当前局面为自定义（框里就是当前局面，不动它）
+  btn('custom-name').value = '我的测试局面';
+  btn('btn-import-fen').fire('click');
+  check('存成功之后给出「去哪找」', btn('io-msg').textContent.includes('自定义'), true);
+  check('存成功之后把 FEN 框清空', btn('fen-input').value, '');
+
+  // 再存一次同一个局面 → 去重，并且把「原来叫什么」告诉用户
+  btn('fen-input').value = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  btn('custom-name').value = '重复的';
+  btn('btn-import-fen').fire('click');
+  check('同一个局面存两遍会被去重', btn('io-msg').textContent.includes('已经存过'), true);
+  check('去重时说出它原来叫什么', btn('io-msg').textContent.includes('我的测试局面'), true);
+
+  // 载入一段别处的 FEN（只要能成立就摆上去，不进库）
+  btn('fen-input').value = '8/8/8/4k3/4P3/8/8/7K w - - 0 1';
+  btn('btn-load-fen').fire('click');
+  check('载入到棋盘之后弹窗关上', btn('io-dialog').open, false);
+  check('摆上的是那段 FEN（3 枚棋子）', piecesOnBoard().length, 3);
+  check('标题行说这是临时局面', btn('btn-open-picker').textContent, '局面库·临时局面');
+}
+
+// --- 自定义局面：改名与删除 ---
+console.log('\n=== 自定义局面（改名 / 删除）===');
+{
+  btn('btn-open-picker').fire('click');
+  const tabs = btn('endgame-tabs').children;
+  check('打开时自动切到「自定义」页签（刚才存过东西）', tabs[4].getAttribute('aria-selected'), 'true');
+  check('自定义页签徽标为 1', badgeOf(tabs[4]), '1');
+
+  const row = btn('endgame-list').children.find((r) => r.textContent.includes('我的测试局面'));
+  check('列表里有那一条', !!row, true);
+  check('自定义局面显示「自定义」而不是结论', row.textContent.includes('自定义'), true);
+  check('行尾有两个按钮（改名的 ✎ 与删除的 ✕）', row.children.length, 3);
+
+  row.children[1].fire('click');
+  check('改名弹窗打开', btn('rename-dialog').open, true);
+  check('预填了旧名字', btn('rename-input').value, '我的测试局面');
+  btn('rename-input').value = '改过名字的局面';
+  btn('btn-do-rename').fire('click');
+  check('改名弹窗关上', btn('rename-dialog').open, false);
+  check('列表上已经是新名字',
+    btn('endgame-list').children.some((r) => r.textContent.includes('改过名字的局面')), true);
+
+  const renamed = btn('endgame-list').children.find((r) => r.textContent.includes('改过名字的局面'));
+  renamed.children[2].fire('click');
+  check('删除之后列表空了（只剩空态提示）', btn('endgame-list').textContent.includes('还没有存过局面'), true);
+  check('徽标回到 0', badgeOf(btn('endgame-tabs').children[4]), '0');
+  btn('btn-close-picker').fire('click');
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

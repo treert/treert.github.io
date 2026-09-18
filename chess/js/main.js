@@ -16,6 +16,13 @@ import { attachInteraction } from './interaction.js';
 import { PIECE_NAMES } from './notation.js';
 import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { shareUrl, readShareFen } from './share.js';
+import { endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
+import {
+  loadCustom, addCustom, renameCustom, removeCustom,
+  validateFreeFen, CUSTOM_CATEGORY,
+} from './custom-endgames.js';
+import { solutionOf } from './solutions.js';
+import { buildBook, bookMove } from './solution-book.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -72,6 +79,7 @@ const app = {
   game: G.createGame(),
   renderer: null,
   worker: null,
+  storage: defaultStorage(),
   searchId: 0,        // 递增的请求 id，用来丢弃过期响应
   pending: null,      // 'ai' | 'hint' —— 当前在飞的那条请求是干什么的
   busy: false,
@@ -191,6 +199,8 @@ function updateChrome() {
       : `（${side === app.game.playerSide ? '你' : 'AI'}）`;
     parts = ['轮到', { side }, tail];
     if (app.busy && app.pending === 'ai') parts = ['轮到', { side }, ' · AI 思考中'];
+    // 提示来自棋谱而不是引擎时标出来 —— 两者可信度不同，用户要能分清
+    if (app.hint && app.hintFromBook) parts.push(' · 谱载解法');
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
       const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
@@ -208,8 +218,13 @@ function updateChrome() {
   const showStart = !!(eg || free);
   dom.endgameGoal.hidden = !showStart;
   if (eg) {
+    // 自定义局面没有结论，不要编一个出来
     const label = eg.result ? `谱载${RESULTS_TEXT[eg.result] || ''}` : '自定义局面';
-    dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步`;
+    // 有解法的局把「几步杀」也说清楚 —— 这是这一局最有用的一条信息，
+    // 也解释了为什么「提示」会一点就出（它不需要等引擎）
+    const sol = solutionOf(eg.id);
+    const tail = sol ? ` · 有解法（${sol.mate} 步杀）` : '';
+    dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步${tail}`;
   } else if (free) {
     dom.endgameGoal.textContent = `临时局面 · 已走 ${app.game.cursor} 步`;
   }
@@ -526,6 +541,35 @@ function choosePromotion(piece) {
   applyMove(encodeMove(pending.from, pending.to, piece), true);
 }
 
+// === 谱载解法（js/solutions.js + solution-book.js）===
+//
+// 残局库里有解法的那些局带一条**已证明的杀线**（离线生成、再用本模块规则层校验过）。
+// 界面拿它做两件事：「提示」优先给谱载着法；**轮到 AI 时也按谱应着**
+// —— 后者不是可选项：玩家刚按谱走一步、对手就走到谱外去了，那条线根本走不完。
+//
+// 走岔了（或这一局没有解法）就回退到引擎搜索。
+// 匹配规则见 solution-book.js：**必须带上「已经走到第几手」，不能只用局面**，
+// 因为杀线里重复局面是常态（同一局面要走向不同的着法）。
+let bookKey = '';
+let book = null;
+
+/** 当前这一局的谱表。按「局 id + 起始局面」缓存，换局才重建 */
+function currentBook() {
+  const g = app.game;
+  const key = `${g.endgameId || ''}@${g.initialFen}`;
+  if (key !== bookKey) {
+    bookKey = key;
+    const sol = g.endgameId ? solutionOf(g.endgameId) : null;
+    book = sol ? buildBook(g.initialFen, sol.pv) : null;
+  }
+  return book;
+}
+
+/** 眼下这个局面谱上写的是哪一步；0 = 不在谱上（走岔了，或这局没有解法） */
+function bookMoveNow() {
+  return bookMove(currentBook(), G.currentFen(app.game), app.game.cursor);
+}
+
 // === Worker ===
 
 /**
@@ -554,6 +598,14 @@ function requestAiMove() {
       dom.thinking.hidden = true;
       requestAiMove(); // 递归一层：里面会把上面的前置条件重判一遍
     });
+    return;
+  }
+
+  // 谱上优先：这一步按谱走。同步落子、没有搜索等待，所以不进 busy 状态
+  // （状态行也就不会闪一下「AI 思考中」）。
+  const fromBook = bookMoveNow();
+  if (fromBook) {
+    applyMove(fromBook, true);
     return;
   }
 
@@ -610,6 +662,17 @@ function onWorkerMessage(e) {
 function requestHint() {
   if (!app.canAct()) return;
 
+  // 谱上优先：直接给谱载着法，不必派发搜索 —— 也省掉最长 1.5 秒的等待。
+  // 状态行会标明「谱载解法」，用户要能分清这是棋谱上的正解、还是引擎的建议。
+  const fromBook = bookMoveNow();
+  if (fromBook) {
+    app.hint = fromBook;
+    app.hintFromBook = true;
+    refresh();
+    return;
+  }
+
+  app.hintFromBook = false;
   app.busy = true;
   app.pending = 'hint';
   dom.thinking.hidden = false;
@@ -658,15 +721,14 @@ const setIoMsg = (text, isError = false) => setMsg(dom.ioMsg, text, isError);
  *（本模块本来也不推荐 file://，但分享链接这类操作很容易在那时候撞上）。
  * 那个框本来是用来粘贴导入的，这里借它当缓冲区 —— 少见路径，不值得为它单独做界面。
  *
- * **顺序不能反**：先填值再开弹窗。Task 11 的 openIo 会把 FEN 框预填成当前局面，
- * 所以它那边必须先 openIo 再填值 —— 两条路径的填值时机是相反的，别合并。
+ * **顺序不能反**：openIo 会把 FEN 框预填成当前局面，所以必须先开弹窗、再覆盖填值
+ * （反过来会被它盖掉）。这也是 `openRename` 与 openIo 的差别所在。
  */
 function clipboardFallback(text, label) {
+  openIo();
   dom.fenInput.value = text;
-  if (!dom.ioDialog.open) dom.ioDialog.showModal();
-  setIoMsg(`剪贴板不可用，${label}已填在下面的框里，手动复制即可`);
-  dom.fenInput.focus();
   dom.fenInput.select(); // 顺手全选：Ctrl+C 一步就能拿走
+  setIoMsg(`剪贴板不可用，${label}已填在下面的框里，手动复制即可`);
 }
 
 /** 把当前局面的 FEN 复制到剪贴板。入口在棋盘下方的工具栏 */
@@ -731,6 +793,532 @@ async function copyMoves() {
   } catch {
     clipboardFallback(text, '着法');
   }
+}
+
+// === 局面库（残局 + 自定义局面）===
+//
+// 两个弹窗，职责分开：
+//   局面库（picker）   只管「挑」—— 页签 + 列表 + 退出残局
+//   保存 / 导入（io）  只管「FEN 框里那个局面放哪儿」—— 收进局面库 / 直接载入棋盘
+
+// 当前页签。没有「全部」这一页 —— 页签名与列表内容都来自 endgames.js 的页签表
+let endgameFilter = endgameTabs()[0].id;
+
+// 列表的过滤词。raw 原样留着（回显与空态文案要原话），words 是切好、转小写的关键词。
+// **过滤只在当前页签内生效**，不跨页签搜；跨页签的线索交给页签徽标
+//（有过滤词时徽标显示各页的命中数）。过滤词不跨「打开弹窗」这个动作活着。
+let endgameQuery = { raw: '', words: [] };
+
+// 自定义局面在内存里的副本。它是 endgames.js 注册表的来源 ——
+// 每次增删后重新读一遍 localStorage 并重新注册，其它地方就完全不需要知道有「自定义」这回事。
+let customList = [];
+
+// 上次渲染列表用的签名（当前选中哪一局 + 自定义有几条 + 哪个页签 + 过滤词），
+// 避免每次 refresh 都重建几百个按钮、把用户滚动的位置冲掉
+let renderedListKey = '\u0000';
+
+function refreshCustom() {
+  customList = loadCustom(app.storage);
+  setCustomEndgames(customList);
+}
+
+const tabOf = (id) => endgameTabs().find((t) => t.id === id);
+
+/** 一局的名字是否命中当前过滤词（空白分隔的多个词是「与」） */
+function matchesQuery(name) {
+  const n = name.toLowerCase();
+  return endgameQuery.words.every((w) => n.includes(w));
+}
+
+const matchCount = (tab) => tab.entries.filter((e) => matchesQuery(e.name)).length;
+
+/** 每个页签有几条 —— 徽标用。**有过滤词时显示的是「这一页命中几条」** */
+function countByCategory() {
+  const counts = {};
+  for (const tab of endgameTabs()) counts[tab.id] = matchCount(tab);
+  return counts;
+}
+
+/**
+ * 清掉过滤词。
+ *
+ * `rebuild = false` 是给 closePicker 用的：那条路径上清完就要关弹窗，
+ * 再重建一次列表纯属白费。
+ */
+function clearQuery(rebuild = true) {
+  endgameQuery = { raw: '', words: [] };
+  dom.endgameSearch.value = '';
+  dom.btnClearSearch.hidden = true;
+  if (!rebuild) return;
+  syncTabs();
+  syncEndgameList();
+}
+
+function setQuery(raw) {
+  if (raw === endgameQuery.raw) return;
+  endgameQuery = { raw, words: raw.trim().toLowerCase().split(/\s+/).filter(Boolean) };
+  dom.btnClearSearch.hidden = endgameQuery.words.length === 0;
+  syncTabs();
+  syncEndgameList();
+}
+
+/** 建页签。只在初始化时调一次，之后靠 syncTabs 更新选中态和条数 */
+function renderTabs() {
+  dom.tabs.textContent = '';
+  for (const { id, label } of endgameTabs()) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'chess-tab';
+    tab.dataset.filter = id;
+    tab.setAttribute('role', 'tab');
+    tab.textContent = label;
+
+    const count = document.createElement('span');
+    count.className = 'chess-tab-count';
+    tab.appendChild(count);
+
+    tab.addEventListener('click', () => setFilter(id));
+    dom.tabs.appendChild(tab);
+  }
+  syncTabs();
+}
+
+/**
+ * 更新页签的选中态与条数。
+ *
+ * 用 **roving tabindex**（只有选中的那个 `tabIndex = 0`）—— ARIA tabs 的标准做法：
+ * Tab 键整组跳过，组内用左右方向键切换（见 bindTabs）。
+ */
+function syncTabs() {
+  const counts = countByCategory();
+  for (const tab of dom.tabs.children) {
+    const key = tab.dataset.filter;
+    const on = key === endgameFilter;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+    const badge = tab.querySelector('.chess-tab-count');
+    if (badge) badge.textContent = String(counts[key] || 0);
+  }
+}
+
+function setFilter(key) {
+  if (endgameFilter === key) return;
+  endgameFilter = key;
+  syncTabs();
+  syncEndgameList();
+}
+
+function bindTabs() {
+  dom.tabs.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const tabs = [...dom.tabs.children];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const next = tabs[(i + step + tabs.length) % tabs.length];
+    next.focus();
+    setFilter(next.dataset.filter);
+  });
+}
+
+const endgameMeta = (eg) => (eg.custom ? '自定义' : `${RESULTS_TEXT[eg.result]}·难度${eg.difficulty}`);
+
+function endgameTooltip(eg) {
+  if (eg.custom) {
+    return `${eg.name}（自定义局面）\n没有结论 —— 程序无从知道你存这个局面时的胜负`;
+  }
+  const sol = solutionOf(eg.id);
+  return `${eg.name}（谱载${RESULTS_TEXT[eg.result]}${sol ? `，${sol.mate} 步杀` : ''}）`
+    + `\n出处：${eg.source}${eg.note ? `\n${eg.note}` : ''}`;
+}
+
+/**
+ * 列表空着时说什么。两种情况必须分开讲，否则「搜了半天一条都没有」会被当成坏了：
+ *   这一页本来就是空的 → 用页签自己的 empty 文案
+ *   这一页有东西、只是没命中过滤词 → 说清是过滤词没命中，并指出去哪一页找
+ */
+function emptyListText(tab, total) {
+  if (total === 0) return (tab && tab.empty) || '这个分类下还没有局面。';
+
+  const others = endgameTabs()
+    .filter((t) => t.id !== endgameFilter)
+    .map((t) => ({ label: t.label, n: matchCount(t) }))
+    .filter((t) => t.n > 0);
+
+  const tail = others.length
+    ? `（${others.map((t) => `${t.label} ${t.n} 条`).join('、')}，点上面的页签切过去）`
+    : '换个词试试，或者点右边「✕」清空。';
+  return `这一页没有匹配「${endgameQuery.raw}」的局面。${tail}`;
+}
+
+function renderEndgameList() {
+  dom.endgameList.textContent = '';
+
+  // 先按页签取数据（它顺带补上 category），再按过滤词筛
+  const all = endgamesByCategory(endgameFilter);
+  const list = endgameQuery.words.length ? all.filter((eg) => matchesQuery(eg.name)) : all;
+
+  if (list.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'chess-empty';
+    p.textContent = emptyListText(tabOf(endgameFilter), all.length);
+    dom.endgameList.appendChild(p);
+    return;
+  }
+
+  for (const eg of list) {
+    const row = document.createElement('div');
+    row.className = 'chess-endgame-row';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chess-endgame';
+    if (app.game.endgameId === eg.id) btn.classList.add('chess-endgame--current');
+
+    const name = document.createElement('span');
+    name.className = 'chess-endgame-name';
+    name.textContent = eg.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'chess-endgame-meta';
+    meta.textContent = endgameMeta(eg);
+
+    btn.append(name, meta);
+    btn.title = endgameTooltip(eg);
+    // 记下 id：改完名字列表要整块重建，靠它才能在重建之后把焦点找回来（见 doRename）
+    btn.dataset.egId = eg.id;
+    btn.addEventListener('click', () => loadEndgame(eg.id));
+    row.appendChild(btn);
+
+    // 只有自定义局面能改名 / 删 —— 静态残局库是代码里的数据，改了删了下次刷新又回来。
+    // 顺序是先 ✎ 后 ✕：破坏性的那个永远放最右边
+    if (eg.custom) {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'chess-endgame-edit';
+      edit.textContent = '✎';
+      edit.title = `给「${eg.name}」改个名字`;
+      edit.setAttribute('aria-label', `重命名 ${eg.name}`);
+      edit.addEventListener('click', () => openRename(eg));
+      row.appendChild(edit);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'chess-endgame-del';
+      del.textContent = '✕';
+      del.title = `删除「${eg.name}」`;
+      del.setAttribute('aria-label', `删除 ${eg.name}`);
+      del.addEventListener('click', () => deleteCustom(eg));
+      row.appendChild(del);
+    }
+
+    dom.endgameList.appendChild(row);
+  }
+}
+
+/** 列表内容取决于四件事：选中的是哪一局、自定义有几条、当前在哪个页签、过滤词是什么 */
+const listKey = () => `${app.game.endgameId || ''}:${customList.length}:${endgameFilter}:${endgameQuery.raw}`;
+
+function syncEndgameList() {
+  const key = listKey();
+  if (key === renderedListKey) return;
+  renderedListKey = key;
+  renderEndgameList();
+}
+
+/** 切到某一局残局（列表里点一行） */
+function loadEndgame(id) {
+  if (app.busy) return;
+  app.searchId++; // 作废在飞的响应
+  if (!G.startEndgame(app.game, id)) return;
+  clearSelection();
+  app.hint = 0;
+  refresh();
+  saveSoon(app.game);
+  closePicker();
+  requestAiMove(); // 残局都是白先，玩家执黑时 AI 先走
+}
+
+function deleteCustom(eg) {
+  if (!window.confirm(`删除自定义局面「${eg.name}」？`)) return;
+
+  removeCustom(app.storage, eg.id);
+  refreshCustom();
+
+  if (app.game.endgameId === eg.id) {
+    // 删掉的正是当前这一局 —— 不退回标准开局的话，
+    // 会停在一个查不到元信息的局面上（标题行、目标提示都会变空）
+    app.searchId++;
+    G.exitEndgame(app.game);
+    clearSelection();
+    app.hint = 0;
+    refresh();
+    saveSoon(app.game);
+  } else {
+    renderedListKey = '\u0000';
+    syncTabs();
+    syncEndgameList();
+    renderPickerButton();
+  }
+}
+
+// === 给自定义局面改名 ===
+
+/** 正在改名的那一条的 id。弹窗关掉就清空 */
+let renameTarget = null;
+
+/**
+ * 打开重命名弹窗。
+ *
+ * `eg` 是**列表里那一份**（副本），只拿来预填和显示旧名字。真正落盘时靠 id 重新在库里找
+ * —— 这份副本在弹窗开着的时候可能已经过期，所以 renameCustom 找不到 id 时返回失败而不是抛错。
+ */
+function openRename(eg) {
+  renameTarget = eg.id;
+  setMsg(dom.renameMsg, '');
+  dom.renameHint.textContent = `只改名字，局面本身不动。原名：「${eg.name}」。`;
+  dom.renameInput.value = eg.name;
+  if (!dom.renameDialog.open) dom.renameDialog.showModal();
+  dom.renameInput.focus();
+  dom.renameInput.select(); // 选中整个旧名字：想全换掉就直接打，不用先 Ctrl+A
+}
+
+function closeRename() {
+  if (dom.renameDialog.open) dom.renameDialog.close();
+  renameTarget = null;
+}
+
+function doRename() {
+  if (!renameTarget) return;
+  const id = renameTarget; // closeRename 会把它清掉，先留住
+
+  const r = renameCustom(app.storage, id, dom.renameInput.value);
+  if (!r.ok) {
+    setMsg(dom.renameMsg, r.reason, true);
+    return;
+  }
+
+  refreshCustom();
+
+  // **必须强制重建。** listKey() 只看「选中哪一局 / 自定义几条 / 哪个页签 / 过滤词」，
+  // 改名这四个一个都没动 —— 不强制的话 syncEndgameList 直接 return，列表上还挂着旧名字
+  renderedListKey = '\u0000';
+  syncTabs();
+  syncEndgameList();
+  // 用 updateChrome 而不是 renderPickerButton：**名字显示在三个地方** ——
+  // 列表、标题行、还有棋盘上方那行目标。只更新标题行的话目标行会一直挂着旧名字。
+  updateChrome();
+  closeRename();
+
+  // 重建把刚才那个 ✎ 连 DOM 一起换掉了。原生 dialog 关闭时想把焦点还给它，
+  // 找不到人就只能落到 <body> —— 键盘用户会被丢回弹窗开头。所以自己接上。
+  const row = dom.endgameList.querySelector(`[data-eg-id="${id}"]`);
+  if (row) row.focus();
+}
+
+function bindRename() {
+  dom.btnCloseRename.addEventListener('click', closeRename);
+  dom.btnDoRename.addEventListener('click', doRename);
+  dom.renameDialog.addEventListener('click', (e) => {
+    if (e.target === dom.renameDialog) closeRename(); // 点遮罩关闭
+  });
+  dom.renameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); doRename(); }
+  });
+}
+
+// === 弹窗的开关 ===
+
+function openPicker() {
+  // 正在某一局里 → 页签先切到它所在的那一页。没有「全部」页签之后，
+  // 不切的话「高亮的那一行」会藏在别的页签里，一眼看不出自己在哪
+  const eg = G.endgameOf(app.game);
+  if (eg && tabOf(eg.category)) endgameFilter = eg.category;
+
+  // 强制重建：自定义局面可能刚在「保存 / 导入」那边加过或删过
+  renderedListKey = '\u0000';
+  syncTabs();
+  syncEndgameList();
+  if (!dom.picker.open) dom.picker.showModal();
+}
+
+function closePicker() {
+  if (!dom.picker.open) return;
+  // 过滤词不跨「打开弹窗」这个动作活着：下次打开局面库应该看到完整的一页。
+  // 只清状态、**不重建列表**：openPicker 反正会强制重建
+  clearQuery(false);
+  renderedListKey = '\u0000';
+  dom.picker.close();
+}
+
+/**
+ * FEN 框里那个局面是不是**就是当前局面** —— 是的话「载入到棋盘」等于什么都没做，置灰。
+ *
+ * 比较用**规范化之后**的 FEN（`validateFreeFen` 顺带做了）：从别处复制来的 FEN
+ * 尾部那几个字段可能写成 `w - - 12 34`，直接比字符串会判成「不一样」。
+ *
+ * **解析不了的 FEN 不禁用** —— 那时候点一下会给出「哪里不合法」，
+ * 禁掉的话按钮就是个不会说话的坏按钮，用户不知道哪儿错了。
+ */
+function syncLoadFenBtn() {
+  const v = validateFreeFen(dom.fenInput.value);
+  const same = v.ok && v.fen === G.currentFen(app.game);
+  dom.btnLoadFen.disabled = same;
+  dom.btnLoadFen.title = same ? '框里就是当前局面，不用载入' : '';
+}
+
+function openIo() {
+  setIoMsg('');
+  dom.customName.value = '';
+  // **打开时 FEN 框里就是当前局面。** 于是「存当前这盘棋」和「存别处的局面」变成同一件事
+  dom.fenInput.value = G.currentFen(app.game);
+  syncLoadFenBtn(); // 刚填进去的，所以「载入到棋盘」这时候是灰的
+  if (!dom.ioDialog.open) dom.ioDialog.showModal();
+  // 聚焦 + **全选**：下一步多半是粘一段自己的 FEN 覆盖掉，全选之后 Ctrl+V 一步就完成
+  dom.fenInput.focus();
+  dom.fenInput.select();
+}
+
+function closeIo() {
+  if (dom.ioDialog.open) dom.ioDialog.close();
+}
+
+/**
+ * 存 / 导入成功后的统一收尾。
+ *
+ * 现在**看不到列表变化了**（列表在另一个弹窗里，此刻没开），所以把页签预先切到
+ * 「自定义」—— 用户下一步多半就是打开局面库去点它。提示文案也把「去哪找」说清楚。
+ */
+function afterCustomChanged(entry, prefix) {
+  refreshCustom();
+  dom.customName.value = '';
+  endgameFilter = CUSTOM_CATEGORY;
+  renderedListKey = '\u0000';
+  syncTabs();
+  syncEndgameList();
+  renderPickerButton();
+  setIoMsg(`${prefix}「${entry.name}」，在局面库的「自定义」页签里`);
+}
+
+/**
+ * 「存为自定义局面」—— 收进局面库。
+ *
+ * 局面来自 FEN 框，而那个框打开时就是当前局面（见 openIo），
+ * 所以「存当前这盘棋」和「存粘进来的局面」走的是同一条路，不再各有一个按钮。
+ */
+function importFen() {
+  const text = dom.fenInput.value.trim();
+  if (!text) {
+    setIoMsg('FEN 是空的 —— 先粘一段进来', true);
+    return;
+  }
+  const r = addCustom(app.storage, {
+    name: dom.customName.value.trim() || '我的局面',
+    fen: text,
+  });
+  if (!r.ok) {
+    setIoMsg(r.reason, true);
+    return;
+  }
+  dom.fenInput.value = '';
+  afterCustomChanged(r.entry, '已存为');
+}
+
+/**
+ * 把粘进来的 FEN **直接摆到棋盘上** —— 一个「临时局面」，不写进自定义库。
+ *
+ * 和 `importFen` 共用同一个输入框，校验过了再选去处。它俩的准入标准**故意不同**：
+ *
+ *   载入到棋盘   `validateFreeFen` —— 只看局面成不成立
+ *   存为自定义   `validateEndgameFen` —— 还要有练习价值（已经终局的别存）
+ *
+ * 所以一个已经将死的局面：摆上去看看完全合理，存下来则没意义。分享链接那一侧
+ * 用的也是「只看成不成立」这个标准（见 share.js）。
+ */
+function loadFen() {
+  if (app.busy) return; // AI 在想的时候换局面会打架
+
+  const text = dom.fenInput.value.trim();
+  if (!text) {
+    setIoMsg('先把 FEN 粘到下面的框里', true);
+    return;
+  }
+
+  const r = validateFreeFen(text);
+  if (!r.ok) {
+    setIoMsg(r.reason, true);
+    return;
+  }
+
+  app.searchId++; // 作废在飞的响应
+  G.startPosition(app.game, r.fen);
+  clearSelection();
+  app.hint = 0;
+  dom.fenInput.value = '';
+  refresh();
+  saveSoon(app.game);
+  closeIo();
+  requestAiMove(); // 摆上去的局面可能轮到 AI 走（比如黑先而玩家执红）
+}
+
+function bindPicker() {
+  dom.btnOpenPicker.addEventListener('click', openPicker);
+  dom.btnClosePicker.addEventListener('click', closePicker);
+  // 点遮罩关闭：<dialog> 自身铺满整个遮罩区域，所以「target 就是 dialog」说明点在了内容之外
+  dom.picker.addEventListener('click', (e) => {
+    if (e.target === dom.picker) closePicker();
+  });
+
+  dom.endgameSearch.addEventListener('input', () => setQuery(dom.endgameSearch.value));
+  dom.btnClearSearch.addEventListener('click', () => {
+    clearQuery();
+    dom.endgameSearch.focus();
+  });
+
+  // Esc 的两级含义：先清过滤词，清完再按才关弹窗。
+  // **必须在 dialog 的 cancel 事件上拦，不是在输入框的 keydown 上** ——
+  // 「按 Esc 关弹窗」是 <dialog> 自己处理的原生行为，stopPropagation 拦不住它。
+  dom.picker.addEventListener('cancel', (e) => {
+    if (!endgameQuery.words.length) return; // 框里本来就是空的 → 放行，正常关闭
+    e.preventDefault();
+    clearQuery();
+  });
+}
+
+function bindIo() {
+  dom.btnOpenIo.addEventListener('click', openIo);
+  dom.btnCloseIo.addEventListener('click', closeIo);
+  dom.btnLoadFen.addEventListener('click', loadFen);
+  dom.btnImportFen.addEventListener('click', importFen);
+
+  // 框里改一个字就重新判一次「和当前局面是不是同一个」（决定「载入到棋盘」灰不灰）
+  dom.fenInput.addEventListener('input', syncLoadFenBtn);
+  dom.ioDialog.addEventListener('click', (e) => {
+    if (e.target === dom.ioDialog) closeIo();
+  });
+  // 在名字框里按回车直接存（和点「存为自定义局面」等价）
+  dom.customName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); importFen(); }
+  });
+}
+
+/** 退出残局 / 临时局面，回到标准开局 */
+function exitToStart() {
+  if (app.busy) return;
+  app.searchId++;
+  G.exitEndgame(app.game);
+  clearSelection();
+  app.hint = 0;
+  refresh();
+  saveSoon(app.game);
+  closePicker();
+}
+
+function bindEndgames() {
+  renderTabs();
+  bindTabs();
+  dom.btnExitEndgame.addEventListener('click', exitToStart);
 }
 
 // === 工具栏 ===
@@ -896,6 +1484,10 @@ function init() {
 
   attachInteraction(dom.board, app);
   bindToolbar();
+  bindPicker();
+  bindIo();
+  bindRename();
+  bindEndgames();
   bindHelp();
   bindKeyboard();
 
@@ -903,8 +1495,12 @@ function init() {
   dom.promoDialog.addEventListener('cancel', (e) => { e.preventDefault(); closePromotion(); });
   dom.btnClosePromo.addEventListener('click', closePromotion);
 
+  // **必须在 restoreInto 之前**：恢复出来的 endgameId 可能指向一个自定义局面，
+  // 注册表还没灌的话 endgameOf 查不到，标题行和目标提示就都是空的。
+  refreshCustom();
+
   // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）
-  restoreInto(app.game, defaultStorage());
+  restoreInto(app.game, app.storage);
 
   // 分享链接**优先于存档**：用户是主动点开这个链接的，不该被上次的对局盖掉。
   // 放在 restoreInto 之后，是为了让挡位、执子方这些偏好仍然沿用本地存档。

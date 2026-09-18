@@ -310,7 +310,7 @@ export function createRenderer(boardEl, wrapEl) -> {
 
 ## Task 11：局面库与自定义局面
 
-**Files**：`chess/js/custom-endgames.js`、`chess/js/main.js`、`chess/index.html`
+**Files**：`chess/js/custom-endgames.js`、`chess/js/main.js`、`chess/index.html`、`chess/tools/test-main.mjs`
 
 **要点**：照搬象棋的三个弹窗（局面库 / 保存-导入 / 重命名）与交互约定：
 FEN 框打开时就是当前局面、「框里就是当前局面」时「载入到棋盘」置灰、校验失败必须带原因。
