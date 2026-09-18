@@ -1,0 +1,1058 @@
+/**
+ * 国际象棋模块样式。
+ *
+ * 只复用 ../global.css 的 CSS 变量和通用组件（.btn / .panel / .back-link 等），
+ * 类名一律带 chess- 前缀（模块隔离要求）。
+ *
+ * 本模块用 DOM + CSS 渲染棋盘（不是 Canvas），所以**不需要监听 themechange** ——
+ * 所有颜色都是 CSS 变量驱动的，切主题自动生效。
+ */
+
+/* === 模块级颜色 === */
+/* 深浅两套只换变量：棋子、格子、高亮全走这里的名字 */
+:root {
+  /* 浅格 / 深格。这一组是国象的标准配色（浅棕 + 中棕），
+     和象棋的木色系不一样 —— 格子的作用是**区分坐标**，不是仿木 */
+  --chess-light: #eddfc4;
+  --chess-dark: #b58863;
+  /* 格线（棋盘外框）与坐标文字。比深格再深一档 */
+  --chess-line: #8a6a45;
+  /* 棋子两套：白棋「浅填充 + 深描边」、黑棋「深填充 + 浅描边」。
+     这是不用 Unicode 字形的**直接原因** —— 字形只能整体改 color，
+     白棋在浅格上会糊成一片（见 docs/design.md §3.3） */
+  --chess-white-fill: #fbfbfb;
+  --chess-white-stroke: #3d3d3d;
+  --chess-black-fill: #2b2b2b;
+  --chess-black-stroke: #ececec;
+  /* 高亮四类。上一步 / 选中用格子底色，可走的空格用小圆点，可吃的子用圆环 */
+  --chess-hl-last: rgba(9, 132, 227, .34);
+  --chess-hl-selected: rgba(0, 184, 148, .45);
+  --chess-hl-move: rgba(20, 20, 20, .28);
+  --chess-hl-capture: #d63031;
+  /* 被将军的王：格子底色 + 棋子外一圈危险色圆环 */
+  --chess-hl-check: #d63031;
+  --chess-hl-check-bg: rgba(214, 48, 49, .38);
+  /* 提示（AI 建议的着法）。同一个琥珀色，起点 / 终点都用实色圆环 */
+  --chess-hint: #e8890c;
+  /* 开关的「关」态底色。不能用 --border（太浅，白色滑块在上面看不见） */
+  --chess-switch-off: #ccd2d9;
+  /* 棋盘四周留给坐标的宽度。写在这里而不是散在几条规则里 ——
+     棋盘让出这么多边距，坐标列 / 行再用负偏移站进去 */
+  --chess-gutter: 4.4cqw;
+}
+:root[data-theme="dark"] {
+  /* 深色下格子整体压暗、对比拉开：浅格不能太亮，否则和白色棋子糊在一起 */
+  --chess-light: #6b7280;
+  --chess-dark: #3f454e;
+  --chess-line: #9aa3ad;
+  --chess-white-fill: #f2f2f2;
+  --chess-white-stroke: #16181c;
+  --chess-black-fill: #1b1e23;
+  --chess-black-stroke: #dfe4ea;
+  --chess-hl-last: rgba(77, 171, 247, .40);
+  --chess-hl-selected: rgba(0, 184, 148, .48);
+  --chess-hl-move: rgba(255, 255, 255, .42);
+  --chess-hl-capture: #ff6b6b;
+  --chess-hl-check: #ff6b6b;
+  --chess-hl-check-bg: rgba(255, 107, 107, .42);
+  --chess-hint: #f0a02a;
+  --chess-switch-off: #3a414d;
+}
+
+/* === 玩法说明 === */
+.chess-help-open {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* global.css 的 .btn 带的是 9px 18px —— 圆图标得按自己的尺寸重设 */
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 50%;
+}
+/* 展开时点亮图标：说明块在下面，视线要能对上「是它打开的」 */
+.chess-help-open[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.chess-help-body {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  text-align: left;
+}
+/* 说明块的显隐靠 el.hidden 控制，这里显式钉一条 ——
+   别让以后加进来的 display 值把它顶掉 */
+.chess-help-body[hidden] {
+  display: none;
+}
+.chess-help-body table {
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+.chess-help-body td {
+  padding: 2px 12px 2px 0;
+  vertical-align: top;
+}
+.chess-help-body p {
+  margin-top: 10px;
+}
+.chess-help-body b {
+  color: var(--text);
+}
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* === 标题行：局面库入口 === */
+.chess-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 唯一入口。同时承担两个职责：
+     「局面库」= 这里能点开什么     （弱化）
+     「标准开局」= 我现在在哪一局   （强调） */
+.chess-picker-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(340px, 60vw);
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.chess-picker-label {
+  color: var(--text-secondary);
+  transition: color .2s;
+}
+.chess-picker-sep {
+  color: var(--text-secondary);
+  opacity: .5;
+}
+.chess-picker-open b {
+  min-width: 0;
+  font-weight: 600;
+  /* 自定义局面的名字可以有 40 字，不能把标题行撑破 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 小三角，明示「这能点开」 */
+.chess-picker-open::after {
+  content: '▾';
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: color .2s;
+}
+.chess-picker-open:hover .chess-picker-label,
+.chess-picker-open:hover::after {
+  color: var(--accent);
+}
+
+/* === 布局 ===
+   棋盘在第 1 行第 1 列、侧栏在第 1 行第 2 列、工具栏在第 2 行第 1 列。
+   工具栏**必须**独立成一行 —— 塞回棋盘列的话第 1 行会变成「棋盘 + 工具栏」，
+   侧栏跟着变高，着法列表就伸到棋盘下沿之外了。 */
+.chess-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  column-gap: 20px;
+  row-gap: 14px;
+}
+.chess-board-col { grid-area: 1 / 1; min-width: 0; }
+.chess-toolbar   { grid-area: 2 / 1; }
+.chess-side      { grid-area: 1 / 2; }
+
+/* 窄屏改回单列，顺序由 DOM 决定（棋盘 → 工具栏 → 侧栏） */
+@media (max-width: 860px) {
+  .chess-stage {
+    grid-template-columns: 1fr;
+  }
+  .chess-board-col,
+  .chess-toolbar,
+  .chess-side {
+    grid-area: auto;
+  }
+}
+
+/* === 棋盘上方的状态区 === */
+.chess-board-status {
+  /* 和棋盘左右对齐（棋盘自己让出了左边那条坐标列） */
+  max-width: 560px;
+  margin: 0 auto 10px;
+  font-size: 13px;
+}
+/* 状态正文和「思考中」并排 —— 说的是同一件事，不该各占一行 */
+.chess-status-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chess-status {
+  font-weight: 600;
+}
+.chess-status--over {
+  color: var(--danger);
+}
+/* 状态里的方名按方着色 —— 扫一眼就知道轮到谁 */
+.chess-status--white {
+  color: var(--text);
+  font-weight: 700;
+}
+.chess-status--black {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.chess-goal {
+  margin-top: 4px;
+  color: var(--accent);
+}
+/* AI 思考中。跟在状态正文后面，不另占一行 */
+.chess-thinking {
+  color: var(--accent);
+}
+.chess-thinking::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: chess-pulse 1s ease-in-out infinite;
+}
+@keyframes chess-pulse {
+  0%, 100% { opacity: .25; }
+  50% { opacity: 1; }
+}
+
+/* === 棋盘 ===
+   8×8 个格子就是答案（国象比象棋简单的地方：棋盘本身就是格子网格，
+   不用像象棋那样在交叉点上拼十字线）。 */
+.chess-board-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  /* 让格子里的字号 / 坐标能跟着棋盘宽度走。inline-size 只约束宽度，
+     不会像 size 那样影响高度推算 */
+  container-type: inline-size;
+}
+
+/* 棋盘四周让出 --chess-gutter 给坐标：左边一条纵列、下边一条横行。
+   **坐标必须在棋盘盒子之外** —— 格子里的棋子占了约 80% 宽度，
+   把数字放进格子里必然被压住（象棋在同一个地方踩过坑）。
+   宽度用 cqw 显式算：margin-left + 100% 会溢出容器。 */
+.chess-board {
+  position: relative;
+  /* 建立层叠上下文：让「棋盘装饰 0 / 格子 1 / 棋子 2」三档 z-index
+     的作用范围止于棋盘内部，不会漏出去盖住页面上的其他元素 */
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  aspect-ratio: 1;
+  width: calc(100cqw - var(--chess-gutter));
+  margin-left: var(--chess-gutter);
+  margin-bottom: var(--chess-gutter);
+  background: var(--chess-dark);
+  border: 1px solid var(--chess-line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  transition: transform .3s;
+}
+
+/* 每个格子是 <button>：键盘可遍历、点击命中免费。
+   浅格 / 深格由 renderer.js 按 (file + rank) 的奇偶决定（a1 是深格）。 */
+.chess-cell {
+  position: relative;
+  z-index: 1;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 0;
+}
+.chess-cell--light { background: var(--chess-light); }
+.chess-cell--dark  { background: var(--chess-dark); }
+/* 棋盘最外一圈圆角：角落的四格各自把外角磨掉，整块看起来才像一块板 */
+.chess-board > .chess-cell:first-child { border-top-left-radius: 5px; }
+.chess-board > .chess-cell:nth-child(8) { border-top-right-radius: 5px; }
+.chess-board > .chess-cell:nth-child(57) { border-bottom-left-radius: 5px; }
+.chess-board > .chess-cell:last-child { border-bottom-right-radius: 5px; }
+
+/* === 格子高亮 ===
+   上一步 / 选中：格子底色（半透明强调色）。
+   棋子只占格子中间约 80%，所以格子底色会露出一圈边框 —— 正好读成「这一格」。 */
+.chess-cell--last {
+  background-image: linear-gradient(var(--chess-hl-last), var(--chess-hl-last));
+}
+.chess-cell--selected {
+  background-image: linear-gradient(var(--chess-hl-selected), var(--chess-hl-selected));
+}
+/* 被将军的王：格子底色走危险色。
+   放在 --last / --selected 之后 —— 同特异度时后写的赢，将军比「上一步」更要紧 */
+.chess-cell--check {
+  background-image: linear-gradient(var(--chess-hl-check-bg), var(--chess-hl-check-bg));
+}
+/* 可走的空格：格心小圆点。用径向渐变而不是伪元素 —— 不覆盖格子的底色高亮 */
+.chess-cell--target {
+  background-image: radial-gradient(circle, var(--chess-hl-move) 0 17%, transparent 18%);
+}
+
+/* === 棋盘装饰层（坐标）===
+   单独一层，z-index: 0 —— 在格子和棋子之下，且整层 pointer-events: none
+   （它盖在棋盘边上，点击必须穿到格子上）。 */
+.chess-deco {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  color: var(--chess-line);
+  font-size: 3.2cqw;
+  line-height: 1;
+  opacity: .85;
+}
+.chess-coords {
+  position: absolute;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+}
+.chess-files {
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: var(--chess-gutter);
+  grid-template-columns: repeat(8, 1fr);
+}
+.chess-ranks {
+  right: 100%;
+  top: 0;
+  height: 100%;
+  width: var(--chess-gutter);
+  grid-template-rows: repeat(8, 1fr);
+}
+/* 翻转时每个坐标字**各自**反向转 180° 把字正过来。
+   反向转不能落在容器上 —— 那样文字会留在原来那一列，
+   而棋盘已经左右镜像了，数字就对错了列。 */
+.chess-deco-text {
+  transition: opacity .18s;
+}
+.chess-board-wrap.is-flipped .chess-deco-text {
+  transform: rotate(180deg);
+}
+/* 翻转动画那 0.3 秒里把坐标藏起来：棋盘慢慢转、反向转是瞬间的，
+   不藏的话会看到文字自己在那儿拧（棋子是图形，转起来不刺眼，就不折腾） */
+.chess-board-wrap.is-flipping .chess-deco-text {
+  opacity: 0;
+  transition: none;
+}
+
+/* === 棋子 ===
+   内联 SVG（形状见 renderer.js）：`fill` / `stroke` 分别走变量，
+   于是「白棋浅填充 + 深描边」和「黑棋深填充 + 浅描边」在两套主题下各调一次即可。 */
+.chess-piece {
+  position: absolute;
+  z-index: 2;               /* 最高层：盖住格子与格子高亮 */
+  width: 12.5%;             /* 一格：棋盘宽度的 1/8 */
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  pointer-events: none;     /* 点击由底下的格子接管 */
+  transition: left .18s ease-out, top .18s ease-out;
+}
+.chess-piece svg {
+  width: 80%;
+  height: 80%;
+  overflow: visible;
+}
+.chess-piece svg * {
+  fill: var(--chess-p-fill);
+  stroke: var(--chess-p-stroke);
+  stroke-width: 5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chess-piece--white {
+  --chess-p-fill: var(--chess-white-fill);
+  --chess-p-stroke: var(--chess-white-stroke);
+}
+.chess-piece--black {
+  --chess-p-fill: var(--chess-black-fill);
+  --chess-p-stroke: var(--chess-black-stroke);
+}
+
+/* 可吃的子：棋子外面一圈**圆形**描边。
+   **不能用 outline** —— 那是矩形，套在 SVG 上会画成一个方框（象棋的紫圈就踩过这个）。
+   用 ::after 画圆环，形状跟着 border-radius: 50% 走。 */
+.chess-piece--capture::after {
+  content: '';
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  border: 3px solid var(--chess-hl-capture);
+  pointer-events: none;
+}
+/* 被将军的王：同样画圆环，比「可吃」再粗一档（危险色，最要紧） */
+.chess-piece--check::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--chess-hl-check);
+  pointer-events: none;
+}
+/* 提示（AI 建议的着法）：起点和终点各套一道琥珀色圆环。
+   **起点也要画** —— 起点一定有子，不标就只剩半个提示。
+   用 ::after 会和「可吃 / 被将军」抢（一个元素只有一条 ::after），
+   但三者实际互斥：提示只在没有选中、且人没在走子时出现。 */
+.chess-piece--hint::after {
+  content: '';
+  position: absolute;
+  inset: -2%;
+  border-radius: 50%;
+  border: 3px solid var(--chess-hint);
+  pointer-events: none;
+}
+
+/* === 翻转 ===
+   只影响显示：整块棋盘转 180°，棋子与坐标文字各自反向转回来。
+   格子和棋子都在棋盘内部，点击事件跟着 DOM 走，
+   所以 cellIndexOf 不需要任何翻转逻辑（这条照搬象棋）。 */
+.chess-board-wrap.is-flipped .chess-board {
+  transform: rotate(180deg);
+}
+.chess-board-wrap.is-flipped .chess-piece {
+  transform: translate(-50%, -50%) rotate(180deg);
+}
+
+/* === 工具栏 === */
+/* global.css 的 .btn 没有禁用态样式，这里补上。
+   禁用态很重要：AI 思考期间按钮全部置灰，玩家才知道「不是坏了，是在等」 */
+.btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.chess-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+/* 复制 FEN / 复制链接 点完会把文字短暂换成「已复制」。
+   给个固定最小宽度 —— 工具栏是居中对齐的，按钮一缩一放会让整排左右抖一下 */
+.chess-copy-btn {
+  min-width: 7em;
+}
+
+/* === 侧栏 === */
+.chess-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+.chess-panel {
+  padding: 16px 18px;
+  margin-bottom: 0;
+}
+.chess-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.chess-field > span {
+  color: var(--text-secondary);
+}
+.chess-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.chess-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* === 开关（双人对弈） ===
+   原生 checkbox + appearance: none —— 语义一点没变（可 Tab、空格切换、
+   读屏读得出选中态），不要用 <div> 挂 click 自己造。 */
+.chess-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border: none;
+  border-radius: 11px;
+  background: var(--chess-switch-off);
+  cursor: pointer;
+  transition: background .2s;
+}
+.chess-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  transition: left .2s;
+}
+.chess-switch:checked {
+  background: var(--accent);
+}
+.chess-switch:checked::after {
+  left: 19px;   /* 38 - 3 - 16 */
+}
+.chess-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chess-switch:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* === 局面分类页签 === */
+.chess-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.chess-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  /* margin-bottom: -1px 让选中态的 2px 下边框压在容器的 1px 分隔线上，
+     看起来像「页签接上了内容区」 */
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color .2s, border-color .2s;
+}
+.chess-tab:hover {
+  color: var(--text);
+}
+.chess-tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.chess-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.chess-tab-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  opacity: .7;
+}
+.chess-tab[aria-selected="true"] .chess-tab-count {
+  color: var(--accent);
+  opacity: .85;
+}
+
+/* === 局面过滤框 === */
+.chess-search {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.chess-search .chess-input {
+  padding: 7px 10px;
+}
+.chess-search-clear {
+  flex-shrink: 0;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.chess-search-clear:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+/* **必须显式再写一条。** UA 的 `[hidden] { display: none }` 会被上面那句
+   `display: flex` 覆盖掉（作者样式优先于 UA 样式），于是 el.hidden = true 不起作用 */
+.chess-search-clear[hidden] {
+  display: none;
+}
+
+/* === 残局 / 自定义局面列表 === */
+.chess-endgame-list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  margin: 12px 0;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* 一行 = 主体按钮 +（自定义局面才有）改名 / 删除按钮 */
+.chess-endgame-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.chess-endgame {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+/* 每行末尾那两个小图标按钮：形状一样，只有 hover 色分好坏 */
+.chess-endgame-edit,
+.chess-endgame-del {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chess-endgame-edit:hover {
+  color: var(--accent);
+  background: var(--bg);
+}
+.chess-endgame-del:hover {
+  color: var(--danger);
+  background: var(--bg);
+}
+.chess-endgame:hover {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.chess-endgame--current {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.chess-endgame--current .chess-endgame-meta {
+  color: var(--on-accent);
+  opacity: .8;
+}
+.chess-endgame--current:hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+.chess-endgame-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chess-endgame-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.chess-endgame-exit {
+  width: 100%;
+}
+
+/* === 弹窗 === */
+/* 用原生 <dialog> + showModal()：Esc 关闭、焦点陷阱、背景遮罩都是白送的 */
+.chess-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(78vh, 700px);
+  /* **必须显式写 margin: auto**，不能指望 UA 默认值。
+     global.css 顶部的 `* { margin: 0 }` 重置把 `dialog { margin: auto }` 一起干掉了 */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-hover);
+  overflow: hidden;
+}
+.chess-dialog::backdrop {
+  background: rgba(0, 0, 0, .45);
+}
+/* dialog 默认是 block，改成纵向 flex —— body 才能吃到剩余高度、列表才能滚 */
+.chess-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+/* 局面库弹窗：**高度固定**。列表条数随页签和过滤词变，高度再不固定的话
+   弹窗会一会长一会短，连它居中的位置都跟着跳 */
+.chess-dialog--picker {
+  height: min(78vh, 700px);
+}
+/* 重命名弹窗：就一行输入，用不着 560px 那么宽 */
+.chess-dialog--rename {
+  width: min(420px, calc(100vw - 32px));
+}
+/* 升变弹窗：四个棋子按钮，同样用不着那么宽 */
+.chess-dialog--promo {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.chess-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.chess-dialog-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.chess-dialog-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chess-dialog-close:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* 底部不留 padding-bottom：列表的滚动条要能一直走到分隔线上 */
+.chess-dialog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 0;
+}
+.chess-dialog-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+/* **必须显式再写一条。** UA 的 `[hidden] { display: none }` 会被上面那句
+   `display: flex` 覆盖掉（作者样式优先于 UA 样式），于是 el.hidden = true 不起作用 */
+.chess-dialog-foot[hidden] {
+  display: none;
+}
+/* 表单一类的弹窗：普通表单流，整块可滚（不需要「列表自己滚」那套） */
+.chess-dialog-body--form {
+  flex: none;
+  padding: 16px 20px;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.chess-save {
+  display: flex;
+  gap: 8px;
+}
+.chess-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.chess-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.chess-save .btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.chess-io-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chess-io-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.chess-io-btn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+/* 置灰态：「载入到棋盘」在框里就是当前局面时没有意义（见 main.js 的 syncLoadFenBtn）。
+   第二条要把 .btn-ghost:hover 抢回来，否则鼠标一上去又变强调色，看着像能点 */
+.chess-io-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.chess-io-btn:disabled:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+.chess-io-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 标题行里的「保存 / 导入」按钮，和局面库那个并排 */
+.chess-io-open {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+/* 弹窗里的提示行（存成功 / 校验失败的原因）。几个弹窗共用 */
+.chess-dialog-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.chess-dialog-msg--error {
+  color: var(--danger);
+}
+
+/* === 升变选择 === */
+.chess-promo-body {
+  flex: none;
+  padding: 16px 20px;
+  gap: 12px;
+}
+.chess-promo-choices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+/* 四个按钮各画一枚对应的棋子（SVG 由 main.js 填），下面写中文名。
+   用 <button> 而不是自造的 div：键盘 Tab / 回车都是白送的。 */
+.chess-promo-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.chess-promo-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chess-promo-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chess-promo-btn svg {
+  width: 40px;
+  height: 40px;
+}
+/* 浮层里那几枚棋子跟着「当前走子方」上色 —— 升变的颜色是走子方的 */
+.chess-promo-btn svg * {
+  fill: var(--chess-p-fill);
+  stroke: var(--chess-p-stroke);
+  stroke-width: 5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chess-promo-btn--white {
+  --chess-p-fill: var(--chess-white-fill);
+  --chess-p-stroke: var(--chess-white-stroke);
+}
+.chess-promo-btn--black {
+  --chess-p-fill: var(--chess-black-fill);
+  --chess-p-stroke: var(--chess-black-stroke);
+}
+
+/* === 着法列表 === */
+/* 面板吃掉侧栏剩余高度、列表再吃掉面板剩余高度 —— 两层 flex 传递之后，
+   列表的下沿就落在棋盘下沿上（侧栏与棋盘等高，见 .chess-stage 的注释） */
+.chess-panel--moves {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 标题行：左「着法」、中「上一步 / 下一步」、右「复制」。
+   三列网格（1fr auto 1fr，两侧等分）让**单步按钮落在整行的中线上**；
+   复制仍然贴右 —— 它是「把列表拿出去」的动作，和面板边对齐才像个出口 */
+.chess-moves-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+.chess-moves-steps {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* 这三个都是**次要动作**：做成无边框的文字按钮，hover 才浮出色块 */
+.chess-moves-step,
+.chess-moves-copy {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* 只有「复制」需要固定最小宽度：它点完会变成「已复制」，不固定的话整排会左右抽一下 */
+.chess-moves-copy {
+  min-width: 4em;
+  /* **必须显式靠右**：网格项默认 stretch，按钮会被拉成整列宽（hover 色块一大条） */
+  justify-self: end;
+}
+.chess-moves-step:hover,
+.chess-moves-copy:hover {
+  color: var(--accent);
+  background: var(--bg);
+}
+/* 到头了 / 没东西可复制时置灰。第二条要把 hover 抢回来，否则鼠标一上去又变强调色 */
+.chess-moves-step:disabled,
+.chess-moves-copy:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.chess-moves-step:disabled:hover,
+.chess-moves-copy:disabled:hover {
+  color: var(--text-secondary);
+  background: none;
+}
+.chess-move-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+/* 窄屏是单列、侧栏高度由内容决定，flex: 1 会让列表塌成 0 —— 换回固定上限 */
+@media (max-width: 860px) {
+  .chess-panel--moves {
+    flex: none;
+  }
+  .chess-move-list {
+    flex: none;
+    max-height: 300px;
+  }
+}
+.chess-move-row {
+  display: grid;
+  grid-template-columns: 2.4em 1fr 1fr;
+  gap: 4px;
+  align-items: center;
+}
+.chess-move-row:nth-child(odd) {
+  background: var(--bg);
+}
+.chess-move-no {
+  color: var(--text-secondary);
+  text-align: right;
+  padding-right: 4px;
+}
+.chess-move {
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chess-move:hover {
+  background: var(--card-bg);
+  color: var(--accent);
+}
+.chess-move--current {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.chess-move--current:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+/* 「还没有走棋」「还没有自定义局面」这类空状态提示 */
+.chess-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+}

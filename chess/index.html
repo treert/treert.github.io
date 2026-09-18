@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>国际象棋</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../global.css">
+  <link rel="stylesheet" href="./style.css">
+  <!-- 必须同步加载在 head 里：要在首次绘制前定好 data-theme，否则深色下会闪白 -->
+  <script src="../global.js"></script>
+</head>
+<body>
+  <div class="container wide">
+    <a class="back-link" href="../index.html">← 返回首页</a>
+
+    <header class="page-header">
+      <div class="chess-title-row">
+        <h1>国际象棋</h1>
+        <!-- 内容由 main.js 的 renderPickerButton() 填
+             （「局面库 · <当前局面名> ▾」），既是入口也是「我在哪一局」的指示 -->
+        <button type="button" class="btn btn-ghost chess-picker-open" id="btn-open-picker"></button>
+        <!-- 「往库里加东西」的入口，和「挑」并列放在标题行 -->
+        <button type="button" class="btn btn-ghost chess-io-open" id="btn-open-io">保存 / 导入</button>
+        <!-- 玩法说明的入口。收成一个问号图标，说明本体在标题行下面（#help-body）。
+             图标亮不亮读的是它自己的 aria-expanded，不另存一份状态。 -->
+        <button type="button" class="btn btn-ghost chess-help-open" id="btn-help"
+                aria-label="玩法说明" aria-expanded="false" aria-controls="help-body"
+                title="玩法说明（?）">?</button>
+      </div>
+
+      <div class="chess-help-body" id="help-body" hidden>
+        <table>
+          <tr><td><kbd>Esc</kbd></td><td>取消选中的棋子</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>悔棋（一次退到轮到你走）</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>单步回看（上一步 / 下一步）</td></tr>
+          <tr><td><kbd>H</kbd></td><td>提示：让当前挡位的 AI 给一步建议</td></tr>
+          <tr><td><kbd>F</kbd></td><td>翻转棋盘（只影响显示）</td></tr>
+          <tr><td><kbd>?</kbd></td><td>展开 / 收起这份说明</td></tr>
+        </table>
+
+        <p><b>走子</b>：点自己的棋子选中，再点目标格。鼠标可以直接拖拽。
+        选中后空格上会出现<b>圆点</b>（可以走过去），能吃的对方棋子会套上<b>圆环</b>。
+        兵走到最后一排会先弹一个浮层问你要升变成什么，选完才落子。</p>
+
+        <p><b>四个挡位</b>不是单纯调搜索深度。「入门」和「初级」<b>关掉了静态搜索</b>——
+        它们会在兑子序列中途停下、以为自己占了便宜，然后被吃回。这正是初学者的真实特征。
+        「入门」还会按较高概率故意走次优着。想要正经下棋请用「中级」或「高级」。</p>
+
+        <p><b>悔棋</b>一次退到轮到你走为止，不会出现「悔完立刻又被 AI 走一步」的情况。
+        <b>重做</b>可以前进。悔棋只移动游标，着法不会丢——所以你可以悔完再点着法列表跳回去。
+        想<b>一格一格翻</b>（人机模式下悔棋一次退两步：你一手 + AI 的应手），
+        用着法面板上的 <b>上一步 / 下一步</b>：点一次走一步，棋子会滑过去。</p>
+
+        <p><b>复盘</b>：点右侧着法列表里的任意一步，棋盘会回到那一步之后的局面，
+        棋盘上方的状态行会提示「正在回看」。此时走新着法会截断后面的分支。
+        列表右上角的 <b>复制</b> 把整份着法列表抄成文本（一行一个回合，如「1. e4 e5」），
+        可以直接贴进棋谱软件或聊天里。</p>
+
+        <p><b>残局有解法</b>：一部分残局带有一条<b>已证明的杀线</b>（离线生成、
+        再用本模块的规则层逐步校验过）。这样的局会在棋盘上方标出「有解法（N 步杀）」，
+        此时<b>提示</b>直接给谱上的正解（状态行会写「谱载解法」），不用等引擎算；
+        <b>AI 也会按谱应着</b> —— 不然你刚按谱走一步、对手就走到谱外去了，那条线根本走不完。
+        没按谱走（走岔了）就自动回到引擎搜索。</p>
+
+        <p><b>双人对弈</b>（侧栏的开关）：打开后不走 AI，白黑两边都由人点，
+        适合两个人轮流在同一台设备上下。此时「执子」会禁用（没意义了），
+        悔棋也只退一步。</p>
+
+        <p><b>翻转棋盘</b>只改变显示方向，不影响对局。执黑时建议翻转。</p>
+
+        <p><b>局面库</b>（标题右边，按钮上会显示你现在在哪一局）：挑一局残局来练。
+        旁边的 <b>保存 / 导入</b> 打开后，里面那个 FEN 框<b>已经是当前局面</b> ——
+        不动它就点 <b>存为自定义局面</b>（收进库里反复练），
+        或者把别处复制的 FEN 粘上去盖掉它、再点 <b>载入到棋盘</b>（直接摆上去看看、接着下，不进库）。
+        工具栏的 <b>复制 FEN</b> 和 <b>复制链接</b> 则是把当前局面拿出去 ——
+        前者给你一段文本，后者给你一条链接，别人点开就能直接看到这个局面、接着下。</p>
+      </div>
+    </header>
+
+    <div class="chess-stage">
+      <div class="chess-board-col">
+        <!-- 战斗状态（轮到谁走 / 将死 / 和棋）与局面说明（当前是哪一局、已走几步）。
+             放在棋盘正上方：窄屏是单列布局（棋盘 → 工具栏 → 侧栏），
+             留在侧栏里的话这两行会被挤到整页最下面，正在下棋时看不见「轮到谁」。 -->
+        <div class="chess-board-status">
+          <div class="chess-status-line">
+            <p class="chess-status" id="status-text">准备开始</p>
+            <p class="chess-thinking" id="thinking" hidden>思考中…</p>
+          </div>
+          <p class="chess-goal" id="endgame-goal" hidden></p>
+        </div>
+
+        <!-- 里面的 64 个格子是**静态占位**，让骨架在没有 JS 时也看得见。
+             Task 5 起由 renderer.js 接管：createRenderer() 会先清空这里再重建
+             （坐标也是那个时候由 JS 建的），布局完全不变。 -->
+        <div class="chess-board-wrap" id="board-wrap">
+          <div class="chess-board" id="board">
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+            <button type="button" class="chess-cell chess-cell--light"></button>
+            <button type="button" class="chess-cell chess-cell--dark"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chess-toolbar">
+        <button class="btn btn-ghost" id="btn-undo" title="悔棋（Ctrl+Z）">悔棋</button>
+        <button class="btn btn-ghost" id="btn-redo" title="重做">重做</button>
+        <button class="btn btn-ghost" id="btn-reset" title="重新开始">重开</button>
+        <button class="btn btn-ghost" id="btn-flip" title="翻转棋盘（F）">翻转</button>
+        <button class="btn btn-ghost" id="btn-hint" title="让 AI 给一步建议（H）">提示</button>
+        <button class="btn btn-ghost chess-copy-btn" id="btn-copy-fen"
+                title="把当前局面的 FEN 复制到剪贴板">复制 FEN</button>
+        <button class="btn btn-ghost chess-copy-btn" id="btn-copy-url"
+                title="复制分享链接 —— 别人打开链接就能直接看到这个局面">复制链接</button>
+      </div>
+
+      <aside class="chess-side">
+        <section class="panel chess-panel">
+          <h2>对局</h2>
+
+          <label class="chess-field">
+            <span>挡位</span>
+            <select id="level-select" class="chess-select"></select>
+          </label>
+
+          <label class="chess-field">
+            <span>执子</span>
+            <select id="side-select" class="chess-select">
+              <option value="1">执白（先走）</option>
+              <option value="-1">执黑（后走）</option>
+            </select>
+          </label>
+
+          <!-- 开关而不是「第五个挡位」：挡位表的语义是「AI 的强度阶梯」，
+               塞一个「无 AI」进去会让人以为它是第五档强度。 -->
+          <label class="chess-field">
+            <span>双人对弈</span>
+            <input type="checkbox" class="chess-switch" id="two-player-toggle"
+                   title="打开后不派发 AI 搜索，白黑两边都由人来点">
+          </label>
+        </section>
+
+        <section class="panel chess-panel chess-panel--moves">
+          <div class="chess-moves-head">
+            <h2>着法</h2>
+            <!-- 回看用的单步走。工具栏那个「悔棋」是「退到玩家走」——
+                 人机模式一次退两步（我一手 + AI 的应手），想一格一格翻棋谱就用这两个。
+                 点一次一步，带移动动画；到头的那个置灰（见 main.js 的 updateButtons）。 -->
+            <div class="chess-moves-steps">
+              <button type="button" class="chess-moves-step" id="btn-step-back"
+                      title="回看：退一步">◀ 上一步</button>
+              <button type="button" class="chess-moves-step" id="btn-step-fwd"
+                      title="回看：进一步">下一步 ▶</button>
+            </div>
+            <button type="button" class="chess-moves-copy" id="btn-copy-moves"
+                    title="把着法列表复制成文本">复制</button>
+          </div>
+          <div class="chess-move-list" id="move-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <dialog class="chess-dialog chess-dialog--picker" id="picker">
+    <div class="chess-dialog-head">
+      <h2>局面库</h2>
+      <button type="button" class="chess-dialog-close" id="btn-close-picker" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="chess-dialog-body">
+      <!-- 页签由 main.js 的 renderTabs() 按 endgames.js 的页签表（endgameTabs()）生成，
+           每个带一个条数徽标。加一页只改那边的 TABS -->
+      <div class="chess-tabs" id="endgame-tabs" role="tablist" aria-label="局面分类"></div>
+
+      <!-- 过滤框。它是**页签内**的过滤，不跨页签搜；但页签徽标会跟着变成各页的命中数，
+           所以「要搜的东西其实在别的页签里」从徽标上就能看出来（main.js 里 countByCategory） -->
+      <div class="chess-search">
+        <input type="text" class="chess-input" id="endgame-search" autocomplete="off"
+               placeholder="按名字过滤这一页的局面"
+               aria-label="按名字过滤这一页的局面">
+        <button type="button" class="chess-search-clear" id="btn-clear-search"
+                aria-label="清空过滤词" title="清空过滤词" hidden>✕</button>
+      </div>
+
+      <div class="chess-endgame-list" id="endgame-list" role="tabpanel"></div>
+    </div>
+
+    <!-- 不在残局里时整条隐藏（main.js 里和按钮一起切换） -->
+    <div class="chess-dialog-foot" id="picker-foot">
+      <button type="button" class="btn btn-ghost chess-endgame-exit" id="btn-exit-endgame" hidden>
+        退出残局，回到标准开局
+      </button>
+    </div>
+  </dialog>
+
+  <!-- 「往局面库里加东西」的弹窗。和「挑一局」分开：那边是读，这边是写。 -->
+  <dialog class="chess-dialog" id="io-dialog">
+    <div class="chess-dialog-head">
+      <h2>保存 / 导入局面</h2>
+      <button type="button" class="chess-dialog-close" id="btn-close-io" aria-label="关闭">✕</button>
+    </div>
+
+    <!-- **只有一段**：一个 FEN 框 + 两个去处 —— 局面就是 FEN 框里那个。 -->
+    <div class="chess-dialog-body chess-dialog-body--form">
+      <section class="chess-io-section">
+        <textarea class="mono-input" id="fen-input" rows="3" spellcheck="false"
+                  placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></textarea>
+        <p class="chess-io-hint">打开时这里就是当前局面。想换成别处的局面，整个选中、把 FEN 粘上去覆盖即可。</p>
+
+        <div class="chess-save">
+          <input type="text" class="chess-input" id="custom-name" maxlength="40"
+                 placeholder="给这个局面起个名字">
+        </div>
+
+        <div class="chess-io-actions">
+          <button type="button" class="btn btn-ghost chess-io-btn" id="btn-load-fen">载入到棋盘</button>
+          <button type="button" class="btn btn-ghost chess-io-btn" id="btn-import-fen">存为自定义局面</button>
+        </div>
+
+        <p class="chess-io-hint">「存为自定义局面」用上面那个名字把它收进局面库，以后能反复点开；
+        「载入到棋盘」只是摆上去接着下，不进库。</p>
+      </section>
+
+      <p class="chess-dialog-msg" id="io-msg" hidden></p>
+    </div>
+  </dialog>
+
+  <!-- 「重命名」弹窗。只改名字，FEN 一个字符不动 —— 想换局面就重新存一条。
+       用弹窗而不是 window.prompt：prompt 没法把「名字最长 40 个字」这类原因显示出来。 -->
+  <dialog class="chess-dialog chess-dialog--rename" id="rename-dialog">
+    <div class="chess-dialog-head">
+      <h2>重命名</h2>
+      <button type="button" class="chess-dialog-close" id="btn-close-rename" aria-label="关闭">✕</button>
+    </div>
+
+    <div class="chess-dialog-body chess-dialog-body--form">
+      <section class="chess-io-section">
+        <p class="chess-io-hint" id="rename-hint"></p>
+        <div class="chess-save">
+          <input type="text" class="chess-input" id="rename-input" maxlength="40"
+                 placeholder="给这个局面起个名字">
+          <button type="button" class="btn btn-ghost" id="btn-do-rename">保存名字</button>
+        </div>
+      </section>
+
+      <p class="chess-dialog-msg" id="rename-msg" hidden></p>
+    </div>
+  </dialog>
+
+  <!-- 升变选择。**必须在走子之前问**：兵到末排时先弹这一层，选定后才真正落子；
+       Esc 取消等于没走。用原生 <dialog>：Esc、焦点陷阱、背景遮罩都是白送的。 -->
+  <dialog class="chess-dialog chess-dialog--promo" id="promo-dialog">
+    <div class="chess-dialog-head">
+      <h2>兵升变为</h2>
+      <button type="button" class="chess-dialog-close" id="btn-close-promo" aria-label="取消">✕</button>
+    </div>
+    <div class="chess-dialog-body chess-promo-body">
+      <div class="chess-promo-choices" id="promo-choices"></div>
+      <p class="chess-io-hint">方向键选择，回车确认；<kbd>Esc</kbd> 取消（等于没走这一步）。</p>
+    </div>
+  </dialog>
+</body>
+</html>
