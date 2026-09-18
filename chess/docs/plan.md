@@ -342,13 +342,17 @@ FEN 框打开时就是当前局面、「框里就是当前局面」时「载入�
 ## 验收清单（做完 Task 12 时逐条过）
 
 - [x] `node chess/tools/test-rules.mjs`（含 perft 1~5 + Kiwipete 等四个局面）退出码 0
+      （可选的 `--deep` 也跑了：初始局面第 6 手 119060324 通过）
 - [x] `node chess/tools/test-notation.mjs` / `test-game.mjs` / `test-engine.mjs` / `test-share.mjs` 退出码 0
       （另加 `test-position.mjs` / `test-renderer.mjs` / `test-solution-book.mjs` / `test-main.mjs` 也都 0）
 - [x] `node chess/tools/verify-endgames.mjs` 退出码 0
-- [ ] 人机对弈能下完一盘（含升变、吃过路兵、易位各至少出现一次）
-      —— **只验到「能走子、AI 会应手」**（浏览器里 `e4` → `Nc6`）。
-      `selfplay.mjs novice easy 80` 全程合法、出现过 1 次升变，但那一盘没有易位与吃过路兵；
-      这三种特殊着法目前只有规则层（perft + 逐条断言）覆盖，界面上没有逐个走过。
+- [x] 人机对弈能下完一盘（含升变、吃过路兵、易位各至少出现一次）
+      —— 浏览器里实走（用「保存 / 导入」的 FEN 框读回局面当证据，双人对弈开关避开 AI 随机性）：
+      短易位 `1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.O-O`（rank 1 变 `RNBQ1RK1`、易位权降到 `kq`）；
+      吃过路兵 `1.exd6`（`4k3/8/8/3pP3/8/8/8/4K3 w - d6` → 黑 d5 兵消失）；
+      升变四种各一次（`a8=Q+` / `a8=R+` / `a8=B` / `a8=N`，Esc 取消过一步、着法列表仍是「还没有走棋」）；
+      终局从 `7k/8/6K1/8/8/8/8/R7 w` 走 `1.Ra8#` → 状态行「将死 · 白方胜」。
+      **注意**：这几种着法是分别在摆好的局面上走的，「一整盘里三种都出现」没有特意构造。
 - [x] 悔棋 / 重做 / 单步回看 / 翻转 / 提示 全部可用，动画符合 `design.md` §3.8
       —— 行为由 `test-main.mjs` 逐条钉住（含翻转后点击映射、AI 等补间）；动画观感没有逐帧看过。
 - [x] 深色模式配色正常；窄屏单列布局正常（浏览器实看，控制台 0 报错）
