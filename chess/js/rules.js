@@ -495,10 +495,20 @@ export function gameStatus(pos) {
 export function isLegalPosition(pos) {
   const { cells, side, castling } = pos;
 
-  // 1. 双方各恰好一个王
+  // 1. 双方**各恰好**一个王。
+  // **必须数个数，不能只找第一个** —— 「同一方有两个王」这种 FEN（比如 `4k3/4k3/…`）
+  // 用 findKing 两边都找得到、还落在不同格子上，只比「找到没找到」是拦不住的。
+  // 这个漏网是 test-share.mjs 抓出来的。
+  let whiteKings = 0;
+  let blackKings = 0;
+  for (let i = 0; i < CELLS; i++) {
+    if (cells[i] === K) whiteKings++;
+    else if (cells[i] === -K) blackKings++;
+  }
+  if (whiteKings !== 1) return { ok: false, reason: `白王数量是 ${whiteKings}，应为 1` };
+  if (blackKings !== 1) return { ok: false, reason: `黑王数量是 ${blackKings}，应为 1` };
+
   const kings = [findKing(cells, WHITE), findKing(cells, BLACK)];
-  if (kings[0] < 0 || kings[1] < 0) return { ok: false, reason: '双方必须各有一个王' };
-  if (kings[0] === kings[1]) return { ok: false, reason: '双方必须各有一个王' };
 
   // 2. 两个王不能相邻
   const kd = [Math.abs(fileOf(kings[0]) - fileOf(kings[1])), Math.abs(rankOf(kings[0]) - rankOf(kings[1]))];

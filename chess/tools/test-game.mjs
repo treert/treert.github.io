@@ -295,6 +295,84 @@ console.log('\n=== 随机走子（状态自洽）===');
       .includes(G.evaluateStatus(g).type), true);
 }
 
+// --- 存档（persist.js）---
+// 存档容错放在这个文件里：它管的就是「一局棋的状态」，
+// 而容错策略（坏数据整份丢弃 → 退化成全新开局）是状态机的一部分。
+console.log('\n=== 存档与容错 ===');
+{
+  const P = await load('persist.js');
+
+  /** 假 storage：persist.js 的 storage 是注入的，测试不需要真的 localStorage */
+  const fake = () => {
+    const map = new Map();
+    return {
+      getItem: (k) => (map.has(k) ? map.get(k) : null),
+      setItem: (k, v) => { map.set(k, String(v)); },
+      removeItem: (k) => { map.delete(k); },
+      put: (k, v) => { map.set(k, String(v)); },
+      raw: (k) => map.get(k),
+    };
+  };
+
+  check('存档 key 带模块前缀（模块隔离要求）', P.STORAGE_KEY, 'chess:state');
+
+  const st = fake();
+  const g = G.createGame({ twoPlayer: true });
+  for (const m of ['e2e4', 'e7e5', 'g1f3']) play(g, m);
+  G.gotoPly(g, 2);           // 顺手把「回看状态」也存下来
+  g.level = 'hard';
+
+  check('存盘成功', P.save(st, g), true);
+  check('存的是 JSON 文本', typeof st.raw(P.STORAGE_KEY), 'string');
+
+  const back = G.createGame({ twoPlayer: false });
+  check('恢复成功', P.restoreInto(back, st), true);
+  check('局面一致', G.currentFen(back), G.currentFen(g));
+  check('着法一条不少', back.moves.length, 3);
+  check('游标也恢复（回看状态不会丢）', back.cursor, 2);
+  check('挡位与双人模式一致', [back.level, back.twoPlayer], ['hard', true]);
+  check('恢复之后还能接着走', G.evaluateStatus(back).type, 'playing');
+  check('恢复之后走子也正常', play(back, 'f1b5').ok, true);
+
+  // 坏存档一律**整份丢弃**，降级成全新开局 —— 半个对局比没有对局更难查
+  const bad = [
+    ['不是 JSON', '{ 这不是 json'],
+    ['是 JSON 但不是对象', '"hello"'],
+    ['版本号不对', JSON.stringify({ v: 99, initialFen: START_FEN, moves: [], cursor: 0, playerSide: 1, level: 'medium' })],
+    ['着法不是数组', JSON.stringify({ v: 1, initialFen: START_FEN, moves: 'x', cursor: 0, playerSide: 1, level: 'medium' })],
+    ['游标越界', JSON.stringify({ v: 1, initialFen: START_FEN, moves: [], cursor: 3, playerSide: 1, level: 'medium' })],
+    ['playerSide 不是 1/-1', JSON.stringify({ v: 1, initialFen: START_FEN, moves: [], cursor: 0, playerSide: 0, level: 'medium' })],
+    ['着法缺 sig 字段', JSON.stringify({
+      v: 1, initialFen: START_FEN, cursor: 1, playerSide: 1, level: 'medium',
+      moves: [{ move: 1, san: 'e4', captured: 0, fenAfter: START_FEN }],
+    })],
+    ['着法编码越界', JSON.stringify({
+      v: 1, initialFen: START_FEN, cursor: 1, playerSide: 1, level: 'medium',
+      moves: [{ move: 999999, san: 'e4', captured: 0, fenAfter: START_FEN, sig: 'x' }],
+    })],
+  ];
+
+  for (const [name, text] of bad) {
+    const s = fake();
+    s.put(P.STORAGE_KEY, text);
+    check(`坏存档（${name}）→ 读出来是 null`, P.load(s), null);
+
+    const fresh = G.createGame();
+    play(fresh, 'e2e4'); // 先弄脏，再确认恢复失败时不动它
+    check(`坏存档（${name}）→ 恢复失败`, P.restoreInto(fresh, s), false);
+    check(`坏存档（${name}）→ 页面状态没被动过`, G.currentFen(fresh),
+      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1');
+  }
+
+  check('拿不到 storage 时存盘返回 false', P.save(null, G.createGame()), false);
+  check('拿不到 storage 时读取返回 null', P.load(null), null);
+  check('清空存档', (() => {
+    const s = fake();
+    P.save(s, G.createGame());
+    return [P.clear(s), P.load(s)];
+  })(), [true, null]);
+}
+
 // 收尾：把注入的测试残局清掉，避免影响别的测试共享的状态
 Eg.setCustomEndgames([]);
 

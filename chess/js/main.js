@@ -14,6 +14,8 @@ import * as G from './game.js';
 import { createRenderer, createPieceSvg } from './renderer.js';
 import { attachInteraction } from './interaction.js';
 import { PIECE_NAMES } from './notation.js';
+import { saveSoon, restoreInto, defaultStorage } from './persist.js';
+import { shareUrl, readShareFen } from './share.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -391,6 +393,7 @@ function gotoPlyAnimated(toPly) {
   clearSelection();
   app.hint = 0;
   refresh(animate);
+  saveSoon(app.game);
 }
 
 function updateButtons() {
@@ -477,6 +480,7 @@ function applyMove(move, animate) {
   clearSelection();
   app.hint = 0;
   refresh(animate ? { from: moveFrom(made), to: moveTo(made) } : null);
+  saveSoon(app.game);
   requestAiMove();
   return true;
 }
@@ -677,19 +681,18 @@ async function copyCurrentFen() {
 }
 
 /**
- * 复制**分享链接**（先用 `?fen=` 拼出来；Task 9 会换成 share.js 的实现，
- * 那边负责「清掉旧参数、空格编成 %20」这些细节）。
+ * 复制**分享链接** —— 别人打开链接就能直接看到当前这个局面。
+ *
+ * 和复制 FEN 的差别只有一个：FEN 要对方自己找地方粘，链接点开就是。
+ * 两个按钮并列放着，都是「把当前局面拿出去」，只是拿出去的形式不同。
  */
 async function copyShareUrl() {
-  const url = new URL(location.href);
-  url.hash = '';
-  url.search = '';
-  url.search = `?fen=${encodeURIComponent(G.currentFen(app.game))}`;
+  const url = shareUrl(G.currentFen(app.game), location.href);
   try {
-    await navigator.clipboard.writeText(url.toString());
+    await navigator.clipboard.writeText(url);
     flashCopied(dom.btnCopyUrl, '复制链接');
   } catch {
-    clipboardFallback(url.toString(), '链接');
+    clipboardFallback(url, '链接');
   }
 }
 
@@ -742,6 +745,7 @@ function bindToolbar() {
   dom.levelSelect.value = app.game.level;
   dom.levelSelect.addEventListener('change', () => {
     app.game.level = dom.levelSelect.value;
+    saveSoon(app.game);
   });
 
   dom.sideSelect.value = String(app.game.playerSide);
@@ -753,6 +757,7 @@ function bindToolbar() {
     clearSelection();
     app.hint = 0;
     refresh();
+    saveSoon(app.game);
     requestAiMove(); // 执黑时 AI 先走
   });
 
@@ -762,6 +767,7 @@ function bindToolbar() {
     app.searchId++; // 作废在飞的响应
     app.hint = 0;
     updateChrome();
+    saveSoon(app.game);
     // 两种情况都交给 requestAiMove 自己的前置判断：
     //   刚打开 —— 可能正轮到「AI」那一方，这时不该再派发搜索；
     //   刚关掉 —— 可能正轮到 AI，要把它拉回来接着走。
@@ -777,6 +783,7 @@ function bindToolbar() {
     clearSelection();
     app.hint = 0;
     refresh(animate);
+    saveSoon(app.game);
   });
 
   // 重做就是「往前走一步」，和着法面板上的「下一步」是同一个动作 ——
@@ -795,6 +802,7 @@ function bindToolbar() {
     clearSelection();
     app.hint = 0;
     refresh();
+    saveSoon(app.game);
     requestAiMove();
   });
 
@@ -857,6 +865,27 @@ function bindKeyboard() {
   });
 }
 
+/**
+ * 链接里带了 `?fen=` 就切到那个局面（别人分享来的）。
+ * 返回要报给用户的原因；没有出错就返回空串。
+ *
+ * **参数无论好坏都要立刻抹掉**：留着的话，之后每一次刷新都会把用户
+ * 从「他自己后来选的局面」拽回分享的局面 —— 那看起来很像 bug。
+ * 局面本身马上进存档，刷新照样恢复得回来。
+ */
+function applyShareLink() {
+  const r = readShareFen(location.href);
+  if (!r.found) return '';
+
+  history.replaceState(null, '', location.pathname);
+
+  if (!r.ok) return r.reason;
+  G.startPosition(app.game, r.fen);
+  // 立刻存：地址栏里的参数刚被抹掉，存档是刷新后唯一的退路
+  saveSoon(app.game);
+  return '';
+}
+
 // === 装配 ===
 
 function init() {
@@ -874,6 +903,13 @@ function init() {
   dom.promoDialog.addEventListener('cancel', (e) => { e.preventDefault(); closePromotion(); });
   dom.btnClosePromo.addEventListener('click', closePromotion);
 
+  // 尝试恢复上次的对局；失败就全新开局（persist.js 内部已经做了容错）
+  restoreInto(app.game, defaultStorage());
+
+  // 分享链接**优先于存档**：用户是主动点开这个链接的，不该被上次的对局盖掉。
+  // 放在 restoreInto 之后，是为了让挡位、执子方这些偏好仍然沿用本地存档。
+  const shareError = applyShareLink();
+
   dom.sideSelect.value = String(app.game.playerSide);
   dom.levelSelect.value = app.game.level;
   dom.twoPlayerToggle.checked = !!app.game.twoPlayer;
@@ -881,6 +917,9 @@ function init() {
 
   refresh();
   requestAiMove();
+  // 必须放在最后：状态栏在 refresh / requestAiMove 里都会被重写，
+  // 提前设的话这句话立刻就被盖掉了。
+  if (shareError) setStatus(shareError);
 }
 
 init();

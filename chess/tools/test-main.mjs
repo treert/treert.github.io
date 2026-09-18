@@ -164,8 +164,16 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   writable: true,
 });
+// 地址栏里**故意带一段用不了的 FEN**：share 那条路要能优雅降级
+//（Task 11 会把这里换成一段可用的局面，那时才有点击「退出残局」回标准开局的入口）。
 Object.defineProperty(globalThis, 'location', {
-  value: { href: 'https://example.com/chess/' },
+  value: { href: `https://example.com/chess/?fen=${encodeURIComponent('你好世界')}`, pathname: '/chess/' },
+  configurable: true,
+  writable: true,
+});
+let replacedWith = null;
+Object.defineProperty(globalThis, 'history', {
+  value: { replaceState(_state, _title, url) { replacedWith = url; } },
   configurable: true,
   writable: true,
 });
@@ -246,8 +254,22 @@ console.log('装配层端到端测试\n');
 await load('worker.js');
 await load('main.js');
 
+// --- 分享链接（坏参数）---
+console.log('=== 分享链接（坏参数也要能用）===');
+{
+  check('坏链接：状态行第一句就是原因', statusText().includes('解析失败'), true);
+  check('坏链接：地址栏里的参数立刻被抹掉（否则刷新会一直被拽回去）', replacedWith, '/chess/');
+  check('坏链接：仍然从标准开局开始（32 枚棋子）', piecesOnBoard().length, 32);
+  check('坏链接：不影响标题行的局面名', btn('btn-open-picker').textContent, '局面库·标准开局');
+
+  // 那只是一句提示，下一次刷新就会被覆盖 —— 这是有意的（提示不该赖在状态行上）
+  clickCell('a2');
+  arrowKeys('Escape');
+  check('下一次刷新之后状态行恢复正常', statusText(), '轮到白方（你）');
+}
+
 // --- 初始装配 ---
-console.log('=== 初始装配 ===');
+console.log('\n=== 初始装配 ===');
 {
   check('棋盘摆了 32 枚棋子', piecesOnBoard().length, 32);
   check('状态行显示轮到白方（你）', statusText(), '轮到白方（你）');
