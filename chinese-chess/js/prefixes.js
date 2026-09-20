@@ -21,28 +21,10 @@ export const PREFIXES = {
     scores: 'cp 523 cp 564 cp 759 cp 551 cp 541 cp 531 cp 682 cp 779 cp 790 cp 473 cp 775 cp 782 cp 784 cp 488 cp 775 cp 479 cp 820',
     stop: 'repeat',
   },
-  'shiqingyaqu-551-025': {
-    pv: 'f8e8',
-    notes: '车四平五',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
-  'shiqingyaqu-551-064': {
-    pv: 'd0i0',
-    notes: '车六平一',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
-  'shiqingyaqu-551-087': {
-    pv: 'h9f9',
-    notes: '车二平四',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-088': {
     pv: 'f8f9 e9e8 f9f8 e8e9',
     notes: '前车进一 将5进1 前车退一 将5退1',
-    scores: 'cp 386 cp 383 cp 389 cp 389',
+    scores: 'cp 378 cp 391 cp 393 cp 376',
     stop: 'repeat',
   },
   'shiqingyaqu-551-109': {
@@ -60,12 +42,6 @@ export const PREFIXES = {
     stop: 'mate-pv',
     mate: 17,
     mateAt: 15,
-  },
-  'shiqingyaqu-551-124': {
-    pv: 'c8c9',
-    notes: '车七进一',
-    scores: 'cp 62',
-    stop: 'notWinning',
   },
   'shiqingyaqu-551-143': {
     pv: 'c4g4 g9f9 f8f9 e8f9 h8d8 a3h3 e0d0 d9e8 h2g2 h3b3 e2c0 a7c5 g4c4 e8d7 d8d7 f9e8 d7d8 b3e3 c4c5 c9a7 c5h5 e7h7 h5h7 e9f9 d8d5 f9f8 d5f5 e8f7 h7f7 f8e8 f7f8 e8e9 f8f9 e9e8 f5f8 e8e7 f9e9',
@@ -95,12 +71,6 @@ export const PREFIXES = {
     mate: 29,
     mateAt: 28,
   },
-  'shiqingyaqu-551-214': {
-    pv: 'd6c8',
-    notes: '马六进七',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-220': {
     pv: 'g5f7 e8f7 c8b8 f9e8 b8b9 g1g7 h8g8 f1f0 e0f0 a0b0 g8f8 b0b8 f8e8 f7e8 e7g6 g7g9 f0e0 a7c8 e6c6 g9g8 c6c7 b8b5 c7g7 c8d6 g7g8 d6e4 g8g9 e8f9 b9c9 b5d5 g9g7 f9e8 e0e1 d5h5 g7e7 e4f6 g6h8 h5h3 e7e6 h3h7 h8f7 e9f9 e6f6 h7g7 f7d6 g7f7 f6f7 e8f7 d6f7 f9f8 f7h8',
     notes: '马三进四 士5进6 兵七平八 后士进5 兵八进一 炮7退6 兵二平三 卒6进1 帅五平四 炮1平2 兵三平四 炮2退8 兵四平五 士6退5 马五退三 炮7退2 帅四平五 马1退3 车五平七 炮7进1 车七进一 炮2进3 车七平三',
@@ -108,12 +78,6 @@ export const PREFIXES = {
     stop: 'mate-pv',
     mate: 26,
     mateAt: 23,
-  },
-  'shiqingyaqu-551-239': {
-    pv: 'h6f7',
-    notes: '马二进四',
-    scores: 'cp 0',
-    stop: 'notWinning',
   },
   'shiqingyaqu-551-247': {
     pv: 'c8c9 d9d8 f3d3 a7d7 d3d7 e8d7 a2d2 b6d6 d2d5 g5i7 g3g4 e1d1 f0e0 d1c1 e0e1 c1b1 e1e2 b1c1 d5d2 d6d3 f6g8 i7g9 g4g5 g9e7 g8f6 e7c5 g5g6 c5a7 c9b9 d3d2 e2d2 d8d9 g6g7 d9e9 f6d7 e9e8 d7b8 a7c5 b8d9 e8e9 g7f7 c5e7 f7f8 e7g5 d9b8 g5e7 b9c9 e7c9 b8d7 e9d9 f8e8 c9a7 d2e2 c1d1 d7b8',
@@ -205,12 +169,6 @@ export const PREFIXES = {
     mate: 26,
     mateAt: 25,
   },
-  'shiqingyaqu-551-327': {
-    pv: 'h6h9 f9f8 h9h8',
-    notes: '车二进三 将6进1 车二退一',
-    scores: 'cp 447 cp 403 cp 0',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-328': {
     pv: 'a9a8 d8d9 c8c7 d9e9 b8b1 e9d9 b1e1 h1g1 e1a1 c9e7 a1g1 e8d7 a8h8 h0i0 f0e0 i0i9 h8h9 i9i4 h9h6 d7e8 g1d1 d9e9 h6e6 e9f9 d1i1 i4g4 i1i9 g4g9 e0f0 e8d9 c7b7 a6a5 b7b1 a5a4 i9i7 d9e8 i7g7 g9g8 g7g8 e8d7 g8g7 e7g9 b1e1 d7e8 e1f1',
     notes: '炮九退一 将4退1 炮七退一 将4平5 车八退七 将5平4 车八平五 卒8平7 车五平九 后象进5 车九平三 士5进4 炮九平二 炮8平9 帅四平五 炮9退9 炮二进一 炮9进5 炮二退三 士4退5 车三平六 将4平5 炮二平五',
@@ -240,12 +198,6 @@ export const PREFIXES = {
     notes: '炮九退一 车8退1 炮九平六 车8平5 帅五平六 车9进5 兵二进一 车5平3 仕五进六 车9平4 炮六进二 车3平4 帅六平五 车4退1 仕四进五 车4平3 相七进五 车3平2 车五平七 后卒进1 车七退一 将4进1 车七退一 将4退1 车七进一',
     scores: 'cp 334 cp 339 cp 336 cp 331 cp 336 cp 327 cp 328 cp 331 cp 330 cp 334 cp 333 cp 341 cp 351 cp 360 cp 361 cp 358 cp 368 cp 368 cp 396 cp 389 cp 399 cp 397 cp 397 cp 397 cp 402',
     stop: 'repeat',
-  },
-  'shiqingyaqu-551-338': {
-    pv: 'h8f7',
-    notes: '马二退四',
-    scores: 'cp 0',
-    stop: 'notWinning',
   },
   'shiqingyaqu-551-340': {
     pv: 'd6f7 e8f7 d4d9 e9e8 d9d8 e8e9 a6a9 c9a7 a9h9 g0f0 d8d9 e9e8 f6e6 e7c5 h9h3 f0e0 e6e0 e1e0 d0d1 c1b1 d9d4 c5e7 d4c4 c2c1 d1d2 a7c9 h3b3 e8f8 b3f3 f7e8 c4f4 e8f7 f3f7 f8e8 f7f6 b1b9 f6e6 e7g5 f4b4 b9a9 b4b8 e8e7 b8b9 a9a4 b9c9 e7e8 c9c1 e0f0 e6e3 g5i7 c1c5 e8f8 c5f5 f8e8 f5e5 e8f8 d2e2 a4a7 e3f3 a7e7 e5e7 i7g5 e7e5 g5e7 e5e7 f0g0 e7e5 g0f0 e5f5',
@@ -293,18 +245,6 @@ export const PREFIXES = {
     scores: 'cp 624 cp 423 cp 556 cp 544 cp 653 cp 490',
     stop: 'repeat',
   },
-  'shiqingyaqu-551-350': {
-    pv: 'b2b9',
-    notes: '车八进七',
-    scores: 'cp 125',
-    stop: 'notWinning',
-  },
-  'shiqingyaqu-551-353': {
-    pv: 'c7d7 d8e8',
-    notes: '兵七平六 将4平5',
-    scores: 'cp 177 cp 82',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-356': {
     pv: 'b8b3 d7d8 b3d3 d8e8 d3g3 e8f8 g3g9 g1g0 g9g8 f8f9 g8g7 f9f8 g7g8',
     notes: '车八退五 将4退1 车八平六 将4平5 车六平三 将5平6 车三进六 卒7进1 车三退一 将6退1 车三退一 将6进1 车三进一',
@@ -343,12 +283,6 @@ export const PREFIXES = {
     scores: 'cp 232 cp 235 cp 223 cp 243 cp 221 cp 279 cp 252 cp 254 cp 270 cp 314 cp 295 cp 293 cp 286 cp 297 cp 286 cp 296',
     stop: 'repeat',
   },
-  'shiqingyaqu-551-382': {
-    pv: 'd1d2',
-    notes: '帅六进一',
-    scores: 'cp 128',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-385': {
     pv: 'e1d2 f7f1 e8e4 f9f8 i1i8 f8e8 e4e8 f1f2 d2e1 f2i2 i8f8 i2c2 f8f0 b2b1 e8e7 b1c1 f0f1 d9d8 e7e4 c2c5 e1d2 c5d5 e0e1 d5d2 f1c1 d2d1 e1e0 d1d0 e0e1 d0d2 c1c9 d2d1 e1e0 d1d0 e0e1 d0d3 e4e8 d8d9 e8e9 d9d8 c9d9 d3h3 e9e4 h3h1 e1e2 h1h2 e2e1 h2h7 e4d4 h7d7 d9d7 d8d9 d7b7',
     notes: '仕五进六 车6进6 车五退四 炮6进1 炮一进七 炮6平5 车五进四 车6退1 仕六退五 车6平9 炮一平四 车9平3 炮四退八 卒2进1 车五退一 卒2平3 炮四进一 将4进1 车五退三 车3退3',
@@ -369,35 +303,11 @@ export const PREFIXES = {
     scores: 'cp 161 cp 151 cp 159 cp 157 cp 162 cp 172 cp 155 cp 160 cp 158 cp 160 cp 155 cp 156 cp 155 cp 170',
     stop: 'repeat',
   },
-  'shiqingyaqu-551-392': {
-    pv: 'i1c1',
-    notes: '车一平七',
-    scores: 'cp 2',
-    stop: 'notWinning',
-  },
-  'shiqingyaqu-551-393': {
-    pv: 'i2i9',
-    notes: '炮一进七',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
-  'shiqingyaqu-551-394': {
-    pv: 'c4d4',
-    notes: '车七平六',
-    scores: 'cp 0',
-    stop: 'notWinning',
-  },
   'shiqingyaqu-551-395': {
     pv: 'd9g9 e8h8 g9g6 h8h2 e2e1 h2h1 e1e0 h1h0 e0e1 h0h1',
     notes: '车六平三 车5平8 车三退三 车8进6 帅五退一 车8进1 帅五退一 车8进1 帅五进一 车8退1',
     scores: 'cp 438 cp 682 cp 643 cp 624 cp 636 cp 686 cp 672 cp 692 cp 626 cp 679',
     stop: 'repeat',
-  },
-  'shiqingyaqu-551-396': {
-    pv: 'e2e9',
-    notes: '车五进七',
-    scores: 'cp 0',
-    stop: 'notWinning',
   },
   'shiqingyaqu-551-398': {
     pv: 'f8g8 e9d9 f4b4 e5f5 f1e1 f5e5 e1f1 d9d8 g8f8 d8d7 b4f4 e5e6 f4f2 e6e5 f2f6 c5a7 f6f7 e5e7 f7f5 e7e6 f5a5 e6f6 f1e1 f6e6 e1f1 a7c9 a5c5 e6f6 f1e1 f6e6 e1f1 c9a7 c5c7 d7d8 c7a7 e6f6 f1e1 f6e6 e1f1 e6d6 a7a8 d8d7 a8e8 d6d1 e8e1 d1d6 e1e9 d6d1 f1f0 d1d0 f0f1 d0c0 f1e1 c0c1 e1e0 c1c0 e0e1 c0e0 e1e0 d7d8 f8e8 d8d7 e9d9',
@@ -458,12 +368,6 @@ export const PREFIXES = {
     notes: '车一退六 马4进3 车五平七 马3退4 车一平三 士5进4 车三平七 卒6平7 前车平六 士4退5 车七进八 卒7平6 车七退八 卒6平7',
     scores: 'cp 536 cp 501 cp 571 cp 580 cp 567 cp 561 cp 586 cp 544 cp 517 cp 491 cp 581 cp 590 cp 594 cp 538',
     stop: 'repeat',
-  },
-  'shiqingyaqu-551-421': {
-    pv: 'd8d9',
-    notes: '车六进一',
-    scores: 'cp 2',
-    stop: 'notWinning',
   },
   'shiqingyaqu-551-422': {
     pv: 'c7c9 b7b9 c9c6 b9b7 i4i5 e9d9 a9a5 a3b3 a5d5 b3c3 c6d6 d9e9 d6f6 e9d9 i5h5 c3c2 d5f5 b7f7 h5g5 c2c1 f5f7 e8f7 g5f5 f1g1 f6i6 g1h1 i6a6 c1b1 e0e1 f9e8 f5e5 b1c1 e5d5 h1g1 a6a1 c1b1 a1a3 d9e9 d5d6 b1c1 e1e2 c1b1 a3e3 e8f9 e2d2 b1c1 d6e6 f9e8 e6f6 e8d7 e3i3 g1h1 i3a3 c1b1 a3e3 h1g1 f6e6 f7e8 d2e2 g1h1',
@@ -532,12 +436,6 @@ export const PREFIXES = {
     stop: 'mate-pv',
     mate: 36,
     mateAt: 39,
-  },
-  'shiqingyaqu-551-483': {
-    pv: 'f4f9',
-    notes: '车四进五',
-    scores: 'cp 50',
-    stop: 'notWinning',
   },
 };
 

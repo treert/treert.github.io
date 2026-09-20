@@ -186,6 +186,26 @@ function lineReachesMate(fen, toks) {
   return toks.length % 2 === 1 && generateLegalMoves(pos).length === 0;
 }
 
+/**
+ * 一串着法在**当前**局面上是否都合法（只查合法性，不要求走成杀）。
+ *
+ * 这是 `emit` 的守卫：账本里的记录是**上一次跑的时候那个局面**留下的。
+ * 用户改了 `endgames.js` 里某一局的 FEN（或者把它删了）之后，旧记录再照写不误的话，
+ * 线上就会多出一条**永远匹配不上**的「参考线」—— 徽标亮着、点提示却给不出来，
+ * 比没有更糟。走不通就跳过并警告，交给重跑那一局去修（`tools/solve.mjs` 干这个）。
+ */
+function lineIsLegal(fen, toks) {
+  const pos = parseFen(fen);
+  for (const tok of toks) {
+    const legal = generateLegalMoves(pos);
+    if (legal.length === 0) return false; // 已经终局了后面还有着法 = 旧数据
+    const move = iccsToMove(tok);
+    if (!legal.includes(move)) return false;
+    apply(pos, move);
+  }
+  return true;
+}
+
 // === 引擎会话 ===
 function startEngine() {
   if (!existsSync(EXE)) {
@@ -276,6 +296,14 @@ const saveWork = (work) => {
   mkdirSync(dirname(WORK_FILE), { recursive: true });
   writeFileSync(WORK_FILE, JSON.stringify(work, null, 1));
 };
+
+/** 读上一次的候选线（`promote` 自己的产物）。没有就返回空 —— 缺文件不算错。 */
+function loadCandidates() {
+  if (!existsSync(CAND_FILE)) return {};
+  try { return JSON.parse(readFileSync(CAND_FILE, 'utf8')); } catch (e) {
+    throw new Error(`候选线读不动（${CAND_FILE}）：${e.message}`);
+  }
+}
 
 // === gen：走一条「引擎首选前缀」（`--playout` 时走成一条完整线） ===
 //
@@ -503,15 +531,37 @@ if (stage === 'gen') {
 // 所以进 `js/solutions.js` 时带 `src: 'walk'` 标记，界面要分开措辞。
 function promote() {
   const work = loadWork();
+  const prev = loadCandidates();
+  const byId = new Map(ENDGAMES.map((e) => [e.id, e]));
   const out = {};
   const failed = [];
   const rows = [];
+  const kept = [];
 
   for (const id of Object.keys(work).sort()) {
     const rec = work[id];
-    if (!rec.mate) continue;
+    const eg = byId.get(id);
+
+    // **账本里没有完整线时，沿用上一次的候选**（前提：它仍然和当前 FEN 对得上）。
+    // 为什么必须这样：`gen --force` 重跑某局有可能走不成（引擎会打转），
+    // 而那次失败会把账本记录覆盖成 repeat/cap —— 文件一重写，那局原本已经出线的候选线就没了，
+    // 下次 emit 会把它从 `js/solutions.js` 里踢出去。**一次失败的重跑不该让已经做好的事倒退。**
+    if (!rec.mate) {
+      const old = prev[id];
+      if (old && eg && lineIsLegal(eg.fen, old.pv.trim().split(/\s+/))) {
+        out[id] = old;
+        rows.push({ id, name: eg.name, mate: old.mate, mateAt: old.mateAt, plies: old.pv.trim().split(/\s+/).length, tail: 0 });
+        kept.push(id);
+      }
+      continue;
+    }
+
     const toks = rec.steps.map((s) => s.iccs).concat(rec.tail || []);
-    const pos = parseFen(rec.fen);
+    // **复核必须拿当前 endgames.js 里的 FEN**，不能用记录里的 `rec.fen` ——
+    // 后者是"上次跑的时候"的局面。用户改了 FEN 之后，用旧局面复核等于自欺
+    // （旧 pv 在旧局面下当然是对的）。用新 FEN 复核，走不通的自然被挡下。
+    if (!eg) { failed.push(`${id}: endgames.js 里没有这一局（改过 id / 删过局？）`); continue; }
+    const pos = parseFen(eg.fen);
     let bad = '';
     for (let i = 0; i < toks.length; i++) {
       const legal = generateLegalMoves(pos);
@@ -532,7 +582,7 @@ function promote() {
     };
     rows.push({
       id,
-      name: rec.name,
+      name: eg.name,
       mate: out[id].mate,
       mateAt: rec.mateAt,
       plies: toks.length,
@@ -545,6 +595,9 @@ function promote() {
   for (const r of rows) {
     const provenFrom = r.mateAt ? `第 ${Math.ceil(r.mateAt / 2)} 回合起有杀证明` : '（没有 mate 证明段 —— 不该在这里）';
     console.log(`  ${r.name} (${r.id})  ${r.mate} 步杀 / ${r.plies} 半层   ${provenFrom}`);
+  }
+  if (kept.length) {
+    console.log(`（其中 ${kept.length} 条**沿用上一次的候选** —— 这次账本里没有完整线：${kept.join(', ')}）`);
   }
   if (failed.length) {
     console.log(`\n被规则层挡下 ${failed.length} 条（引擎说杀、实际走不到）：`);
@@ -597,11 +650,30 @@ if (stage === 'emit') {
   // （stop=terminal 且半层数为偶数）。把它当"参考线"给用户跟着走，等于教他怎么输。
   // 判据用第一步的红方优势（< 0 = 引擎认为红方处于下风），比"看结尾半层奇偶"更直白。
   // 这类局照旧回退引擎搜索，界面上什么都不标。
+  const byId = new Map(ENDGAMES.map((e) => [e.id, e]));
   const ids = [];
   const skipped = [];
+  const stale = [];
+  const notWinning = [];
+  const proven = [];
   for (const id of all) {
-    const first = work[id].steps && work[id].steps[0];
+    const rec = work[id];
+    const first = rec.steps && rec.steps[0];
     if (!first || first.redV < 0) { skipped.push(id); continue; }
+    // `notWinning` = 走两步之后引擎自己就说「红方只剩不到 +1.5 兵」——
+    // 那批局**本来就赢不下来**（与「评估≈0、更像和局」那组是同一批味道）。
+    // 给它们一条"参考线"等于暗示"跟着能赢"：实测跟到底也赢不了，
+    // 比没有更糟（同 §1.3「自定义局面没有结论」那条原则）。
+    if (rec.stop === 'notWinning') { notWinning.push(id); continue; }
+    // 已经有**已证明的解法**的局不用前缀：那条线更可信、界面也优先用它
+    // （`lineOf` 先查 `solutions.js`）。不排掉的话，给某一局跑一次 `solve --ids` 就会
+    // 在 prefixes.js 里留一条永远用不上的副本。
+    if (SOLUTIONS[id] && (SOLUTIONS[id].src || 'mate') === 'mate') { proven.push(id); continue; }
+    // 与**当前** endgames.js 对不上（改了 FEN / 删了这一局）→ 别写出去，见 lineIsLegal 的注释
+    const eg = byId.get(id);
+    if (!eg) { stale.push(`${id}（endgames.js 里已经没有这一局）`); continue; }
+    const toks = rec.steps.map((s) => s.iccs).concat(rec.tail || []);
+    if (!lineIsLegal(eg.fen, toks)) { stale.push(`${id}（着法在当前 FEN 下走不通）`); continue; }
     ids.push(id);
   }
 
@@ -650,6 +722,17 @@ if (stage === 'emit') {
   console.log(`已写出 ${OUT_FILE}（${ids.length} 局）`);
   if (skipped.length) {
     console.log(`（跳过 ${skipped.length} 局「引擎认为红方不行」的，不写进去：${skipped.join(', ')}）`);
+  }
+  if (notWinning.length) {
+    console.log(`（跳过 ${notWinning.length} 局「走两步就掉到 +1.5 兵以下」的 —— 那批赢不下来，不给线）`);
+  }
+  if (proven.length) {
+    console.log(`（跳过 ${proven.length} 局「已有已证明的解法」的 —— 那条线更可信，界面优先用它）`);
+  }
+  if (stale.length) {
+    console.log(`\n**警告：${stale.length} 局与当前 endgames.js 对不上，已跳过**（改过 FEN / 删过局？）：`);
+    for (const s of stale) console.log(`  ${s}`);
+    console.log('  修法：node chinese-chess/tools/solve.mjs --ids <这些 id>');
   }
 }
 

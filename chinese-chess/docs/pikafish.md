@@ -160,6 +160,7 @@ bestmove (none)
 |---|---|
 | `tools/gen-solutions.mjs` | **生成**：`fast`（短预算）→ `slow`（对没解出的长预算）→ `emit`（写 `js/solutions.js`）→ `issues`（疑点清单）。另有 `--normal`（用 `go movetime` 补跑 PV 被截断的局）、`--ids`（定点重跑）、`--from/--count`（分批）、`--mate/--movetime`（预算）。中间结果在 `tmp/solutions-work.json`，**可中断、可续跑** |
 | `tools/prefix-scan.mjs` | **「引擎首选前缀 / 参考线」**：给「没解出杀线」的局面走一条引擎自己最想走的线（`gen`，加 `--playout` 则走成完整线）、用规则层复核成候选（`promote`）、或把一条已知线（谱载 / `--line` 手给）与引擎首选逐点对照（`compare`），`emit` 写 `js/prefixes.js`。中间结果在 `tmp/prefix-work.json`。**它产出的是「引擎也同意」，不是「正解 / 必须」** —— 理由见下节 |
+| `tools/solve.mjs` | **中控**：把上面那条链路按顺序跑完 —— 校验局面 → 找杀（快/慢轮）→ 走到底 → 复核候选 → 写两个数据文件 → 校验 → 更新清单。**加 / 改局面跑这一条就够**：`--ids <id>`（会带 `--force`）/ `--status`（只看现状）/ `--dry-run`（只打印命令）。失败即停并给出单独重跑的命令 |
 | `tools/verify-solutions.mjs` | **校验**：不需要引擎。`node ... verify-solutions.mjs [id]` 传 id 就只看一局 |
 | `js/solutions.js` | 生成物（**别手改**）：395 条 `{ pv, mate, ms }` + `SOLUTIONS_SOURCE` |
 | `tmp/solutions-work.json` | 生成器的账本（每局一条记录）—— 删了要从零重跑 |
@@ -168,6 +169,30 @@ bestmove (none)
 
 换引擎版本重跑后，记得更新 `js/solutions.js` 顶部的 `SOLUTIONS_SOURCE`
 （它是 `gen-solutions.mjs` 里的常量，改那边再 `emit`）。
+
+## 加一局 / 改一局：一条命令（`tools/solve.mjs`）
+
+```powershell
+node chinese-chess/tools/solve.mjs --ids <id>      # 新加的 / 改过 FEN 的局
+node chinese-chess/tools/solve.mjs                 # 补跑「还没解法、账本里也没记录」的局
+node chinese-chess/tools/solve.mjs --status        # 只看现状（不开引擎）
+node chinese-chess/tools/solve.mjs --ids <id> --dry-run   # 只打印要跑的命令
+```
+
+顺序：`verify-endgames` → `gen-solutions fast` → `slow` → `prefix-scan gen --playout` →
+`promote` → `prefix-scan emit` → `gen-solutions emit` → `verify-solutions` → `test-solution-book` →
+`gen-solutions issues`。**失败即停**，并告诉你哪一步失败、怎么单独重跑。
+
+**它不自己算棋**：只是把既有工具当子进程按顺序调一遍，所以每一步都能单独跑
+（`--dry-run` 会把命令打出来，直接复制）。
+
+三条约定（都是踩过才写的）：
+
+| | |
+|---|---|
+| `--ids` 会带 `--force` | 账本按 id 存：改了 FEN 之后不带 force，「走到底」那一步会**跳过**它 —— 跑的其实还是旧局面 |
+| 不带 `--ids` 时**不**带 force | 只补「还没有记录」的局，不会把已有结果重算一遍 |
+| 一次失败的重跑**不会**让已出线的局倒退 | `promote` 保留上一次的候选（只要它仍和当前 FEN 对得上）；`emit` 把与当前 FEN 对不上的记录**跳过并警告** —— 改了 FEN 忘了重跑时，看到的是一行警告，而不是一条永远匹配不上的「参考线」 |
 
 ## 「引擎首选前缀」扫描（`tools/prefix-scan.mjs`）
 
