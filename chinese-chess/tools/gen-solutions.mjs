@@ -45,6 +45,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ENDGAMES } from '../js/endgames.js';
+import { PREFIXES } from '../js/prefixes.js';
 import { parseFen } from '../js/position.js';
 import { encodeMove, generateLegalMoves } from '../js/rules.js';
 
@@ -277,13 +278,19 @@ function emit() {
   for (const eg of ENDGAMES) {
     const r = work[eg.id];
     // 两条来源，**优先已证明的那条**：
-    //   work.id.mate > 0      → `src: 'mate'`：`go mate` 在**根上**证明了强制杀
-    //   candidates[id]        → `src: 'walk'`：引擎沿自己选的路走到底能杀，但**前段没有证明**
+    //   work.id.mate > 0  → `go mate` 在**根上**证明了强制杀（`src='mate'`）
+    //   candidates[id]    → 引擎沿自己选的路走到底的线。**它的 `src` 在候选文件里**：
+    //                        `'mate'` = 走到底时根上就证明了（没有未经证明的前段，见 prefix-scan 的 promote）
+    //                        `'walk'` = 前面有一段只靠引擎偏好走出来的
     // 两者都要过 `pvLengthToMate`（走到杀完为止）—— 规则层说了算，引擎的说法不算。
-    const source = (r && r.mate > 0) ? 'mate' : (candidates[eg.id] ? 'walk' : null);
+    const source = (r && r.mate > 0) ? 'mate' : (candidates[eg.id] ? 'cand' : null);
     if (!source) continue;
-    const pvText = source === 'mate' ? r.pv : candidates[eg.id].pv;
-    const ms = source === 'mate' ? r.ms : candidates[eg.id].ms;
+    const cand = candidates[eg.id];
+    const pvText = source === 'mate' ? r.pv : cand.pv;
+    const ms = source === 'mate' ? r.ms : cand.ms;
+    // **这里别按"来源"硬编码 src**：候选文件自己也分 mate / walk 两种。
+    // 早先写成 `src: 'walk'`（按来源）把一条根上已证明的线又降级回了"参考线"。
+    const src = source === 'mate' ? 'mate' : (cand.src || 'walk');
 
     // **以「走到杀完为止」的那一段为准**（见 pvLengthToMate 的注释）：
     //   多延伸的截掉、被截断的（PV 没杀完）直接不要 ——
@@ -296,8 +303,8 @@ function emit() {
     // mate 由**实际走出来的长度**推，而不是照抄引擎报的值：
     // 这样 `pv` 长度与 `mate` 在任何模式下都自洽（verify-solutions 会再钉一遍）。
     const mate = (n + 1) / 2;
-    if (source === 'mate') fromWork++; else fromWalk++;
-    rows.push({ id: eg.id, pv, mate, ms, src: source });
+    if (src === 'mate') fromWork++; else fromWalk++;
+    rows.push({ id: eg.id, pv, mate, ms, src });
   }
 
   const body = rows.map((r) => `  '${r.id}': { pv: '${r.pv}', mate: ${r.mate}, ms: ${r.ms}, src: '${r.src}' },`).join('\n');
@@ -396,10 +403,23 @@ function writeUnfinished(work, candidates) {
   const HEAD = '| id | 局名 | 难度 | 引擎给出 | 耗时 |\n|---|---|---|---|---|';
   // 有**引擎参考线**的局单独标出来：它们在界面上不是"什么都没有"，
   // 而是「提示」会沿着 `prefixes.js` 那条线给着法（**前段未经证明**，措辞与「有解法」不同）。
-  const ref = (id) => (candidates[id] ? '　*（有引擎参考线）*' : '');
+  // 两种「在界面上不是什么都没有」的标记：
+  //   有候选线 → 界面上是一条**完整的**参考线（能跟着走到将死）
+  //   只有前缀 → 界面上只有前 N 回合（走岔/走完就回退引擎搜索）
+  // 不标的话，看清单的人会以为这些局点进去什么都没有。
+  const ref = (id) => {
+    if (candidates[id]) return '　*（有引擎参考线）*';
+    if (PREFIXES[id]) return '　*（有引擎首选前缀）*';
+    return '';
+  };
+  // 候选线里也有两种：`src='mate'`（走到底时**根上**就证明了杀 —— 与 solutions.js 里那些
+  // 已证明的解法同为"能放心跟着走"）与 `src='walk'`（前段未经证明）。计数得分开，
+  // 否则文档会把一条已证明的线算成"参考线"。
+  const refIds = Object.keys(candidates);
+  const refCount = Object.values(candidates).filter((c) => (c.src || 'walk') === 'walk').length;
+  const rootProven = refIds.length - refCount;
   const line = ({ eg, r }) => `| \`${eg.id}\` | ${eg.name}${ref(eg.id)} | ${eg.difficulty} | `
     + `${r.mate !== null ? `mate ${r.mate}` : `cp ${r.cp}`} | ${(r.ms / 1000).toFixed(1)}s |`;
-  const refIds = Object.keys(candidates);
 
   const md = `# Pikafish 没解出来的局面
 
@@ -410,6 +430,10 @@ function writeUnfinished(work, candidates) {
 点「提示」时走的是**引擎参考线**（如果有）或本地引擎现算。**它不等于这些局是错的** ——
 大多数只是「赢法不是连击式连杀」。真正需要人工核查的是 A、B 两组。
 
+带标记的局在界面上**不是"什么都没有"**：\`*（有引擎参考线）*\` 是一条**完整**的参考线
+（能跟着走到将死，但前段未经证明），\`*（有引擎首选前缀）*\` 至少给前 N 回合
+（走完或走岔就回退引擎搜索）。两类都没标的，点进去才真的只能现算。
+
 **「引擎参考线」是什么**：\`tools/prefix-scan.mjs --playout\` 让引擎沿自己选的着法一路走到底，
 走成的完整线（再用本模块规则层复核：每步合法 + 末局将死）。它**不是**已证明的强制杀 ——
 前段只是「引擎也想这么走」（实测把第 004 局谱上的妙手换成次优着法，引擎只差 0.3~0.8 个兵，
@@ -419,8 +443,8 @@ function writeUnfinished(work, candidates) {
 | | 局数 | 说明 |
 |---|---|---|
 | 全库 | ${rows.length} | |
-| 已解出（在 \`js/solutions.js\` 里，\`src='mate'\`） | ${solved.length} | 「提示」直接给正解、AI 按谱应着 |
-| 另外有引擎参考线（\`src='walk'\`） | ${refIds.length} | 走到底能杀，但**前段未经证明** —— 界面标「参考线」 |
+| 已解出（在 \`js/solutions.js\` 里，\`src='mate'\`） | ${solved.length + rootProven} | 包括「走到底时**根上**就证明了」的 ${rootProven} 局：「提示」直接给正解、AI 按谱应着 |
+| 另外有引擎参考线（\`src='walk'\`） | ${refCount} | 走到底能杀，但**前段未经证明** —— 界面标「参考线」 |
 | **没解出来** | ${noMate.length + nonWin.length - refIds.length} | 下面逐个列出（标了「有引擎参考线」的除外） |
 | └ 其中谱载「和」 | ${draws.length} | **不是问题**：和局本来就没有「正解着一说」，列在文件末尾备查 |
 | └ 其中谱载「黑胜」 | ${losses.length} | 同上 —— 红方守不住的局，也没有「正解着一说」 |

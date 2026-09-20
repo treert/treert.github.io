@@ -251,12 +251,6 @@ export const PREFIXES = {
     scores: 'cp 193 cp 181 cp 177 cp 169 cp 193 cp 199 cp 237 cp 254 cp 274 cp 279 cp 275 cp 289 cp 279',
     stop: 'repeat',
   },
-  'shiqingyaqu-551-357': {
-    pv: 'b2b9 e9e8 e6c7 e8f8 b9b6 f8f9 b6f6 f9e9 f6h6 e9f9 h6h9 f9f8 h9h5 f8f9 c7e6 f9e9 e6c7 e9f9',
-    notes: '车八进七 将5进1 马五进七 将5平6 车八退三 将6退1 车八平四 将6平5 车四平二 将5平6 车二进三 将6进1 车二退四 将6退1 马七退五 将6平5 马五进七 将5平6',
-    scores: 'cp 606 cp 642 cp 739 cp 671 cp 700 cp 585 cp 746 cp 770 cp 731 cp 762 cp 715 cp 748 cp 739 cp 744 cp 843 cp 832 cp 752 cp 829',
-    stop: 'repeat',
-  },
   'shiqingyaqu-551-361': {
     pv: 'b4c6 e7d7 a6a9 f7e8 c6b8 d7e7 b8c6 e7d7',
     notes: '马八进七 将5平4 炮九进三 前士退5 马七进八 将4平5 马八退七 将5平4',

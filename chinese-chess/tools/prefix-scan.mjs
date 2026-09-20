@@ -578,7 +578,12 @@ function promote() {
       mate: (toks.length + 1) / 2,
       mateAt: rec.mateAt,
       ms: rec.ms,
-      src: 'walk',
+      // **`mateAt <= 1` 时按 `src='mate'` 存**：那表示 mate 证明出现在**第一步的搜索**里
+      // （也就是根上证明了），这条线根本没有"未经证明的前段" —— 与 `gen-solutions`
+      // 那条 `go mate` 证明出来的线是同一个可信度，只是发现它的搜索模式不同
+      // （实测第 357 局：`go movetime 5s` 给出 `mate 23`，而 `go mate 40 / 30s` 只给 cp）。
+      // 标成 `walk` 会让界面说"前段未经证明"—— 而它压根没有前段。
+      src: rec.mateAt <= 1 ? 'mate' : 'walk',
     };
     rows.push({
       id,

@@ -37,7 +37,7 @@
 export const SOLUTIONS_SOURCE = 'Pikafish 2026-09-06';
 
 /**
- * id → 解法。**只有引擎证明了强制杀的局才在这里**（430 条）。
+ * id → 解法。**只有引擎证明了强制杀的局才在这里**（431 条）。
  * 查不到就是没有 —— 调用方要能接受这一点。
  */
 export const SOLUTIONS = {
@@ -375,6 +375,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-352': { pv: 'h6d6 f7e8 d6e6 e8f7 d8e8 e9d9 f8f9 e1e0 d0d1 b1c1 d1d2 f7e8 e6d6', mate: 7, ms: 48, src: 'mate' },
   'shiqingyaqu-551-354': { pv: 'b0b9 e8d9 h4c4 c2c3 c4c9 c3c9 b9c9 e7g5 d8d9 e9e8 c9c8 e8e7 c8c5 g9i7 c5e5 e7f7 e5e1 d2d7 e1e4 f7f8 d0e0 d7e7 e4c4 e7d7 c4f4 d7f7 f4f6 i7g9 f6g6 f7a7 g6g8 f8f7 g8g5 f7f8 g5g7 g9i7 g7e7 a7a1 e7e8 f8f7 e8e6 a1e1 e6e1 f7f8 e1f1', mate: 23, ms: 4787, src: 'mate' },
   'shiqingyaqu-551-355': { pv: 'h8g8 f8f9 d8d9 e8d7 e5d7 e1e0 d0e0 f1e1 e0e1 f7e8 g8g9', mate: 6, ms: 47, src: 'mate' },
+  'shiqingyaqu-551-357': { pv: 'b2b9 e9e8 e6c7 e8f8 b9b6 f8f9 b6f6 f9e9 f6h6 e9f9 c7e6 f9e9 e6g7 e9d9 h6d6 d9e9 d6f6 e9d9 f6f9 d9d8 g7e6 d8e8 e6c7 e8e7 f9h9 d1h1 h9h1 a2c1 e0f0 c1e2 c4e2 e7d7 h1h7 d7d8 h7h8 d8d7 c7d5 f2f1 f0f1 a0f0 f1f0 d2e2 d5f6 d7e7 h8h7', mate: 23, ms: 5038, src: 'mate' },
   'shiqingyaqu-551-358': { pv: 'g5g6 f7e7 g6f6 e8f7 i5e5 e7d7 f6f7 d7d8 f7e7 d8d9 e5d5 d9e9 d5b5 f9e8 b5b8 e8d9 b8g8 e0g0 g8g0 d9e8 g0g8 e8f9 g8b8 e9d9 e7d7 d9e9 d7d8 f9e8 b8b9 e8d9 b9d9', mate: 16, ms: 80, src: 'mate' },
   'shiqingyaqu-551-359': { pv: 'g6e6 e8f8 c8d8 e1e0 f0f1 b7b1 f1f2 b1b2 f2f1 b2b6 d7e7 f9e8 e7e8 f8f9 d8d9 b6b1 f1f2 b1b2 f2f1 b2f2 f1f2 c0b0 d9e9', mate: 12, ms: 56, src: 'mate' },
   'shiqingyaqu-551-360': { pv: 'e4e9 f9f8 h7h8 f1f0 e0f0 f7e8 h8g8 f8f7 d7e7 f7e7 e9i9 d1e1 i9i7 e8f7 c7d7 e7e8 g8f8 e8f8 i7i1 f7e8 i1e1 b0c0 f0e0 c0d0 e0d0 e8d7 d0e0 f8f9 e1e4 d7e8 e4e8 f2f1 e8e5 f1e1 e0e1 f9f8 e5f5', mate: 19, ms: 193, src: 'mate' },
