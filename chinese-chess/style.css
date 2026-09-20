@@ -246,6 +246,14 @@ kbd {
 .xq-status--black {
   color: var(--xq-black);
 }
+/* 被将军（走的这一方被将）：状态行里最该被看见的一条。
+   和「将死 / 困毙」那些终局词同一族（危险色），但它是**进行中**的状态 ——
+   所以只染「将军」这两个字，不像 .xq-status--over 那样整行变色。
+   棋盘上被将的那个将 / 帅另有一道同色外圈（.xq-piece--checked），两边配成一套。 */
+.xq-status--check {
+  color: var(--danger);
+  font-weight: 700;
+}
 /* 终局时整行统一走危险色，但**只有红方名让位，黑方名保留自己的颜色**。
    这个不对称是有原因的，不是漏写：
      - 红方名（--xq-red #c0392b）和终局色（--danger #d63031）本来就都是红的，
@@ -912,6 +920,25 @@ kbd {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
+}
+/* 「有解法」徽标：库里 396 局带一条已证明的杀线，它们在列表里要能被一眼挑出来 ——
+   有解法的局「提示」一点就出正解（还不必等引擎），没有的得现算、也可能算不出来。
+   和难度 / 结论并排（都在行右端），用强调色 + 细边框跟它们分开，不与那串灰字混为一体。
+   **只有文字、没有底色**：一屏能有十几行徽标，实心块会把列表糊成一片。 */
+.xq-endgame-sol {
+  flex-shrink: 0;
+  /* 行是 baseline 对齐的（局名要和大字对齐），但带内边距的小方块按行中心对更稳 */
+  align-self: center;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--accent);
+}
+/* 选中的那一行整行是强调色底 —— 徽标得跟着翻成前景色，否则同色底上同色字看不见 */
+.xq-endgame--current .xq-endgame-sol {
+  color: var(--on-accent);
 }
 .xq-endgame-exit {
   width: 100%;

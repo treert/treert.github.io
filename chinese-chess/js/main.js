@@ -161,10 +161,15 @@ function refresh(animate = null) {
 /**
  * 设置状态栏内容。
  *
- * 参数是「片段」：字符串原样输出，`{ side }` 输出**带颜色的**「红方 / 黑方」。
+ * 参数是「片段」，三种形式：
+ *   '文字'           原样输出
+ *   { side }         输出**带颜色的**「红方 / 黑方」
+ *   { text, cls }    输出一段指定样式的字（`xq-status--${cls}`）——
+ *                    目前只有「将军」用它：它得比后面那句更抢眼，
+ *                    而这不是「方名」也不是整行的终局色，只能单给它一个类
  *
  * 为什么不拼字符串 + innerHTML：
- *   1. 拼成字符串之后就没法只给方名着色了（那是这次要做的效果）
+ *   1. 拼成字符串之后就没法只给某个片段着色了（那是这几处效果的全部意义）
  *   2. 状态文案里会混进用户输入（残局名、引擎报错），走 innerHTML 有注入风险
  */
 function setStatus(...parts) {
@@ -175,8 +180,13 @@ function setStatus(...parts) {
       continue;
     }
     const span = document.createElement('span');
-    span.className = p.side === RED ? 'xq-status--red' : 'xq-status--black';
-    span.textContent = sideName(p.side);
+    if (p.side) {
+      span.className = p.side === RED ? 'xq-status--red' : 'xq-status--black';
+      span.textContent = sideName(p.side);
+    } else {
+      span.className = `xq-status--${p.cls}`;
+      span.textContent = p.text;
+    }
     dom.status.appendChild(span);
   }
 }
@@ -214,8 +224,13 @@ function updateChrome() {
     const tail = app.game.twoPlayer
       ? ''
       : `（${side === app.game.playerSide ? '你' : 'AI'}）`;
-    parts = ['轮到', { side }, tail];
-    if (app.busy && app.pending === 'ai') parts = ['轮到', { side }, ' · AI 思考中'];
+    // 被将军的**就是轮到走的那一方**（规则上不允许把自己的将 / 帅留在被吃的位置），
+    // 所以「将军」不是另一条信息，而是「轮到谁」这句话的前缀 —— 放在最前面。
+    // 棋盘上那个子已经套了一道危险色外圈（renderer 的 xq-piece--checked），这里管文字。
+    parts = [];
+    if (checkedKingIdx(app.pos) >= 0) parts.push({ text: '将军', cls: 'check' }, ' · ');
+    parts.push('轮到', { side }, tail);
+    if (app.busy && app.pending === 'ai') parts.push(' · AI 思考中');
     // 提示来自棋谱而不是引擎时标出来 —— 两者可信度不同，用户要能分清
     if (activeHint() && app.hintFromBook) parts.push(' · 谱载解法');
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
@@ -826,11 +841,34 @@ function endgameMeta(eg) {
   return eg.custom ? '自定义' : `${RESULTS[eg.result]}·难度${eg.difficulty}`;
 }
 
+/**
+ * 「这一局有已证明的杀线」——列表行里那枚小徽标；没有解法时返回 null。
+ *
+ * 为什么非要标在**列表**上：库里 396 局有解法、其余 160 多局没有，而这两种局在
+ * 「提示」上的表现完全不同 —— 前者一点就出正解（不派发搜索），后者要等引擎现算、
+ * 还有可能算不出合适的着法。光看局名分不出来，得点进去、再点一次提示才知道，那就太晚了。
+ *
+ * 只写「有解法」三个字，**步数放进 title**：列表宽度得留给局名（最长的那些局名本来就在
+ * 省略号上了），而步数是点进去之后更该看的细节 —— 棋盘上方那行给的才是带步数的完整版。
+ */
+function solutionBadge(eg) {
+  const sol = solutionOf(eg.id);
+  if (!sol) return null;
+
+  const span = document.createElement('span');
+  span.className = 'xq-endgame-sol';
+  span.textContent = '有解法';
+  span.title = `谱载解法：红方 ${sol.mate} 步杀（「提示」直接给正解，AI 也按谱应着）`;
+  return span;
+}
+
 function endgameTooltip(eg) {
   if (eg.custom) {
     return `${eg.name}（自定义局面）\n没有结论 —— 程序无从知道你存这个局面时的胜负`;
   }
+  const sol = solutionOf(eg.id);
   return `${eg.name}（谱载${RESULTS[eg.result]}）\n出处：${eg.source}`
+    + (sol ? `\n有已证明的解法：红方 ${sol.mate} 步杀` : '')
     + (eg.note ? `\n${eg.note}` : '');
 }
 
@@ -889,7 +927,12 @@ function renderEndgameList() {
     meta.className = 'xq-endgame-meta';
     meta.textContent = endgameMeta(eg);
 
-    btn.append(name, meta);
+    btn.append(name);
+    // 「有解法」徽标夹在局名和难度之间 —— 行右端那一串是「这一局的元信息」，
+    // 它属于那一串（没有解法时整块不出现，不给没有解法的局也占一个空位）
+    const badge = solutionBadge(eg);
+    if (badge) btn.appendChild(badge);
+    btn.appendChild(meta);
     btn.title = endgameTooltip(eg);
     // 记下 id：改完名字列表要整块重建，靠它才能在重建之后把焦点找回来（见 doRename）
     btn.dataset.egId = eg.id;
