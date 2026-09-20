@@ -159,6 +159,7 @@ bestmove (none)
 | 文件 | 作用 |
 |---|---|
 | `tools/gen-solutions.mjs` | **生成**：`fast`（短预算）→ `slow`（对没解出的长预算）→ `emit`（写 `js/solutions.js`）→ `issues`（疑点清单）。另有 `--normal`（用 `go movetime` 补跑 PV 被截断的局）、`--ids`（定点重跑）、`--from/--count`（分批）、`--mate/--movetime`（预算）。中间结果在 `tmp/solutions-work.json`，**可中断、可续跑** |
+| `tools/prefix-scan.mjs` | **「引擎首选前缀 / 参考线」**：给「没解出杀线」的局面走一条引擎自己最想走的线（`gen`，加 `--playout` 则走成完整线）、用规则层复核成候选（`promote`）、或把一条已知线（谱载 / `--line` 手给）与引擎首选逐点对照（`compare`），`emit` 写 `js/prefixes.js`。中间结果在 `tmp/prefix-work.json`。**它产出的是「引擎也同意」，不是「正解 / 必须」** —— 理由见下节 |
 | `tools/verify-solutions.mjs` | **校验**：不需要引擎。`node ... verify-solutions.mjs [id]` 传 id 就只看一局 |
 | `js/solutions.js` | 生成物（**别手改**）：395 条 `{ pv, mate, ms }` + `SOLUTIONS_SOURCE` |
 | `tmp/solutions-work.json` | 生成器的账本（每局一条记录）—— 删了要从零重跑 |
@@ -168,12 +169,60 @@ bestmove (none)
 换引擎版本重跑后，记得更新 `js/solutions.js` 顶部的 `SOLUTIONS_SOURCE`
 （它是 `gen-solutions.mjs` 里的常量，改那边再 `emit`）。
 
+## 「引擎首选前缀」扫描（`tools/prefix-scan.mjs`）
+
+`gen-solutions.mjs` 只收**已证明的杀线**，所以「谱载胜、但赢法不是连击式连杀」那批局面（`pikafish-unfinished.md` C 组）
+一条解法都没有。这个工具走另一条路：**不给完整杀线，给「引擎自己也想走的前 N 手」**。
+
+```powershell
+node chinese-chess/tools/prefix-scan.mjs gen --ids shiqingyaqu-551-004 --rules 12 --movetime 2000
+node chinese-chess/tools/prefix-scan.mjs compare --id shiqingyaqu-551-004 --line "马六进七 将4进1 …" --all
+```
+
+**它不是「正解」，也不是「必须」—— 这一条必须连同数据一起讲清楚。** 实测第 004 局：
+把谱上的妙手 `炮五平一` 换成 `马二进三`，Pikafish 只差 0.76 个兵（+9.52 vs +8.76）；
+把第 4 步的 `马七退五` 换成 `兵六平五`，只差 0.33 个兵。
+也就是说**引擎分不出「杀网还在」和「只是还大优」**，它给得出偏好，给不了必要性证明。
+（要看「必须」，得等引擎能证明 mate —— 那只有尾段。）
+
+`compare` 的判定分三态，**不能只看第 1 名**：`same`（首选就是谱着）/ `close`（谱着在前 `--multipv` 条里且与首选分差 ≤ `--tol`，算并列）/ `diff`（真分歧）。
+第 004 局那条谱载线跑出来是：**前 10 回合全部一致**，第 11 回合出现唯一一处真分歧（引擎偏 `兵六平五`），
+第 12 回合起引擎已经证明杀（mate 13 → … → mate 1）且与谱一致。
+
+`gen` 的停止理由都会写进记录：`cap`（到上限）/ `mate`（引擎给出了杀，而**没开 `--playout`**）/
+`mate-pv`（开了 `--playout`，杀线尾巴取自引擎那一次搜索的 PV）/ `notWinning`（红方优势掉到 +1.5 兵以下）/
+`repeat`（局面重复；排局里它往往就意味着"没有强制杀"）/ `terminal`（走到底）。
+
+### 走成完整线：`--playout` + `promote`
+
+`--playout` 让引擎**沿它自己选的着法一路走到底**，碰到 mate 分不停。产出直接进解决方案的流水线：
+
+```powershell
+node chinese-chess/tools/prefix-scan.mjs gen --playout --movetime 1500 --rules 30
+node chinese-chess/tools/prefix-scan.mjs promote          # 规则层复核 → tmp/prefix-candidates.json
+node chinese-chess/tools/gen-solutions.mjs emit           # 候选线当**兜底**写进 js/solutions.js
+node chinese-chess/tools/verify-solutions.mjs             # 全量再钉一遍
+```
+
+实测（2026-09-20，79 个「谱载胜但没解出」的局，1.5 秒/手）：**35 条走成完整线，34 条过复核**
+→ `js/solutions.js` 从 396 → **430 条**。走不成的：`repeat` 22、`notWinning` 19、`cap` 3。
+新数据带 `src: 'walk'`，与已证明的 `src: 'mate'` 在界面**分开措辞**（`walk` 的前段只是引擎的偏好）。
+
+三个坑（都是实测，改这个工具前先看）：
+
+| 现象 | 原因 / 解法 |
+|---|---|
+| **已有 mate 证明之后，还一步步重搜 → 会在 mate 距离上来回跳、最后 repeat** | 换成「**在出现 mate 分的那一次搜索里直接把 PV 取回来接上**」（`mate-pv`）。第 282 局两种错法都试过，只有这条稳 |
+| `go mate` 与 `go movetime` 在同一局面选出不同着法 | 见上面「踩过的坑」那条：问偏好用 `go movetime`，判有没有杀才用 `go mate` |
+| 「谱着与引擎首选不一致」报得太多 | 只看第 1 名会把**同分并列**误报成分歧。改成 MultiPV + 容差三态（`same` / `close` / `diff`） |
+
 ## 踩过的坑（都是实测）
 
 | 现象 | 原因 / 解法 |
 |---|---|
 | `Unknown command: '﻿uci'` | PowerShell 管道带 BOM。改交互式、`cmd` 的 `echo`，或写 Node 驱动 |
 | 「走完 PV 对方还有着法」 | **`go mate` 模式下 PV 会被截断**（实测 7 局）。用 `--normal`（`go movetime`）补跑 |
+| **同一局面 `go mate` 与 `go movetime` 给出不同的「最佳着法」** | mate 模式在**没有杀可证**的局面里选出来的着法与普通搜索不同，而且更容易在重复局面里打转（实测第 419 / 004 两局，mate 模式都以 repeat 收场）。问「引擎最想走什么」要用 `go movetime`；`go mate` 只用来判「有没有杀」。见 `tools/prefix-scan.mjs` 里 `MATE_MODE` 那段 |
 | `mate N` 与 PV 长度对不上 | mate 模式截断 PV、普通搜索又会多延伸几步。**以「走到杀完为止」的那一段为准**（`gen-solutions.mjs` 的 `pvLengthToMate`），`mate` 按实际长度推 |
 | 启动报 `CRITICAL ERROR` 后直接退出 | 新版引擎对 FEN / UCI 命令校验更严。把 FEN 单独拿来 `position fen` 试 |
 | 找不到权重 | `pikafish.nnue` 必须与 exe 同目录。启动时会打印 `info string NNUE evaluation using pikafish.nnue (64MiB, ...)`，没这行就是没加载上 |

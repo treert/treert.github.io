@@ -4,14 +4,19 @@
  *
  * 用法：node chinese-chess/tools/test-solution-book.mjs
  *
- * 盯四件事：
+ * 盯这些事：
  *   1. **坐标定点**：`b5b9` ↔ `(1,4)→(1,0)` ↔ 中文记谱「前车进四」
  *      （与 test-notation.mjs 里那几条谱例锚点是同一批证据）。
- *   2. **每条解法的每一步都查得到** —— 「展开时算的局面签名」必须等于「按那条线走到
+ *   2. **每条线的每一步都查得到** —— 「展开时算的局面签名」必须等于「按那条线走到
  *      该位置时的签名」。两个常量写混了（`y*9+x` 与 `y*90+x`）这里会全红，实测抓到过。
+ *      **`src='walk'` 那 34 条也一起走**：它们同样要以「末局对方一步都走不出」收场。
  *   3. **重复局面**：杀线里同一个局面反复出现是常态（马炮来回走），所以匹配必须带
  *      「谱上第几手」。只用「签名 → 着法」的 Map 会互相覆盖 —— 这一组就是钉它的。
  *   4. **走岔之后查不到** —— 界面据此回退引擎搜索。
+ *   5~6. 越界 / 空表，以及与对局状态机的口径一致。
+ *   7. **可信度分级与措辞**（`lineOf` / `lineLabel`）：`src='mate'` 说「有解法」，
+ *      `src='walk'` 必须说「参考线、未经证明」；引擎认为红方不行的局（反杀那几局）不给线。
+ *      措辞写错 = 把没证明的东西说成正解，比没有解法更糟 —— 所以要有断言钉住。
  */
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -170,6 +175,56 @@ check('ply 越界返回 0', bookMove(buildBook(byId.get(SAMPLE).fen, SOLUTIONS[S
   G.gotoPly(g, 0);
   check('跳回开局仍给出第 1 手的谱载着法',
     bookMove(book, G.currentFen(g), g.cursor), moveOfIccs(pv[0]));
+}
+
+// --- 7. 「这一局有什么线」与措辞（`src` 决定，见 solution-book.js 的 lineOf）---
+//
+// 这一组钉的是**可信度分级**：`src='mate'` 是引擎在根上证明了的强制杀，
+// `src='walk'` 只是「引擎走到底能杀」或「一段首选前缀」—— 前段没有证明。
+// 两者在界面上必须是不同的字（措辞写错 = 把没证明的东西说成正解，比没有解法更糟）。
+{
+  const { PREFIXES } = await load('prefixes.js');
+  const { lineOf: line, lineLabel: label } = await load('solution-book.js');
+
+  // (a) 已证明的杀线
+  const mateLine = line(SAMPLE);
+  check('第002局：来源是 mate', mateLine && mateLine.src, 'mate');
+  check('第002局：措辞是「有解法」', label(mateLine).startsWith('有解法（'), true);
+
+  // (b) 走成完整线、但前段没有证明的那批（solutions.js 里的 src='walk'）
+  const walkIds = Object.keys(SOLUTIONS).filter((id) => SOLUTIONS[id].src === 'walk');
+  check('数据里确实有 src=walk 的线（否则这一组是空转）', walkIds.length > 0, true);
+  if (walkIds.length) {
+    const w = line(walkIds[0]);
+    check(`walk 线（${walkIds[0]}）的来源是 walk、且带 mate`, [w.src, w.mate > 0], ['walk', true]);
+    check('walk 线的措辞里必须有「参考线」和「未经证明」',
+      [label(w).includes('参考线'), label(w).includes('未经证明')], [true, true]);
+    check('walk 线的措辞里**不能**出现「有解法」', label(w).includes('有解法'), false);
+  }
+
+  // (c) 只有前缀、没走成杀的局（prefixes.js）
+  const prefIds = Object.keys(PREFIXES).filter((id) => !PREFIXES[id].mate);
+  check('数据里确实有「只有前缀」的局', prefIds.length > 0, true);
+  if (prefIds.length) {
+    const p = line(prefIds[0]);
+    check(`只有前缀的局（${prefIds[0]}）：src=walk、mate 为空`, [p.src, p.mate], ['walk', null]);
+    check('只有前缀的措辞里写着「非证明」', label(p).includes('非证明'), true);
+  }
+
+  // (d) **不让用户跟着输棋**：引擎认为红方不行的局（第 020 局是「反杀」）不该给线。
+  // 这批在 `prefix-scan.mjs emit` 里按「第一步的红方优势 < 0」筛掉，这里从数据侧再钉一遍。
+  check('反杀的第020局不给线（跟着走等于教人怎么输）', line('shiqingyaqu-551-020'), null);
+  const badFirst = Object.entries(PREFIXES).filter(([, p]) => {
+    const first = (p.scores || '').trim().split(/\s+/)[0] || '';
+    if (first.startsWith('cp')) return Number(first.slice(2)) < 0;
+    if (first.startsWith('mate')) return Number(first.slice(4)) < 0; // 轮走方（红）被杀
+    return false;
+  }).map(([id]) => id);
+  check('prefixes.js 里没有「开局就判红方下风」的局', badFirst, []);
+
+  // (e) 没有线的局
+  check('自定义 / 未知 id 一律返回 null', [line('no-such-id'), line('')], [null, null]);
+  check('lineLabel(null) 是空串', label(null), '');
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

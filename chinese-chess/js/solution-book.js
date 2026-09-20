@@ -1,11 +1,21 @@
 /**
- * 谱载解法（"棋谱"）。纯逻辑 —— 不碰 DOM、不碰 Worker、不碰 localStorage。
+ * 可跟着走的线（"棋谱"）。纯逻辑 —— 不碰 DOM、不碰 Worker、不碰 localStorage。
+ *
+ * ## 两个来源、两种可信度
+ *
+ *   `solutions.js`  `src='mate'`  引擎在**根上**证明了强制杀 —— 「有解法」
+ *   `solutions.js`  `src='walk'`  引擎走到底**能**杀，但**前段没有证明** —— 「引擎参考线」
+ *   `prefixes.js`   （前缀）      引擎首选前 N 手，没走成杀 —— 同上，说「参考线 / 非证明」
+ *
+ * `lineOf` 把三者收成一个形状（`solutions.js` 优先），`lineLabel` 给出界面措辞。
+ * **措辞分开是有意的**：实测把第 004 局谱上的妙手换成次优着法，Pikafish 只差 0.3~0.8 个兵，
+ * 它分不出「杀网还在」和「只是还大优」—— 把这种线叫「正解」是骗人（详见 `docs/pikafish.md`）。
  *
  * ## 它解决什么
  *
- * `js/solutions.js` 里每局存的是一条**从初始局面开始的完整杀线**（`pv`）。
- * 而界面要回答的是另一个问题：「**眼下这个局面**，谱上写的是哪一步？」
- * —— 玩家可能已经走了几手，也可能压根没按谱走。
+ * 每局存的是一条**从初始局面开始的完整着法序列**（`pv`）。
+ * 而界面要回答的是另一个问题：「**眼下这个局面**，线上写的是哪一步？」
+ * —— 玩家可能已经走了几手，也可能压根没按线走。
  *
  * 做法：进一局时把那条线展开成两个平行数组（见 `buildBook`）——
  * 第 i 手**之前的局面签名**、以及第 i 手本身。查询时拿「当前走到第几手」
@@ -25,7 +35,8 @@
  * ## 为什么单独一个文件
  *
  * 展开与查表是纯逻辑（局面签名 + ICCS 坐标换算），写进 `main.js` 就没法单测，
- * 而它是「界面表现对不对」的关键一环。与 share.js / custom-endgames.js 同一个理由。
+ * 而它是「界面表现对不对」的关键一环 —— 包括 `lineOf` / `lineLabel` 那套措辞。
+ * 与 share.js / custom-endgames.js 同一个理由。
  *
  * ## 坐标
  *
@@ -36,6 +47,8 @@
 import { COLS } from './config.js';
 import { parseFen, toFen, positionSignature } from './position.js';
 import { encodeMove, moveFrom, moveTo } from './rules.js';
+import { solutionOf } from './solutions.js';
+import { PREFIXES } from './prefixes.js';
 
 /**
  * ICCS 坐标 → 内部着法编码（`from * 90 + to`）。
@@ -97,4 +110,36 @@ export function buildBook(initialFen, pv) {
 export function bookMove(book, fen, ply) {
   if (!book || !Number.isInteger(ply) || ply < 0 || ply >= book.moves.length) return 0;
   return book.before[ply] === positionSignature(fen) ? book.moves[ply] : 0;
+}
+
+/**
+ * 「这一局可以跟着走的线」：先看 `solutions.js`，没有再看 `prefixes.js`。没有则 null。
+ *
+ * 两个来源合并成同一个形状 `{ pv, mate, src }`，**`src` 决定界面怎么措辞**：
+ *   `'mate'`  引擎在**根上**证明了强制杀（`go mate`）—— 对手怎么走都杀，「有解法」
+ *   `'walk'`  引擎沿自己选的着法**走到底能杀**（`mate` 有值）或只有一段首选前缀（`mate` 为 null）
+ *             —— **前段没有证明**，「引擎参考线」
+ * 实测（见 `docs/pikafish.md`）：把第 004 局谱上的妙手换成次优着法，Pikafish 只差 0.3~0.8 个兵 ——
+ * 它分不出「杀网还在」和「只是还大优」。所以这两种**必须在文字上分开**，不能一律说「解法」。
+ *
+ * 放在这个文件而不是 `main.js`：它是纯查表逻辑（不碰 DOM），而措辞对不对是**能自动断言**的 ——
+ * `tools/test-solution-book.mjs` 第 7 组就是钉它的（同 E10 的教训：界面表现要有断言钉住）。
+ */
+export function lineOf(id) {
+  if (!id) return null;
+  const sol = solutionOf(id);
+  if (sol) return { pv: sol.pv, mate: sol.mate, src: sol.src || 'mate' };
+  const pre = PREFIXES[id];
+  if (pre) return { pv: pre.pv, mate: pre.mate || null, src: 'walk' };
+  return null;
+}
+
+/** 一条线的说法。状态行 / 列表徽标 / tooltip 共用这一处，免得三处措辞打架 */
+export function lineLabel(line) {
+  if (!line) return '';
+  if (line.src === 'mate') return `有解法（${line.mate} 步杀）`;
+  const plies = line.pv.trim().split(/\s+/).filter(Boolean).length;
+  return line.mate
+    ? `引擎参考线（走到底 ${line.mate} 步杀，前段未经证明）`
+    : `引擎参考线（前 ${Math.ceil(plies / 2)} 回合，非证明）`;
 }

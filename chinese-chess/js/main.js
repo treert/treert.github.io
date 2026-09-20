@@ -16,8 +16,7 @@ import { saveSoon, restoreInto, defaultStorage } from './persist.js';
 import { RESULTS, endgameTabs, endgamesByCategory, setCustomEndgames } from './endgames.js';
 import { loadCustom, addCustom, renameCustom, removeCustom, validateFreeFen, CUSTOM_CATEGORY } from './custom-endgames.js';
 import { shareUrl, readShareFen } from './share.js';
-import { solutionOf } from './solutions.js';
-import { buildBook, bookMove } from './solution-book.js';
+import { buildBook, bookMove, lineOf, lineLabel } from './solution-book.js';
 
 const dom = {
   board: document.getElementById('board'),
@@ -231,8 +230,12 @@ function updateChrome() {
     if (checkedKingIdx(app.pos) >= 0) parts.push({ text: '将军', cls: 'check' }, ' · ');
     parts.push('轮到', { side }, tail);
     if (app.busy && app.pending === 'ai') parts.push(' · AI 思考中');
-    // 提示来自棋谱而不是引擎时标出来 —— 两者可信度不同，用户要能分清
-    if (activeHint() && app.hintFromBook) parts.push(' · 谱载解法');
+    // 提示来自"线"而不是引擎时标出来 —— 两者可信度不同，用户要能分清。
+    // 而且「已证明的解法」和「引擎参考线」也要分开：后者前段只是引擎的偏好。
+    if (activeHint() && app.hintFromBook) {
+      const line = lineOf(app.game.endgameId);
+      parts.push(line && line.src === 'walk' ? ' · 引擎参考线（非证明）' : ' · 谱载解法');
+    }
     // cursor 为 0 时说「第 0 步」很别扭 —— 那是开局
     if (G.isReviewing(app.game)) {
       const where = app.game.cursor === 0 ? '开局' : `第 ${app.game.cursor} 步`;
@@ -263,10 +266,10 @@ function updateChrome() {
   if (eg) {
     // 自定义局面没有结论，不要编一个出来
     const label = eg.result ? `谱载${RESULTS[eg.result]}` : '自定义局面';
-    // 有解法的局把「几步杀」也说清楚 —— 这是这一局最有用的一条信息，
+    // 有线的局把「几步杀 / 几回合」也说清楚 —— 这是这一局最有用的一条信息，
     // 也解释了为什么「提示」会一点就出（它不需要等引擎）
-    const sol = solutionOf(eg.id);
-    const tail = sol ? ` · 有解法（${sol.mate} 步杀）` : '';
+    const line = lineOf(eg.id);
+    const tail = line ? ` · ${lineLabel(line)}` : '';
     dom.endgameGoal.textContent = `「${eg.name}」· ${label} · 已走 ${app.game.cursor} 步${tail}`;
   } else if (free) {
     dom.endgameGoal.textContent = `临时局面 · 已走 ${app.game.cursor} 步`;
@@ -514,13 +517,21 @@ function applyMove(move, animate) {
   return true;
 }
 
-// === 谱载解法（js/solutions.js + solution-book.js）===
+// === 可跟着走的线（js/solutions.js + js/prefixes.js + solution-book.js）===
 //
-// 残局库里有解法的那些局带一条**已证明的杀线**（离线用 Pikafish 生成、再用本模块规则层校验过）。
-// 界面拿它做两件事：「提示」优先给谱载着法；**轮到 AI 时也按谱应着**
-// —— 后者不是可选项：玩家刚按谱走一步、对手就走到谱外去了，那条线根本走不完。
+// 界面拿一条线做两件事：「提示」优先给线上的着法；**轮到 AI 时也按线应着**
+// —— 后者不是可选项：玩家刚走一步、对手就走到线外去了，那条线根本走不完。
 //
-// 走岔了（或这一局没有解法）就回退到引擎搜索，行为与从前一致。
+// **两个来源、两种可信度，措辞必须分开**（这是本节最要紧的一条）：
+//   `solutions.js`  `src='mate'`  引擎在**根上**证明了强制杀（`go mate`，对手怎么走都杀）
+//                                 → 可以放心跟着走，说「有解法」
+//   `prefixes.js`   `src='walk'`  引擎沿自己选的路走到底**能**杀，但**前段没有证明**
+//                                 → 说「引擎参考线」。前段只是引擎的偏好：实测第 004 局
+//                                   把谱上妙手换成次优着法，Pikafish 只差 0.3~0.8 个兵，
+//                                   它分不出「杀网还在」和「只是还大优」，所以**不能叫正解**
+// 两个来源都不分「推不推荐」——**都是"可以跟着走"**，区别只在有没有证明这一句。
+//
+// 走岔了（或这一局没有线）就回退到引擎搜索，行为与从前一致。
 // 匹配规则见 solution-book.js：**必须带上「已经走到第几手」，不能只用局面**，
 // 因为杀线里重复局面是常态（同一局面要走向不同的着法）。
 let bookKey = '';
@@ -532,8 +543,8 @@ function currentBook() {
   const key = `${g.endgameId || ''}@${g.initialFen}`;
   if (key !== bookKey) {
     bookKey = key;
-    const sol = g.endgameId ? solutionOf(g.endgameId) : null;
-    book = sol ? buildBook(g.initialFen, sol.pv) : null;
+    const line = g.endgameId ? lineOf(g.endgameId) : null;
+    book = line ? buildBook(g.initialFen, line.pv) : null;
   }
   return book;
 }
@@ -842,23 +853,33 @@ function endgameMeta(eg) {
 }
 
 /**
- * 「这一局有已证明的杀线」——列表行里那枚小徽标；没有解法时返回 null。
+ * 「这一局有可跟着走的线」——列表行里那枚小徽标；没有线时返回 null。
  *
- * 为什么非要标在**列表**上：库里 396 局有解法、其余 160 多局没有，而这两种局在
- * 「提示」上的表现完全不同 —— 前者一点就出正解（不派发搜索），后者要等引擎现算、
- * 还有可能算不出合适的着法。光看局名分不出来，得点进去、再点一次提示才知道，那就太晚了。
+ * 徽标分两种（`src`）：
+ *   `mate` → 「有解法」：引擎在根上证明了强制杀
+ *   `walk` → 「参考线」：引擎走到底能杀 / 或只是一段引擎首选前缀，**前段未经证明**
  *
- * 只写「有解法」三个字，**步数放进 title**：列表宽度得留给局名（最长的那些局名本来就在
- * 省略号上了），而步数是点进去之后更该看的细节 —— 棋盘上方那行给的才是带步数的完整版。
+ * 为什么非要标在**列表**上：库里 396 局有已证明的解法、还有一批只有参考线、剩下的两样都没有，
+ * 这三类在「提示」上的表现完全不同 —— 有线的局一点就出着法（不派发搜索），
+ * 没线的局要等引擎现算、还有可能算不出合适的着法。光看局名分不出来，
+ * 得点进去、再点一次提示才知道，那就太晚了。
+ *
+ * 徽标只写两个字，**具体步数放进 title**：列表宽度得留给局名（最长的那些局名本来就在
+ * 省略号上了），而步数是点进去之后更该看的细节 —— 棋盘上方那行给的才是完整版。
  */
 function solutionBadge(eg) {
-  const sol = solutionOf(eg.id);
-  if (!sol) return null;
+  const line = lineOf(eg.id);
+  if (!line) return null;
 
   const span = document.createElement('span');
   span.className = 'xq-endgame-sol';
-  span.textContent = '有解法';
-  span.title = `谱载解法：红方 ${sol.mate} 步杀（「提示」直接给正解，AI 也按谱应着）`;
+  // 两种来源在列表上也得看得出区别：**「有解法」是已证明的，「参考线」不是**。
+  // 措辞不同比配色不同重要 —— 用户可以忽略颜色，但会读字。
+  span.textContent = line.src === 'walk' ? '参考线' : '有解法';
+  span.title = line.src === 'walk'
+    ? `${lineLabel(line)}（「提示」会给线上的着法，AI 也按线应着；走岔了回退引擎搜索）`
+    : `谱载解法：红方 ${line.mate} 步杀（「提示」直接给正解，AI 也按谱应着）`;
+  if (line.src === 'walk') span.classList.add('xq-endgame-sol--ref');
   return span;
 }
 
@@ -866,9 +887,12 @@ function endgameTooltip(eg) {
   if (eg.custom) {
     return `${eg.name}（自定义局面）\n没有结论 —— 程序无从知道你存这个局面时的胜负`;
   }
-  const sol = solutionOf(eg.id);
+  const line = lineOf(eg.id);
   return `${eg.name}（谱载${RESULTS[eg.result]}）\n出处：${eg.source}`
-    + (sol ? `\n有已证明的解法：红方 ${sol.mate} 步杀` : '')
+    + (line && line.src === 'mate' ? `\n有已证明的解法：红方 ${line.mate} 步杀` : '')
+    + (line && line.src === 'walk'
+      ? `\n引擎参考线：${lineLabel(line)}\n（前段只是引擎的偏好，不是证明；走岔了回退引擎搜索）`
+      : '')
     + (eg.note ? `\n${eg.note}` : '');
 }
 

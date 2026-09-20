@@ -940,6 +940,13 @@ kbd {
 .xq-endgame--current .xq-endgame-sol {
   color: var(--on-accent);
 }
+/* 「参考线」徽标：引擎走到底能杀（或只是一段引擎首选前缀），但**前段没有证明** ——
+   所以不能跟「有解法」共用同一个强调色。中性灰 + 虚线边，一眼能分出
+   "这条线可以跟，但不是已证明的正解"。 */
+.xq-endgame-sol--ref {
+  color: var(--text-secondary);
+  border-style: dashed;
+}
 .xq-endgame-exit {
   width: 100%;
 }

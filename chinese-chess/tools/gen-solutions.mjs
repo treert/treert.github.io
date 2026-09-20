@@ -51,6 +51,12 @@ import { encodeMove, generateLegalMoves } from '../js/rules.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
 const WORK_FILE = resolve(ROOT, 'tmp/solutions-work.json');
+/**
+ * `prefix-scan.mjs promote` 的产物：**候选完整杀线**（引擎沿着自己选的路走到将死）。
+ * emit 把它当**兜底**读 —— 某局如果已经有"引擎证明了强制杀"的记录，就不用它。
+ * 分开一个文件是因为这份账本每局一条、fast/slow 会无条件覆盖，塞进来会被冲掉。
+ */
+const CAND_FILE = resolve(ROOT, 'tmp/prefix-candidates.json');
 const ISSUES_FILE = resolve(ROOT, 'tmp/solutions-issues.md');
 const OUT_FILE = resolve(HERE, '../js/solutions.js');
 /** 「没解出来的局面」清单 —— 这一份**进仓库**（tmp 里那份是全量疑点，随跑批更新） */
@@ -97,6 +103,14 @@ function loadWork() {
 function saveWork(work) {
   mkdirSync(dirname(WORK_FILE), { recursive: true });
   writeFileSync(WORK_FILE, JSON.stringify(work, null, 1));
+}
+
+/** 读候选线（`prefix-scan.mjs promote` 写的）。没有就是一局都不加 —— 缺文件不算错。 */
+function loadCandidates() {
+  if (!existsSync(CAND_FILE)) return {};
+  try { return JSON.parse(readFileSync(CAND_FILE, 'utf8')); } catch (e) {
+    throw new Error(`候选线读不动（${CAND_FILE}）：${e.message}`);
+  }
 }
 
 // === 引擎会话 ===
@@ -253,29 +267,40 @@ function pvLengthToMate(eg, pv) {
 
 function emit() {
   const work = loadWork();
+  const candidates = loadCandidates();
   const rows = [];
   const incomplete = [];
   let truncated = 0;
+  let fromWork = 0;
+  let fromWalk = 0;
 
   for (const eg of ENDGAMES) {
     const r = work[eg.id];
-    if (!r || !(r.mate > 0)) continue;
+    // 两条来源，**优先已证明的那条**：
+    //   work.id.mate > 0      → `src: 'mate'`：`go mate` 在**根上**证明了强制杀
+    //   candidates[id]        → `src: 'walk'`：引擎沿自己选的路走到底能杀，但**前段没有证明**
+    // 两者都要过 `pvLengthToMate`（走到杀完为止）—— 规则层说了算，引擎的说法不算。
+    const source = (r && r.mate > 0) ? 'mate' : (candidates[eg.id] ? 'walk' : null);
+    if (!source) continue;
+    const pvText = source === 'mate' ? r.pv : candidates[eg.id].pv;
+    const ms = source === 'mate' ? r.ms : candidates[eg.id].ms;
 
     // **以「走到杀完为止」的那一段为准**（见 pvLengthToMate 的注释）：
     //   多延伸的截掉、被截断的（PV 没杀完）直接不要 ——
     //   界面拿这条线给「提示」，走到一半断掉比没有解法更糟。
-    const raw = r.pv.trim().split(/\s+/);
-    const n = pvLengthToMate(eg, r.pv);
+    const raw = pvText.trim().split(/\s+/);
+    const n = pvLengthToMate(eg, pvText);
     if (!n) { incomplete.push(eg.id); continue; }
     if (raw.length > n) truncated++;
     const pv = raw.slice(0, n).join(' ');
     // mate 由**实际走出来的长度**推，而不是照抄引擎报的值：
     // 这样 `pv` 长度与 `mate` 在任何模式下都自洽（verify-solutions 会再钉一遍）。
     const mate = (n + 1) / 2;
-    rows.push({ id: eg.id, pv, mate, ms: r.ms });
+    if (source === 'mate') fromWork++; else fromWalk++;
+    rows.push({ id: eg.id, pv, mate, ms, src: source });
   }
 
-  const body = rows.map((r) => `  '${r.id}': { pv: '${r.pv}', mate: ${r.mate}, ms: ${r.ms} },`).join('\n');
+  const body = rows.map((r) => `  '${r.id}': { pv: '${r.pv}', mate: ${r.mate}, ms: ${r.ms}, src: '${r.src}' },`).join('\n');
   const text = `/**
  * 残局解法 —— **这个文件是生成的，别手改**。
  *
@@ -291,6 +316,13 @@ function emit() {
  * \`mate\` 是**红方步数**，由实际走出来的 PV 长度推得 —— 所以 \`pv\` 长度恒等于
  * \`2 * mate - 1\` 个半层（引擎报的 mate 值在 mate 模式下会被截断，不能直接照抄）。
  * \`ms\` 是生成时该局的搜索耗时，只为留痕，不是质量指标。
+ *
+ * \`src\` 是**这条线的来源**，界面要按它分开措辞，不能一律说「N 步杀」：
+ *   \`'mate'\` 引擎在**根上**证明了强制杀（\`go mate\`，对手怎么走都杀）—— 可以放心跟着走
+ *   \`'walk'\` 引擎沿自己选的着法走到底**能**杀，但**前段没有证明**（引擎那时只给 cp 分）——
+ *              界面得说「引擎参考线」；走岔了照样回退引擎搜索
+ * \`walk\` 这一批来自 \`tools/prefix-scan.mjs --playout\` + \`promote\`（用本模块规则层复核过：
+ * 每步合法 + 末局将死），生成后 \`verify-solutions.mjs\` 会再钉一遍。
  *
  * 数据来源：Pikafish（见 tools/gen-solutions.mjs 头部）。它是**搜索结果**，
  * 不是古籍原谱 —— 但同一批局面已与谱载解法逐手比对过（第 002 局 20 回合完全一致），
@@ -323,6 +355,8 @@ export function solutionOf(id) {
 
   writeFileSync(OUT_FILE, text);
   console.log(`已写出 ${rows.length} 条解法 → ${OUT_FILE}`);
+  console.log(`  其中 src='mate'（根上证明了强制杀）${fromWork} 条，`
+    + `src='walk'（引擎走到底能杀、前段未证明）${fromWalk} 条`);
   if (truncated) console.log(`（其中 ${truncated} 条的 PV 被截到 2*mate-1 个半层）`);
   if (incomplete.length) {
     console.log(`（跳过 ${incomplete.length} 条 **PV 不完整**的 —— 走完那条线对方还有着法：`);
@@ -343,7 +377,7 @@ export function solutionOf(id) {
  * 分组不按 id 排，而按「该不该人工核查」排：反杀最可疑、评估≈0 次之、
  * 大优但无杀（多半只是「赢法不是连杀」）放最后；组内也按可疑程度排。
  */
-function writeUnfinished(work) {
+function writeUnfinished(work, candidates) {
   const rows = ENDGAMES.map((eg) => ({ eg, r: work[eg.id] })).filter((x) => x.r);
   const solved = rows.filter((x) => x.r.mate > 0);
   // 「谱载非胜」= 和棋 + 黑胜。它们本来就没有「正解着一说」，找杀天然无效，单列末尾备查。
@@ -360,26 +394,37 @@ function writeUnfinished(work) {
     .sort((a, b) => b.r.cp - a.r.cp);
 
   const HEAD = '| id | 局名 | 难度 | 引擎给出 | 耗时 |\n|---|---|---|---|---|';
-  const line = ({ eg, r }) => `| \`${eg.id}\` | ${eg.name} | ${eg.difficulty} | `
+  // 有**引擎参考线**的局单独标出来：它们在界面上不是"什么都没有"，
+  // 而是「提示」会沿着 `prefixes.js` 那条线给着法（**前段未经证明**，措辞与「有解法」不同）。
+  const ref = (id) => (candidates[id] ? '　*（有引擎参考线）*' : '');
+  const line = ({ eg, r }) => `| \`${eg.id}\` | ${eg.name}${ref(eg.id)} | ${eg.difficulty} | `
     + `${r.mate !== null ? `mate ${r.mate}` : `cp ${r.cp}`} | ${(r.ms / 1000).toFixed(1)}s |`;
+  const refIds = Object.keys(candidates);
 
   const md = `# Pikafish 没解出来的局面
 
 > **生成物，别手改。** 重新生成：\`node chinese-chess/tools/gen-solutions.mjs issues\`
-> （引擎 ${ENGINE}；数据来自 \`tmp/solutions-work.json\`）
+> （引擎 ${ENGINE}；数据来自 \`tmp/solutions-work.json\` 与 \`tmp/prefix-candidates.json\`）
 
-「没解出来」= 引擎没能给出一条**已证明的杀线**，所以这些局在界面上没有谱载解法，
-点「提示」时仍会走本地引擎现算。**它不等于这些局是错的** —— 大多数只是「赢法不是连击式连杀」。
-真正需要人工核查的是 A、B 两组。
+「没解出来」= 引擎没能给出一条**已证明的杀线**，所以这些局在界面上没有「有解法」这个标记，
+点「提示」时走的是**引擎参考线**（如果有）或本地引擎现算。**它不等于这些局是错的** ——
+大多数只是「赢法不是连击式连杀」。真正需要人工核查的是 A、B 两组。
+
+**「引擎参考线」是什么**：\`tools/prefix-scan.mjs --playout\` 让引擎沿自己选的着法一路走到底，
+走成的完整线（再用本模块规则层复核：每步合法 + 末局将死）。它**不是**已证明的强制杀 ——
+前段只是「引擎也想这么走」（实测把第 004 局谱上的妙手换成次优着法，引擎只差 0.3~0.8 个兵，
+它分不出「杀网还在」和「只是还大优」）。界面按 \`src\` 分开措辞：\`mate\` → 「有解法」，
+\`walk\` → 「参考线」。
 
 | | 局数 | 说明 |
 |---|---|---|
 | 全库 | ${rows.length} | |
-| 已解出（在 \`js/solutions.js\` 里） | ${solved.length} | 「提示」直接给正解、AI 按谱应着 |
-| **没解出来** | ${noMate.length + nonWin.length} | 下面逐个列出 |
+| 已解出（在 \`js/solutions.js\` 里，\`src='mate'\`） | ${solved.length} | 「提示」直接给正解、AI 按谱应着 |
+| 另外有引擎参考线（\`src='walk'\`） | ${refIds.length} | 走到底能杀，但**前段未经证明** —— 界面标「参考线」 |
+| **没解出来** | ${noMate.length + nonWin.length - refIds.length} | 下面逐个列出（标了「有引擎参考线」的除外） |
 | └ 其中谱载「和」 | ${draws.length} | **不是问题**：和局本来就没有「正解着一说」，列在文件末尾备查 |
 | └ 其中谱载「黑胜」 | ${losses.length} | 同上 —— 红方守不住的局，也没有「正解着一说」 |
-| └ 其中谱载「胜」 | ${noMate.length} | 即 A + B + C 三组 |
+| └ 其中谱载「胜」 | ${noMate.length - refIds.length} | 即 A + B + C 三组里还剩这些 |
 
 ## A. 反杀（谱载「胜」，引擎却判定红方被杀）—— ${reversed.length} 局
 
@@ -400,8 +445,11 @@ ${nearZero.map(line).join('\n')}
 ## C. 大优但没有强制杀 —— ${bigEdge.length} 局
 
 引擎认为红方能赢（cp 越高越确信），但**赢法不是连击式连杀**，所以给不出杀线。
-抽样验证过（4 局给 60 秒 / mate 60）：这类局面加大预算也基本救不回来 —— 最多捞回约四分之一。
-详见 \`future-work.md\` C8。
+加大预算基本救不回来（4 局给 60 秒 / mate 60，只多解出 1 局）。
+**但有一条另辟的路**：\`tools/prefix-scan.mjs --playout\` 让引擎沿自己选的着法走到底 ——
+有一批局面在走过几步之后引擎就能给出 mate 证明，于是整条线走成了完整的杀线（见上表
+「只有引擎参考线」那一行）。走不成的会停在这里：\`repeat\`（来回拉抽屉，**往往就意味着真的没有强制杀**）、
+\`notWinning\`（红方优势掉到 +1.5 兵以下，多半是 B 组那类"其实和棋"）。详见 \`future-work.md\` C8。
 
 ${HEAD}
 ${bigEdge.map(line).join('\n')}
@@ -482,7 +530,7 @@ function issues() {
   writeFileSync(ISSUES_FILE, md);
   console.log(`疑点清单 → ${ISSUES_FILE}`);
   console.log(`  反杀 ${groups.reversed.length} / 未解出 ${groups.unsolved.length} / 和局却有杀 ${groups.drawWithMate.length} / 参考 ${groups.winLowCp.length} / 未跑 ${groups.notRun.length}`);
-  writeUnfinished(work);
+  writeUnfinished(work, loadCandidates());
 }
 
 // === 入口 ===
