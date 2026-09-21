@@ -37,7 +37,7 @@
 export const SOLUTIONS_SOURCE = 'Pikafish 2026-09-06';
 
 /**
- * id → 解法。**只有引擎证明了强制杀的局才在这里**（431 条）。
+ * id → 解法。**只有引擎证明了强制杀的局才在这里**（439 条）。
  * 查不到就是没有 —— 调用方要能接受这一点。
  */
 export const SOLUTIONS = {
@@ -51,6 +51,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-001': { pv: 'e4a4 g3e2 d8d9 e9e8 c0c8 e8e7 h8f9 e7f7 b7d8 f7f8 d8e6 f8f7 e6g5', mate: 7, ms: 58, src: 'mate' },
   'shiqingyaqu-551-002': { pv: 'b5b9 e8d9 b9b8 d9e8 c1c9 a7b9 c9c1 e8d9 b8e8 f9e8 d6c8 e9f9 b4f4 e7f7 f4f7 e8f7 c1f1 f7e8 g0f2 e8f7 f2h3 f7e8 h3f4 e8f7 f4h5 f7e8 h5g7 f9f8 g7e6 f8f9 e6f4 e8f7 f4g6 f7e8 g6h8 f9f8 h8f7 f8f7 g5f5', mate: 20, ms: 58, src: 'mate' },
   'shiqingyaqu-551-003': { pv: 'g9f9 d9f9 d8e8 e9d9 b6d6 b5d6 e8e9 d9d8 a5c6 d8d7 b7c7 d7d8 b4b8 b9b8 c7b7 d8d7 a4a7', mate: 9, ms: 48, src: 'mate' },
+  'shiqingyaqu-551-004': { pv: 'd5c7 d9d8 b0b8 d8d7 c6d6 d7e7 c7e6 e7f7 e6g5 f7f8 g5h7 f8f7 h7g9 f7f8 g9h7 f8f7 b8b7 c9e7 e5i5 g3h5 i5i0 h0h7 b7b5 h5f6 b5f5 f7f8 f5f6 e8f7 f6h6 f8e8 h6h7 f4e4 i2g3 f1f3 h7h8 e8e9 i0i9 f9e8 h8h9 e8f9 g3i4 f3f6 h9h6 f9e8 h6f6 e9d9 f6h6 d9d8 h6h9 e8f9 h9f9 f7e8 f9e9 e7g9 i9i8 e8d7 i4h6 e4f4 h6g8 d7e8 e9e8 d8d9 e8e9', mate: 32, ms: 171013, src: 'walk' },
   'shiqingyaqu-551-005': { pv: 'g8g9 f9f8 f6h7 f8f7 g9g7 f7f8 g7g8 f8f7 h7g5 f7e7 g8g7 e8f7 g5e6 e7d7 g7f7 c9e7 f7e7 c5e7 e3d3 d4b5 e6d4 b5d6 d4c6 d6c4 d3d1 c4d6 c6b8 d7d8 c0c8 d8d7 c8f8', mate: 16, ms: 31653, src: 'mate' },
   'shiqingyaqu-551-006': { pv: 'e2e6 e8f7 d7e7 e9d9 f8d8 d9d8 g7f9 d8d9 e7d7 d9e9 f9e7 f7e8 e7g8 e9f9 d7f7 e8f7 e6f6 f7e8 f6f1 e8f7 f5e5 f7e8 d3f4 e8f7 f4g6 f7e8 g6f4 e8f7 f4h5 f7e8 h5f6 e8f7 f6d7 f7e8 g8f6 e8f7 f6h7 f7e8 h7f8 e8f7 f8h9 f7e8 h9g7', mate: 22, ms: 136, src: 'mate' },
   'shiqingyaqu-551-007': { pv: 'h6h8 f3f8 h8f8 f1f8 b8c8 d8e8 i6e6 e7c9 e6e0 c9e7 e1d0 e7g5 d2e1 g5e7 e1f2 e7c9 c2e1 c9e7 e1f3 e7g5 f3e5 g5e7 e5d7 e7c5 d7e5 c5e7 e5g6 e7c5 c8d8 e8e9 d8d9 e9e8 g6e7 e8e7 c7d7 e7e8 d0e1 c5e7 d7e7', mate: 20, ms: 30044, src: 'mate' },
@@ -196,6 +197,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-153': { pv: 'e2e9 d9e9 a9c8 e9d9 a2d2 d7e8 e1d3 e8d7 d3c5 d7e8 c8d6 e8d7 d6b5 d7e8 c5d7', mate: 8, ms: 47, src: 'mate' },
   'shiqingyaqu-551-154': { pv: 'h4h9 f9f8 h0h8 f8f7 h8h7 f7f8 h9h8 f8f9 h7f7 f9e9 h8h9 e7g9 h9g9 e8f9 f7f9 e9e8 f9e9 e8f8 g9f9', mate: 10, ms: 48, src: 'mate' },
   'shiqingyaqu-551-156': { pv: 'h0h9 i7g9 h9g9 e7g9 c8c9 d9d8 g6d6 e4d6 c9d9 e8d9 c7b9 c1c9 b8c8', mate: 7, ms: 49, src: 'mate' },
+  'shiqingyaqu-551-157': { pv: 'i6i9 e7g9 f6e6 e8f9 g6e7 d9e8 i9g9 d3f4 g9g0 c9e7 g0g7 f4e6 g7e7 e6f4 e7e4 f4h5 f1f2 a0a3 e4h4 h5f6 a6c7 a3e3 h4f4 f6g8 f4b4 e3d3 c7d5 e8d9 b4e4 d9e8 f2e2 c1b1 e4b4 d3e3 d5e3 e8d9 b4b6 g8i7 b6h6 e9e8 h6h7 b1c1 h7i7 c1d1 i7i6 d1e1 i6e6 e8f8 e3f5 f9e8 f5g7 e1e0 e6f6 e8f7 g7h9 f8f9 f6f7', mate: 29, ms: 140856, src: 'walk' },
   'shiqingyaqu-551-158': { pv: 'd4d9 e9d9 a7b9 e7c9 b9c7 d9d8 c7a8 d8d7 a8c9', mate: 5, ms: 45, src: 'mate' },
   'shiqingyaqu-551-159': { pv: 'f2f9 e9f9 g6h8 f9e9 h8f7 e9f9 i2f2 e3f3 e4f4 d4f4 f2f4', mate: 6, ms: 45, src: 'mate' },
   'shiqingyaqu-551-160': { pv: 'g4g9 e7g9 h6f7 d7f8 d8d9 e9d9 b0b9 c1c9 b9c9', mate: 5, ms: 47, src: 'mate' },
@@ -311,6 +313,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-275': { pv: 'g6e7 d9e8 e7c6 e8d7 e6e3 c9c6 h6c6 f2e2 c6e6 e9d9 e3d3 d7e8 e6d6 d9e9 d3e3 e8d9 d6d1 e2f2 d1i1 f2g2 i1i6 e9e8 i6e6 e8f8 e6g6 g2h2 g6f6 f8e8 f6f9 e8d8 e3d3 h2g2 f9f7 d9e8 f7e7 g2f2 e7e8 d8d7 e8e6 f2e2 e6e2 d7d8 e2e6 d8d9 e6d6', mate: 23, ms: 834, src: 'mate' },
   'shiqingyaqu-551-276': { pv: 'e8b8 e6e7 b8b9 d9d8 g4h4 e1e0 f0f1 e7e5 h4h8 e5e8 b9b8 d8d9 h8e8 e0d0 b8b9', mate: 8, ms: 47, src: 'mate' },
   'shiqingyaqu-551-277': { pv: 'i6h8 f9e9 h6g8 e9d9 g8e7 d9d8 e7f9 d8e8 i4i8 e8e9 i8i9 e9e8 f9g7 e8d8 h8f9 d8d7 i9i7', mate: 9, ms: 45, src: 'mate' },
+  'shiqingyaqu-551-278': { pv: 'h2h9 f9f8 h9h8 f8f9 h8e8 e1e0 f0f1 e0e1 f1f0 e7e8 f2f7 e8f8 f7f8 f9e9 i8h8 e1e0 f0f1 e0e1 f1f0 e1e5 f8f9 e9e8 h8g8 e5e0 f0f1 e0e1 f1f0 e1e2 g8f8 e8d8 f9c9 e2f2 f0e0 f2e2 e0f0 e2g2 c9c8 d8d7 c8e8 g2g0 f0f1 g0g1 f1f0 g1g3 f0e0 g3g0 e0e1 g0g1 e1e0 g1d1 e8e7 d7d8 f8e8 d8d9 e7f7 d1d0 e0e1 d0d1 e1e0 d1d2 f7f9', mate: 31, ms: 10059, src: 'walk' },
   'shiqingyaqu-551-279': { pv: 'f0f9 e9f9 b3f3 f9e9 e0f0 g1f1 f3f1 a3f3 f1f3 i9h9 f3f9', mate: 6, ms: 48, src: 'mate' },
   'shiqingyaqu-551-280': { pv: 'h6g8 g1g0 f8f0 g0g8 f0f9 e9f9 h4h9 g8g9 h9g9', mate: 5, ms: 49, src: 'mate' },
   'shiqingyaqu-551-281': { pv: 'f8f9 e9f9 d0d9 f9f8 e7g6 f8f7 g6h8 f7f8 i4i8', mate: 5, ms: 46, src: 'mate' },
@@ -333,6 +336,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-299': { pv: 'f6f9 e8f9 d6f7 g1e1 e0e1 c1d1 e1e0 d1d0 e0e1 f2e2 e1f1 e2f2 f1e1 a9a8 g8f8 f2e2 e1f1 e2f2 f1e1 f9e8 f8e8 f2e2 e1f1 e2f2 f1f0 f2f1 f0f1 g7g6 e8e9', mate: 15, ms: 132, src: 'mate' },
   'shiqingyaqu-551-300': { pv: 'f6f7 e6f6 h6g6 e8f7 a7e7 e1e0 f0f1 d1e1 f1f2 d3d8 h0h9 f9f8 e7e9 f7e8 e9g9 f8f7 g9g7 f7f8 g7g8 f8f7 h9h7', mate: 11, ms: 252, src: 'mate' },
   'shiqingyaqu-551-301': { pv: 'a8d8 e8d9 b2b9 f9e8 f2f9 i7g7 f9d9 e9f9 d8e8 c1b1 b9a9 e7c9 d9d7 b1e1 d0e1 g7d7 a9c9 d7d9 c9d9', mate: 10, ms: 15693, src: 'walk' },
+  'shiqingyaqu-551-302': { pv: 'f5f8 d4e6 h6e6 g1d1 f2e1 i1i5 c6c7 d1d6 c7e7 d6e6 e7e6 i5i0 e0f0 h1h0 f0f1 h0h9 e6e7 i6i5 e7g7 i7g8 g7h7 g8i7 f8i8 e8f9 h7h9 d9e8 h9g9 i0i3 g9h9 g6g5 h9h3 i3i4 h3e3 i7h5 i8g8 i4d4 g8g5 h5i7 g5d5 d4f4 d5f5 i7g6 f5f6 e9d9 f6d6 d9e9 d6g6 f4f7 g6b6 e9d9 f1f0 i5i4 b6b9 d9d8 e3d3 f7d7 d3a3 d7c7 a3a7 c7c8 a7c7 c8c4 b9b8 d8d9 c7c9', mate: 33, ms: 165985, src: 'walk' },
   'shiqingyaqu-551-303': { pv: 'g6i7 e9f9 e5h5 e8f7 h5f5 f7e8 i7h9 e7g9 h9g7 f9f8 i9i4 d1e1 f0e1 f8f7 f5f2 a0a2 g7f5', mate: 9, ms: 58, src: 'mate' },
   'shiqingyaqu-551-304': { pv: 'a6c7 e7c5 d8d9 e9f9 c2f2 f7e7 c7e6 e8d9 d4d9 f9f8 d9g9 c1e1 e0e1 g1f1 e1d1 f1e1 d0e1 g3e4 h6h8 f8f7 g9f9', mate: 11, ms: 236, src: 'mate' },
   'shiqingyaqu-551-305': { pv: 'i9g9 i1i0 i2g0 f5e7 g9d9 i0f0 e2f2 g1e1 e0e1 d5e5 e1f1 e7c8 e9e5 f0b0 f1e1 c1d1 e1e0 d1e1 e0e1 b0f0 a8c8 f0f1 c8c7 c9e7 e5e7', mate: 13, ms: 3635, src: 'mate' },
@@ -367,10 +371,12 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-337': { pv: 'h5g7 g5g7 h8g8 e1e0 f0e0 d1d0 e0d0 g7d7 d0e0 d7d8 h0h9 e9e8 g8f8 e8f8 c8d8 f4f3 h9h8 f8f7 h8h7 f7f8 i8h8 e5e4 h8g8 f8f9 h7h9', mate: 13, ms: 56, src: 'mate' },
   'shiqingyaqu-551-339': { pv: 'h8f8 f9e9 f8e8 f7e8 d8e8 e9d9 a6c7 b9c7 e8d8 d9d8 e6d6 d8e8 h6e6', mate: 7, ms: 47, src: 'mate' },
   'shiqingyaqu-551-340': { pv: 'd6f7 e8f7 d4d9 e9e8 d9d8 e8e9 a6a9 c9a7 a9h9 g0f0 d8d9 e9e8 f6e6 e7c5 h9h3 f0e0 e6e0 e1e0 d0d1 c1b1 d9d4 c5e7 d4c4 c2c1 d1d2 a7c9 h3b3 e8f8 b3f3 f7e8 c4f4 e8f7 f3f7 f8e8 f7f6 b1b9 f6e6 e7g5 f4b4 b9a9 b4b8 e8e7 b8b9 a9a4 b9c9 e7e8 c9c1 e0f0 e6e3 g5i7 c1c5 e8f8 c5f5 f8e8 f5e5 e8f8 d2e2 a4a7 e3f3 a7e7 e5e7 i7g5 e7e5 g5e7 e5e7 f0g0 e7e5 g0f0 e5f5', mate: 35, ms: 71892, src: 'walk' },
+  'shiqingyaqu-551-342': { pv: 'b8b9 f9f8 g0g8 f8f7 b9b7 g9e7 b7b8 e8d7 g8g2 d2d1 d0d1 f1e1 d1e1 h9h1 e1e2 h1f1 c7d7 e7g5 g2g5 f1f2 e2e1 f2f1 e1e0 f1f0 e0e1 e5e4 g5g7 f7f8 g7g8 f8f9 b8b9 d9e8 d7d8 f0f1 e1e0 f1f0 e0e1 f0b0 d8e8 b0b1 e1e0 b1b0 e0e1 b0e0 e1e0 e4e3 g8g9', mate: 24, ms: 45272, src: 'walk' },
   'shiqingyaqu-551-343': { pv: 'c8c9 c7b9 b6d7 e9d9 d7b8 d9e9 c9c7 b9d8 a9d9 f1e1 e0e1 d1d9 c7c9', mate: 7, ms: 73, src: 'mate' },
   'shiqingyaqu-551-344': { pv: 'c3c9 e1f1 f0e0 f1e1 e0e1 f3e3 c9e9 e3e2 e1e2 h3e3 e2f2 e3f3 f2e2 f3f2 e2f2 h1h0 d8e8', mate: 9, ms: 189, src: 'mate' },
   'shiqingyaqu-551-346': { pv: 'f8e8 e9d9 e8e9 d9d8 h6h8 f9e8 g8e7 e8d7 e7g6 f1e1 e0e1 c1d1 e1d1 d8e8 g6e5 i1g1 h8h4 i7g5 c4c5 i0e0 c5d5 g5e7 d5d6 e0e4 d6d7 g1g8 h4h2 g8g2 e5g6 e7g5 d7d8 e8e9 g6h8 g5e7 h8i6 e4g4 h2h0 g2g0 h0h5 g4g5 i6h8 g5g8 h5e5 e7c5 h8g6 g0e0 g6e7 g8e8 e7f5 e8f8 e5e2 f8f6 f5d6 e9f9 e2f2 f6e6 d6e4 e6e5 e4g5 c5e7 g5f7 e5f5 d1e1 e0g0 d8e8 g0g8 f7h6 f5e5 h6f5 g8f8 f5e7 f8h8 e7f5 h8f8 f2f8 e5e6 f5g7', mate: 39, ms: 68883, src: 'walk' },
   'shiqingyaqu-551-348': { pv: 'f7f8 e9d9 g7g9 d9d8 g9g8 d8d9 e6d6 d7e8 d6d8 e8d7 d8b8 e1d1 d0d1 d9e9 b9c9 f9e8 g8e8 b1c1 d1d2 d7e8 b8b9 e8d9 c9d9', mate: 12, ms: 115, src: 'mate' },
+  'shiqingyaqu-551-349': { pv: 'a9c8 e9e8 c8b6 e8e7 b6d5 e7f7 a8a4 e1f1 f0e0 f1e1 e0f0 f7f8 a4f4 f8e8 d5f6 e8e7 f4e4 e7f7 f6d7 e1f1 f0e0 f1e1 e0f0 f9e8 e4f4 f7e7 d7b8 e1f1 f0e0 f1e1 e0f0 e8d7 f4e4 e7f7 b8d9 e1f1 f0e0 f1e1 e0f0 e1e0 f0e0 d1d0 e0d0 d7e8 e4f4', mate: 23, ms: 3045, src: 'mate' },
   'shiqingyaqu-551-351': { pv: 'b7b9 e9e8 b9b8 e8e9 b5c7 e7d7 c7b9 d7d9 b9d8 e9e8 d8b7 e8e7 a9a7 d9d7 b7d6 d7d8 b8b7 d8d7 b7d7 e7e8 d7f7 e8d8 f7d7 d8e8 d7i7 e8d8 i7d7 d8e8 d7d9 e8e7 d6c8 e7e8 a7a8', mate: 17, ms: 64, src: 'mate' },
   'shiqingyaqu-551-352': { pv: 'h6d6 f7e8 d6e6 e8f7 d8e8 e9d9 f8f9 e1e0 d0d1 b1c1 d1d2 f7e8 e6d6', mate: 7, ms: 48, src: 'mate' },
   'shiqingyaqu-551-354': { pv: 'b0b9 e8d9 h4c4 c2c3 c4c9 c3c9 b9c9 e7g5 d8d9 e9e8 c9c8 e8e7 c8c5 g9i7 c5e5 e7f7 e5e1 d2d7 e1e4 f7f8 d0e0 d7e7 e4c4 e7d7 c4f4 d7f7 f4f6 i7g9 f6g6 f7a7 g6g8 f8f7 g8g5 f7f8 g5g7 g9i7 g7e7 a7a1 e7e8 f8f7 e8e6 a1e1 e6e1 f7f8 e1f1', mate: 23, ms: 4787, src: 'mate' },
@@ -425,7 +431,9 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-416': { pv: 'h6h8 b1c1 e0e1 h1g1 d8c8 e9d9 c8c9 d9e9 e1e2 c1d1 h8h6 i7g9 h6b6 g9e7 b6e6 d1e1 e2d2 e1d1 c9d9', mate: 10, ms: 378, src: 'mate' },
   'shiqingyaqu-551-417': { pv: 'i5c5 b2c2 h7g7 e1d1 d0d1 c2c1 d1d2 f2e2 d2e2 c1b1 g7f7 b1b0 c5f5', mate: 7, ms: 981, src: 'mate' },
   'shiqingyaqu-551-418': { pv: 'd9b8 c5e7 b8d7 e1e0 f0f1 e0f0 f1f0 a7c9 d7e5 e7g9 e5g6 a6a5 g6h8', mate: 7, ms: 112, src: 'mate' },
+  'shiqingyaqu-551-419': { pv: 'i7d7 d2c2 d7d8 e2d2 e0e1 d2e2 e6e2 f2e2 e1e2 c2b2 e2e1 b2b1 d8d7 b1c1 d7b7 d9e7 b7e7 e9d9 e7c7 c1b1 c7c8 b1a1 c8c1 e8d7 c1d1 f9e8 d1a1 e8f7 e1d1 d9d8 a1b1 d8e8 b1b7 e8e9 b7d7 e9f9 d7f7 f9e9 f7f8', mate: 20, ms: 10063, src: 'walk' },
   'shiqingyaqu-551-420': { pv: 'g8f8 d9e9 c8c9 g1f1 c6a7 f1e1 e0f0 e1f1 f0e0 d1e1 e0d0 e1e0 d0d1 b1c1 d1d2 c1b1 a7c8', mate: 9, ms: 49, src: 'mate' },
+  'shiqingyaqu-551-422': { pv: 'c7c9 b7b9 c9c6 b9b2 i4i5 e9d9 i5h5 a3b3 c6f6 b2h2 a9a4 e8f7 a4f4 f1g1 f6g6 g1f1 f4f9 f7e8 f9f4 b3c3 g6f6 f1g1 e0e1 h2h1 e1e2 h1h0 f4d4 h0f0 d4d1 g1f1 f6f0 f1f0 e2e1 d9e9 h5g5 c3d3 d1b1 d3c3 b1b0 e9d9 g4e2 c3b3 e2c0 b3c3 b0f0 c3b3 f0e0 e8f9 g5f5 b3c3 f5f6 d9d8 f6e6 d8e8 c0e2 e8d8 e6d6 c3d3 e1d1 f9e8 d6e6 d3d2 d1e1 e8f9 e0g0 d8d9 e6e7 d9d8 g0g2 d2d1 e1f1 d8d9 g2g1 d1d0 f1f0 d9d8 g1g0 d0c0 g0c0 f9e8 c0d0 e8f9 d0e0 d8d9 e7d7 f9e8 e0e8 d9e9 d7d8', mate: 45, ms: 241405, src: 'walk' },
   'shiqingyaqu-551-423': { pv: 'e1f0 e7c9 e6f4 c9a7 f4e2 a7c5 d0e1 d6d5 e1f2 f1e1 f2e1 g9e7 e1f2 c1c0 d2d1 d5d2 f2e1 c0d0 e1d2 d0c0 e2f4 e7c9 f4d5 c0b0 d5c7', mate: 13, ms: 13810, src: 'walk' },
   'shiqingyaqu-551-424': { pv: 'c7d7 f4f3 d7e7 e1f1 f0f1 i2h2 e8b8 h2h1 f8e8 h1g1 f1e1 f3f2 e7d7 f2f1 e1e0 f1f0 e0f0 g1g0 f0e0 g0f0 e0f0', mate: 11, ms: 58, src: 'mate' },
   'shiqingyaqu-551-425': { pv: 'h4b4 a6a5 e0e1 d9c9 b4b9 c9d9 b9c9 a5a4 c9c5 a4b4 c5c9 b4b3 e1e2 b3b2 e2e1 b2b1 e1e0 b1a1 c9b9 a1a0 e0e1 a0b0 b9b0 d9c9 b0b9 e9d9 b9c9 d9d8 c9c5 e8d7 c5c8 d8d9 c8c9 d9d8 c9f9 d7e8 f9f8 d8d7 f8e8', mate: 20, ms: 82, src: 'mate' },
