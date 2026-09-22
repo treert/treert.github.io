@@ -211,9 +211,11 @@ check('ply 越界返回 0', bookMove(buildBook(byId.get(SAMPLE).fen, SOLUTIONS[S
     check('只有前缀的措辞里写着「非证明」', label(p).includes('非证明'), true);
   }
 
-  // (d) **不让用户跟着输棋**：引擎认为红方不行的局（第 020 局是「反杀」）不该给线。
+  // (d) **不让用户跟着输棋**：引擎认为红方不行的局（A 组「反杀」）不该给线。
   // 这批在 `prefix-scan.mjs emit` 里按「第一步的红方优势 < 0」筛掉，这里从数据侧再钉一遍。
-  check('反杀的第020局不给线（跟着走等于教人怎么输）', line('shiqingyaqu-551-020'), null);
+  // 举例换成第 190 局：原来拿来举例的第 020 局 2026-09 查出上游 FEN 漏了一枚一路兵，
+  // 已修正（引擎不再判红方被杀），见 `js/endgames.js` 头部第 4 条。
+  check('反杀的第190局不给线（跟着走等于教人怎么输）', line('shiqingyaqu-551-190'), null);
   const badFirst = Object.entries(PREFIXES).filter(([, p]) => {
     const first = (p.scores || '').trim().split(/\s+/)[0] || '';
     if (first.startsWith('cp')) return Number(first.slice(2)) < 0;

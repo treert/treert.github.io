@@ -28,13 +28,18 @@
  *   3. gen-solutions slow  没解出的再来一轮长预算
  *   4. prefix-scan gen --playout   让引擎沿自己的着法走到底（走成完整线就成候选）
  *   5. prefix-scan promote 用本模块规则层复核候选线（不需要引擎）
- *   6. prefix-scan emit    写 js/prefixes.js
- *   7. gen-solutions emit  写 js/solutions.js（候选线当兜底）
+ *   6. gen-solutions emit  写 js/solutions.js（候选线当兜底）
+ *   7. prefix-scan emit    写 js/prefixes.js（跳过「已有解法」的局，所以要排在 6 之后）
  *   8. verify-solutions    逐步合法 + 末局将死 + 长度自洽
  *   9. test-solution-book  查表与**措辞**（有解法 / 参考线必须分开）
  *  10. gen-solutions issues 重生成「没解出来的局面」清单
  *
- * ## 两个必须知道的约定
+ * ## 三个必须知道的约定
+ *
+ * **第 6、7 步的顺序不能换。** `prefix-scan emit` 要读 `js/solutions.js` 才知道「哪些局
+ * 已经有更可信的解法、不该再写一份前缀」——排在写解法之前的话，读到的还是上一轮那份，
+ * 于是本轮刚解出的局会在 `prefixes.js` 里留一条永远用不上的副本（界面只认 solutions.js
+ * 那条），`test-solution-book.mjs` 里「只有前缀的局」那条断言也会跟着红。
  *
  * **`--ids` 会带 `--force`。** 账本是按 id 存的：改了 FEN 之后，旧记录还在，
  * 不带 force 的话第 4 步会直接跳过它（跑的其实是旧局面）。带上 force 才会重跑并覆盖。
@@ -182,14 +187,17 @@ const STEPS = [
     why: '每步合法 + 末局将死才写进 candidates（不需要引擎）',
   },
   {
-    name: '写参考线',
-    cmd: ['prefix-scan.mjs', 'emit'],
-    why: '→ js/prefixes.js（与当前 FEN 对不上的记录会被跳过并警告）',
-  },
-  {
     name: '写解法',
     cmd: ['gen-solutions.mjs', 'emit'],
     why: '→ js/solutions.js（候选线当兜底，带 src=walk）',
+  },
+  {
+    name: '写参考线',
+    // **顺序要紧**：这一步读 js/solutions.js，跳过「已经有已证明解法」的局
+    // （那条线更可信，界面 `lineOf` 也优先用它）。写在「写解法」之前，
+    // 读到的就是上一轮那份 —— 本轮刚解出的局会在这里留一条永远用不上的副本。
+    cmd: ['prefix-scan.mjs', 'emit'],
+    why: '→ js/prefixes.js（与当前 FEN 对不上的记录、已有解法的局都会被跳过并说明）',
   },
   {
     name: '校验解法',

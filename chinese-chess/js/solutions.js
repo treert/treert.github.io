@@ -24,7 +24,7 @@
  * 数据来源：Pikafish（见 tools/gen-solutions.mjs 头部）。它是**搜索结果**，
  * 不是古籍原谱 —— 但同一批局面已与谱载解法逐手比对过（第 002 局 20 回合完全一致），
  * 且每条都过了 verify-solutions 的「每步合法 + 末局将死」校验。
- * 谱载结论与实际不符的局（例如第 020 局引擎判定红方反被杀）**不进这个文件**，
+ * 谱载结论与实际不符的局（例如第 190 局引擎判定红方反被杀）**不进这个文件**，
  * 单列在 tmp/solutions-issues.md 里等人工核查，见 future-work.md B6。
  *
  * ## 为什么单独一个文件
@@ -37,7 +37,7 @@
 export const SOLUTIONS_SOURCE = 'Pikafish 2026-09-06';
 
 /**
- * id → 解法。**只有引擎证明了强制杀的局才在这里**（439 条）。
+ * id → 解法。**只有引擎证明了强制杀的局才在这里**（440 条）。
  * 查不到就是没有 —— 调用方要能接受这一点。
  */
 export const SOLUTIONS = {
@@ -67,6 +67,7 @@ export const SOLUTIONS = {
   'shiqingyaqu-551-017': { pv: 'b7b9 e8d9 f8e8 f9e8 b9b0 a7b9 c2c9 c0c9 a9c9', mate: 5, ms: 46, src: 'mate' },
   'shiqingyaqu-551-018': { pv: 'h0f0 g7f7 b4f4 f7i7 f4g4 i7f7 a4f4 f7i7 f4h4 i7f7 g4f4 f7i7 f4c4 i7f7 h4f4 f7i7 f4g4 i7f7 c4f4 f7g7 f4i4 g7f7 g4f4 f7h7 f4c4 h7f7 i4f4 f7i7 f4h4 i7f7 c4f4 f7g7 f4b4 g7f7 h4f4 f7h7 f4c4 h7f7 f0f7 b7f7 e8f8 f9f8 i0i8 f8f9 c4c9 d9e8 b4b9', mate: 24, ms: 63, src: 'mate' },
   'shiqingyaqu-551-019': { pv: 'a6b8 d9d8 a4a8 c7a8 b8d7 d8d7 d6d1 d7e7 f6e6 e7f7 d1f1 f2d2 e1f2', mate: 7, ms: 46, src: 'mate' },
+  'shiqingyaqu-551-020': { pv: 'i8i9 e1h1 c4e4 h1h0 f0f1 d1e1 f1e1 h0h1 e1e0 h1h0 e0e1 h0h3 i9h9 h3h9 c7c9 h9h1 e1e0 h1h0 e0e1 h0h8 e1d1 i0d0 d1d0 h8h0 d0d1 h0h1 d1d0 h1d1 d0d1 c5c4 c9d9', mate: 16, ms: 3725, src: 'mate' },
   'shiqingyaqu-551-021': { pv: 'f8f9 e9f9 g6h8 f9e9 i7g8 e9f9 g8e7 f9e9 e7g8 e9f9 d8d9 f9f8 h8g6 f8f7 d9d7 e8d7 g8e9 d7e8 e2e8 d1d0 e0d0 c1d1 d0e0 d1d0 e0d0 g1d1 d0d1 g2e3 d1d0 e3f1 e8e1', mate: 16, ms: 69, src: 'mate' },
   'shiqingyaqu-551-022': { pv: 'c0c8 d8d9 a0d0 d9e9 c8e8 d7e8 f8e8 e9d9 c9d7 b8d8 d7b6 d8b8 b6d5 b8d8 d5e7 d8b8 e7d5 b8d8 d5c3 d8b8 c3d1 b8d8 d1f0 d8b8 g0g9', mate: 13, ms: 50, src: 'mate' },
   'shiqingyaqu-551-023': { pv: 'g6g9 g2g9 h6f7 e9e8 d6d8 e8e7 d8e8 e7e8 f7d6 e8e7 d6c8 e7e8 b2b8', mate: 7, ms: 47, src: 'mate' },
