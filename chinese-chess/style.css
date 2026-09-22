@@ -684,6 +684,13 @@ kbd {
 .xq-field > span {
   color: var(--text-secondary);
 }
+/* **必须显式再写一条。** UA 的 `[hidden] { display: none }` 会被上面那句
+   `display: flex` 覆盖掉（作者样式优先于 UA 样式），于是 el.hidden = true 不起作用。
+   「AI 按谱应着」那一行靠 hidden 显隐，所以不能省这条。
+   与 .xq-search-clear[hidden] / .xq-dialog-foot[hidden] 是同一个坑。 */
+.xq-field[hidden] {
+  display: none;
+}
 .xq-select {
   flex: 1;
   min-width: 0;
@@ -700,7 +707,7 @@ kbd {
   border-color: var(--accent);
 }
 
-/* === 开关（双人对弈） === */
+/* === 开关（双人对弈 / AI 按谱应着） === */
 /* 用原生 checkbox + `appearance: none` 画成开关 —— **语义一点没变**：
    仍然是 checkbox，可 Tab、空格切换、读屏读得出「已选中 / 未选中」。
    不要用 <div> 挂 click 自己造，那样键盘和读屏都会丢。

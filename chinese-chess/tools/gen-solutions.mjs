@@ -443,7 +443,7 @@ function writeUnfinished(work, candidates) {
 | | 局数 | 说明 |
 |---|---|---|
 | 全库 | ${rows.length} | |
-| 已解出（在 \`js/solutions.js\` 里，\`src='mate'\`） | ${solved.length + rootProven} | 包括「走到底时**根上**就证明了」的 ${rootProven} 局：「提示」直接给正解、AI 按谱应着 |
+| 已解出（在 \`js/solutions.js\` 里，\`src='mate'\`） | ${solved.length + rootProven} | 包括「走到底时**根上**就证明了」的 ${rootProven} 局：「提示」直接给正解（AI 默认实时搜索，可开「AI 按谱应着」） |
 | 另外有引擎参考线（\`src='walk'\`） | ${refCount} | 走到底能杀，但**前段未经证明** —— 界面标「参考线」 |
 | **没解出来** | ${noMate.length + nonWin.length - refIds.length} | 下面逐个列出（标了「有引擎参考线」的除外） |
 | └ 其中谱载「和」 | ${draws.length} | **不是问题**：和局本来就没有「正解着一说」，列在文件末尾备查 |

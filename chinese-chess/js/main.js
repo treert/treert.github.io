@@ -26,6 +26,9 @@ const dom = {
   levelSelect: document.getElementById('level-select'),
   sideSelect: document.getElementById('side-select'),
   twoPlayerToggle: document.getElementById('two-player-toggle'),
+  // 「AI 按谱应着」：整行（含标签）一起显隐，所以两个都要拿
+  followBookField: document.getElementById('follow-book-field'),
+  followBookToggle: document.getElementById('follow-book-toggle'),
   moveList: document.getElementById('move-list'),
   btnUndo: document.getElementById('btn-undo'),
   btnRedo: document.getElementById('btn-redo'),
@@ -460,6 +463,14 @@ function updateButtons() {
   // 想让黑方在下方，用「翻转」。
   dom.sideSelect.disabled = app.busy || two;
   dom.twoPlayerToggle.disabled = app.busy;
+
+  // 「AI 按谱应着」只在这一局有谱时才露面 —— 没谱时它没有任何作用，
+  // 摆在那儿只会让人以为「打开了 AI 就会按解法走」（其实走不了）。
+  // 双人模式下也照样显示，但禁掉：藏起来会让开关自己跳来跳去更像 bug。
+  dom.followBookField.hidden = !(app.game.endgameId
+    && lineOf(app.game.endgameId));
+  dom.followBookToggle.checked = !!app.game.followBook;
+  dom.followBookToggle.disabled = app.busy || two;
 }
 
 // === 走子 ===
@@ -517,41 +528,53 @@ function applyMove(move, animate) {
   return true;
 }
 
-// === 可跟着走的线（js/solutions.js + js/prefixes.js + solution-book.js）===
+// === 棋谱（js/solutions.js + js/prefixes.js + solution-book.js）===
 //
-// 界面拿一条线做两件事：「提示」优先给线上的着法；**轮到 AI 时也按线应着**
-// —— 后者不是可选项：玩家刚走一步、对手就走到线外去了，那条线根本走不完。
+// 匹配规则**见 solution-book.js**：把「实际走过的着法」与谱逐手比，整个是前缀就给出
+// 下一手，有一手对不上就回退引擎搜索。**对手一变着前缀就断了**（这是有意的：谱里红方的
+// 下一手只对谱上那个局面成立），断在这里的后果是「提示」改成引擎现算。
+//
+// 谁用它：
+//   「提示」  一直用。局面在线上就直接把谱上的着法给出来，省掉最长 1.5 秒的搜索等待。
+//   AI        **默认不用**：`requestAiMove()` 一律派发引擎搜索、按挡位出着，
+//             与没有线的局完全一样。只有「对局」面板里的「AI 按谱应着」开关打开后
+//             （`game.followBook`）才走谱上给出的着法 —— 于是玩家能顺着线走到将死。
 //
 // **两个来源、两种可信度，措辞必须分开**（这是本节最要紧的一条）：
-//   `solutions.js`  `src='mate'`  引擎在**根上**证明了强制杀（`go mate`，对手怎么走都杀）
-//                                 → 可以放心跟着走，说「有解法」
-//   `prefixes.js`   `src='walk'`  引擎沿自己选的路走到底**能**杀，但**前段没有证明**
-//                                 → 说「引擎参考线」。前段只是引擎的偏好：实测第 004 局
-//                                   把谱上妙手换成次优着法，Pikafish 只差 0.3~0.8 个兵，
-//                                   它分不出「杀网还在」和「只是还大优」，所以**不能叫正解**
+//   `solutions.js` `src='mate'`  引擎在**根上**证明了强制杀（`go mate`，对手怎么走都杀）
+//                                → 可以放心跟着走，说「有解法」
+//   `solutions.js` `src='walk'` / `prefixes.js`
+//                                引擎沿自己选的路走到底**能**杀 / 只有一段首选前缀，
+//                                但**前段没有证明** → 说「引擎参考线」。前段只是引擎的
+//                                偏好：实测第 004 局把谱上妙手换成次优着法，Pikafish 只差
+//                                0.3~0.8 个兵，它分不出「杀网还在」和「只是还大优」，
+//                                所以**不能叫正解**
 // 两个来源都不分「推不推荐」——**都是"可以跟着走"**，区别只在有没有证明这一句。
-//
-// 走岔了（或这一局没有线）就回退到引擎搜索，行为与从前一致。
-// 匹配规则见 solution-book.js：**必须带上「已经走到第几手」，不能只用局面**，
-// 因为杀线里重复局面是常态（同一局面要走向不同的着法）。
 let bookKey = '';
 let book = null;
 
-/** 当前这一局的谱表。按「局 id + 起始局面」缓存，换局才重建（展开一次几十步，本来也不贵） */
+/** 当前这一局的谱表。按「局 id + 起始局面」缓存，换局才重建（只解一遍 pv，本来也不贵） */
 function currentBook() {
   const g = app.game;
   const key = `${g.endgameId || ''}@${g.initialFen}`;
   if (key !== bookKey) {
     bookKey = key;
     const line = g.endgameId ? lineOf(g.endgameId) : null;
-    book = line ? buildBook(g.initialFen, line.pv) : null;
+    book = line ? buildBook(line.pv) : null;
   }
   return book;
 }
 
-/** 眼下这个局面谱上写的是哪一步；0 = 不在谱上（走岔了，或这局没有解法） */
+/** 已经走过的着法编码（到 cursor 为止）。谱表用的是同一套编码，直接逐个比就行 */
+function playedMoves() {
+  const out = [];
+  for (let i = 0; i < app.game.cursor; i++) out.push(app.game.moves[i].move);
+  return out;
+}
+
+/** 谱上写的下一手；0 = 不在谱上（走岔了、对手变了着、或这局没谱） */
 function bookMoveNow() {
-  return bookMove(currentBook(), G.currentFen(app.game), app.game.cursor);
+  return bookMove(currentBook(), playedMoves(), app.game.cursor);
 }
 
 // === Worker ===
@@ -575,6 +598,10 @@ function historyFens() {
 
 /**
  * 派发一次 AI 搜索。不是 AI 的回合、或者已经有请求在飞，就直接返回。
+ *
+ * 只有开了「AI 按谱应着」（`game.followBook`）**且这一步在谱上**时，才改成走谱上的
+ * 着法 —— 同步落子、不进 busy（状态行也就不会闪一下「AI 思考中」）。
+ * 其余情况一律派发引擎搜索：AI 的行为默认只由挡位决定，不因为「这一局有解法」而特殊。
  */
 function requestAiMove() {
   if (app.busy) return;
@@ -584,9 +611,9 @@ function requestAiMove() {
   if (app.game.twoPlayer) return;
   if (G.sideToMove(app.game) === app.game.playerSide) return;
 
-  // 棋子还在滑就等它滑完再动。不等的话，AI 那一步（谱载解法是**同步**落的，
-  // 引擎也常常两百毫秒就回来）会在玩家的棋子还在半路上时落下来，
-  // 看着像「没轮到它就动了」。等待期间**照样占住 busy** —— 不然这 200ms 里
+  // 棋子还在滑就等它滑完再动。引擎常常两百毫秒就回来、比补间还短，
+  // 不等的话 AI 那一步会落在玩家的棋子还在半路上时，看着像「没轮到它就动了」。
+  // 等待期间**照样占住 busy** —— 不然这 200ms 里
   // 用户能点着法列表跳转，回来 AI 却落在回看状态上，那一步会把后面的分支截掉。
   if (app.renderer.isAnimating()) {
     app.busy = true;
@@ -602,12 +629,14 @@ function requestAiMove() {
     return;
   }
 
-  // 谱上优先：这一步按谱走。同步落子、没有搜索等待，所以不进 busy 状态
-  //（状态行也就不会闪一下「AI 思考中」）。
-  const fromBook = bookMoveNow();
-  if (fromBook) {
-    applyMove(fromBook, true);
-    return;
+  // 谱上优先 —— 但只在玩家主动开了这个开关时。默认关着，AI 一律实时搜索。
+  //
+  // applyMove 返回 false（谱上的着法竟然不合法）时**不 return**，直接掉到下面派发搜索：
+  // 数据本身过了 verify-solutions，正常走不到这里；但万一（数据坏了、谱表没跟上局面），
+  // 宁可让引擎现算，也不能让 AI 一动不动。
+  if (app.game.followBook) {
+    const fromBook = bookMoveNow();
+    if (fromBook && applyMove(fromBook, true)) return;
   }
 
   app.busy = true;
@@ -862,7 +891,8 @@ function endgameMeta(eg) {
  * 为什么非要标在**列表**上：库里 396 局有已证明的解法、还有一批只有参考线、剩下的两样都没有，
  * 这三类在「提示」上的表现完全不同 —— 有线的局一点就出着法（不派发搜索），
  * 没线的局要等引擎现算、还有可能算不出合适的着法。光看局名分不出来，
- * 得点进去、再点一次提示才知道，那就太晚了。
+ * 得点进去、再点一次提示才知道，那就太晚了。**它默认只影响「提示」**：
+ * AI 一律实时搜索，除非玩家自己开了「对局」面板里的「AI 按谱应着」。
  *
  * 徽标只写两个字，**具体步数放进 title**：列表宽度得留给局名（最长的那些局名本来就在
  * 省略号上了），而步数是点进去之后更该看的细节 —— 棋盘上方那行给的才是完整版。
@@ -877,8 +907,8 @@ function solutionBadge(eg) {
   // 措辞不同比配色不同重要 —— 用户可以忽略颜色，但会读字。
   span.textContent = line.src === 'walk' ? '参考线' : '有解法';
   span.title = line.src === 'walk'
-    ? `${lineLabel(line)}（「提示」会给线上的着法，AI 也按线应着；走岔了回退引擎搜索）`
-    : `谱载解法：红方 ${line.mate} 步杀（「提示」直接给正解，AI 也按谱应着）`;
+    ? `${lineLabel(line)}（「提示」会给线上的着法；「对局」面板里可开「AI 按谱应着」）`
+    : `谱载解法：红方 ${line.mate} 步杀（「提示」直接给正解；「对局」面板里可开「AI 按谱应着」）`;
   if (line.src === 'walk') span.classList.add('xq-endgame-sol--ref');
   return span;
 }
@@ -1538,6 +1568,18 @@ function bindToolbar() {
     // 两种情况都交给 requestAiMove 自己的前置判断：
     //   刚打开 —— 可能正轮到「AI」那一方，这时不该再派发搜索；
     //   刚关掉 —— 可能正轮到 AI，要把它拉回来接着走。
+    requestAiMove();
+  });
+
+  dom.followBookToggle.addEventListener('change', () => {
+    if (app.busy) return;
+    app.game.followBook = dom.followBookToggle.checked;
+    // 只影响**之后**的应手，不必作废在飞的响应（busy 时这个开关本来就是禁用的）：
+    // 它既不改局面，也不改「轮到谁」，所以不用重排棋盘。
+    app.hint = 0;
+    updateChrome();
+    saveSoon(app.game);
+    // 刚打开时可能正轮到 AI（比如玩家悔棋退到 AI 该走的位置）—— 交给前置判断去吃。
     requestAiMove();
   });
 

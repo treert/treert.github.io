@@ -7,13 +7,13 @@
  * 盯这些事：
  *   1. **坐标定点**：`b5b9` ↔ `(1,4)→(1,0)` ↔ 中文记谱「前车进四」
  *      （与 test-notation.mjs 里那几条谱例锚点是同一批证据）。
- *   2. **每条线的每一步都查得到** —— 「展开时算的局面签名」必须等于「按那条线走到
- *      该位置时的签名」。两个常量写混了（`y*9+x` 与 `y*90+x`）这里会全红，实测抓到过。
+ *   2. **每条线的每一步都查得到** —— 把谱逐步喂回去，每一步都要取到自己那一手
+ *      （这一组同时兜住坐标常量写混：`y*9+x` 与 `y*90+x` 错了这里会全红，实测抓到过）。
  *      **`src='walk'` 那 34 条也一起走**：它们同样要以「末局对方一步都走不出」收场。
- *   3. **重复局面**：杀线里同一个局面反复出现是常态（马炮来回走），所以匹配必须带
- *      「谱上第几手」。只用「签名 → 着法」的 Map 会互相覆盖 —— 这一组就是钉它的。
+ *   3. **重复局面**：杀线里同一个局面反复出现是常态（马炮来回走），而两处要走向**不同**的
+ *      着法 —— 所以匹配必须**逐手比前缀**（只按「当前局面」查会串）。这一组就是钉它的。
  *   4. **走岔之后查不到** —— 界面据此回退引擎搜索。
- *   5~6. 越界 / 空表，以及与对局状态机的口径一致。
+ *   5~6. 越界 / 空表，以及与对局状态机的口径一致（`game.moves[i].move` 与谱同一套编码）。
  *   7. **可信度分级与措辞**（`lineOf` / `lineLabel`）：`src='mate'` 说「有解法」，
  *      `src='walk'` 必须说「参考线、未经证明」；引擎认为红方不行的局（反杀那几局）不给线。
  *      措辞写错 = 把没证明的东西说成正解，比没有解法更糟 —— 所以要有断言钉住。
@@ -75,17 +75,19 @@ console.log(`谱载解法查表测试（数据生成自 ${SOLUTIONS_SOURCE}）\n
     const eg = byId.get(id);
     if (!eg) { problems.push(`${id}：endgames.js 里没有这一局`); continue; }
 
-    const book = buildBook(eg.fen, sol.pv);
+    const book = buildBook(sol.pv);
     const pos = parseFen(eg.fen);
+    const played = [];
     let ply = 0;
 
     for (const tok of sol.pv.trim().split(/\s+/)) {
-      const got = bookMove(book, toFen(pos), ply);
+      const got = bookMove(book, played, ply);
       if (got !== moveOfIccs(tok)) {
         problems.push(`${id} 第 ${ply + 1} 手：查表得到 ${got}，期望 ${moveOfIccs(tok)}（${tok}）`);
         break;
       }
       steps++;
+      played.push(got);
       play(pos, got);
       ply++;
     }
@@ -96,32 +98,33 @@ console.log(`谱载解法查表测试（数据生成自 ${SOLUTIONS_SOURCE}）\n
     problems.slice(0, 5), []);
 }
 
-// --- 3. 重复局面：同一个签名在不同位置可能对应不同的着法 ---
+// --- 3. 重复局面：同一个局面在不同位置对应不同的着法 ---
 {
   // 先在数据里找一条「同一局面出现两次」的解法（杀线常态）
   let sample = null;
   for (const [id, sol] of Object.entries(SOLUTIONS)) {
-    const eg = byId.get(id);
-    const book = buildBook(eg.fen, sol.pv);
-    const seen = new Map();
-    for (let i = 0; i < book.before.length; i++) {
-      const sig = book.before[i];
-      if (seen.has(sig)) { sample = { id, first: seen.get(sig), again: i, book }; break; }
-      seen.set(sig, i);
+    const pos = parseFen(byId.get(id).fen);
+    const book = buildBook(sol.pv);
+    const seen = new Map(); // 局面（FEN 文本）→ 第几手
+    for (let i = 0; i < book.moves.length; i++) {
+      const key = toFen(pos);
+      if (seen.has(key)) { sample = { id, first: seen.get(key), again: i, book }; break; }
+      seen.set(key, i);
+      play(pos, book.moves[i]);
     }
     if (sample) break;
   }
 
-  check('数据里确实有重复局面（所以匹配必须带「第几手」）', sample !== null, true);
+  check('数据里确实有重复局面（所以只按「当前局面」查会串）', sample !== null, true);
   if (sample) {
     const a = sample.book.moves[sample.first];
     const b = sample.book.moves[sample.again];
     check(`同一局面出现在 ${sample.id} 的第 ${sample.first + 1} / ${sample.again + 1} 手，两处着法不同`,
       a !== b, true);
-    // 按 ply 取，各自取到各自那一手（只用签名当键就会串）
-    check('按「第几手」取，两处各取各的着法',
-      [bookMove(sample.book, sample.book.before[sample.first], sample.first),
-        bookMove(sample.book, sample.book.before[sample.again], sample.again)],
+    // 两处的「已走着法」前缀不同（一个长一个短）→ 各自取到各自那一手
+    check('逐手比前缀，两处各取各的着法',
+      [bookMove(sample.book, sample.book.moves.slice(0, sample.first), sample.first),
+        bookMove(sample.book, sample.book.moves.slice(0, sample.again), sample.again)],
       [a, b]);
   }
 }
@@ -129,39 +132,46 @@ console.log(`谱载解法查表测试（数据生成自 ${SOLUTIONS_SOURCE}）\n
 // --- 4. 走岔之后查不到 ---
 {
   const eg = byId.get(SAMPLE);
-  const book = buildBook(eg.fen, SOLUTIONS[eg.id].pv);
+  const book = buildBook(SOLUTIONS[eg.id].pv);
   const pos = parseFen(eg.fen);
 
-  const onBook = bookMove(book, toFen(pos), 0);
+  const onBook = bookMove(book, [], 0);
   check('开局（第 0 手）查得到', onBook !== 0, true);
 
   const offBook = generateLegalMoves(pos).find((m) => m !== onBook);
-  play(pos, offBook);
   check('走了一步谱外的着法之后查不到（界面据此回退引擎搜索）',
-    bookMove(book, toFen(pos), 1), 0);
+    bookMove(book, [offBook], 1), 0);
+
+  // 前缀是**整段**都要对：第 2 手岔了，第 3 手就算正好和谱一样也不认
+  // （对手变着之后正是这种情况 —— 红方的下一手只对谱上那个局面成立）
+  check('前缀断在中间，后面那手也不认',
+    bookMove(book, [onBook, offBook, book.moves[2]], 3), 0);
 }
 
 // --- 5. 越界与空表 ---
-check('没有解法（pv 为空）时一律查不到', bookMove(buildBook(byId.get(SAMPLE).fen, ''), 'x', 0), 0);
-check('空表也稳', bookMove(null, 'x', 0), 0);
-check('ply 越界返回 0', bookMove(buildBook(byId.get(SAMPLE).fen, SOLUTIONS[SAMPLE].pv), 'x', 999), 0);
+check('没有谱（pv 为空）时一律查不到', bookMove(buildBook(''), [], 0), 0);
+check('空表也稳', bookMove(null, [], 0), 0);
+check('ply 越界返回 0', bookMove(buildBook(SOLUTIONS[SAMPLE].pv), [], 999), 0);
+check('已走着法比 ply 短时也查不到（宁可回退引擎，不能给错的着法）',
+  bookMove(buildBook(SOLUTIONS[SAMPLE].pv), [], 1), 0);
 
-// --- 6. 与对局状态机配合（main.js 就是这么查表的：`currentFen()` + `cursor`）---
+// --- 6. 与对局状态机配合（main.js 就是这么查表的：`moves[i].move` + `cursor`）---
 //
-// 这一组盯的是**两套口径是否一致**：谱表推进用的是 `toFen`，而状态机存下来的快照
-// （`moves[i].fenAfter`）也必须是同一个 `toFen` —— 只要有一处换了口径，
-// 界面上就永远查不到，而这种错在浏览器里看起来只是「提示没反应」。
+// 这一组盯的是**两套编码是否一致**：谱表给的是 ICCS 换算出来的着法编码，而状态机存下来的
+// （`moves[i].move`）必须是同一个 —— 只要有一处换了口径，界面上就永远查不到，
+// 而这种错在浏览器里看起来只是「提示没反应」。
 {
   const G = await load('game.js');
   const g = G.createGame();
   check('能载入这一局', G.startEndgame(g, SAMPLE), true);
 
   const pv = SOLUTIONS[SAMPLE].pv.trim().split(/\s+/);
-  const book = buildBook(g.initialFen, SOLUTIONS[SAMPLE].pv);
+  const book = buildBook(SOLUTIONS[SAMPLE].pv);
+  const played = () => G.moveList(g).map((m) => m.move);
 
   let ply = 0;
   while (ply < pv.length) {
-    const m = bookMove(book, G.currentFen(g), g.cursor);
+    const m = bookMove(book, played(), g.cursor);
     if (!m) { check(`第 ${ply + 1} 手查到谱载着法`, false, true); break; }
     if (!G.playMove(g, m).ok) { check(`第 ${ply + 1} 手被状态机接受`, false, true); break; }
     ply++;
@@ -169,12 +179,12 @@ check('ply 越界返回 0', bookMove(buildBook(byId.get(SAMPLE).fen, SOLUTIONS[S
   check(`跟着谱走能走完整条线（${pv.length} 手）`, ply, pv.length);
   check('走完是「将死」', G.evaluateStatus(g).type, 'checkmate');
 
-  // 悔棋 / 点着法列表跳转：游标只移动、局面回退到谱上的某一步，仍然查得到
+  // 悔棋 / 点着法列表跳转：游标只移动、前缀跟着变短，仍然查得到
   G.gotoPly(g, 3);
-  check('跳回第 3 手后仍查得到谱载着法', bookMove(book, G.currentFen(g), g.cursor) !== 0, true);
+  check('跳回第 3 手后仍查得到谱载着法', bookMove(book, played(), g.cursor) !== 0, true);
   G.gotoPly(g, 0);
   check('跳回开局仍给出第 1 手的谱载着法',
-    bookMove(book, G.currentFen(g), g.cursor), moveOfIccs(pv[0]));
+    bookMove(book, played(), g.cursor), moveOfIccs(pv[0]));
 }
 
 // --- 7. 「这一局有什么线」与措辞（`src` 决定，见 solution-book.js 的 lineOf）---

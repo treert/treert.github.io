@@ -14,27 +14,35 @@
  * ## 它解决什么
  *
  * 每局存的是一条**从初始局面开始的完整着法序列**（`pv`）。
- * 而界面要回答的是另一个问题：「**眼下这个局面**，线上写的是哪一步？」
+ * 而界面要回答的是另一个问题：「**已经走过的这些着法**，谱上接下来写的是哪一步？」
  * —— 玩家可能已经走了几手，也可能压根没按线走。
  *
- * 做法：进一局时把那条线展开成两个平行数组（见 `buildBook`）——
- * 第 i 手**之前的局面签名**、以及第 i 手本身。查询时拿「当前走到第几手」
- * （`game.cursor`，也就是已走半层数）去对：签名一致就给出那一手，不一致就回退引擎搜索。
+ * ## 怎么匹配：着法序列的前缀
  *
- * ## 为什么不能只用「局面签名 → 着法」的 Map
+ * 把「实际走过的着法」与 `pv` **逐手比**：整个是前缀就给出下一手（`bookMove`），
+ * 有一手对不上就返回 0，调用方回退引擎搜索。
  *
- * **杀线里重复局面是常态**：马炮来回走、士来回垫，同一条线上会反复回到同一个局面
- * （第 002 局里「马四进二 / 马二退四」就来回了几次）。只用签名当键，后一次会把前一次
- * 盖掉，于是**同一个局面拿到的是另一处该走的着法** —— 走错一步，整条线就废了。
+ * **不能只用「局面签名 → 着法」的 Map**：杀线里重复局面是常态（马炮来回走、士来回垫，
+ * 同一条线上会反复回到同一个局面 —— 第 002 局里「马四进二 / 马二退四」就来回了几次），
+ * 后一次会把前一次盖掉，于是**同一个局面拿到的是另一处该走的着法**，走错一步整条线就废了。
  * 这是 `tools/test-solution-book.mjs` 在全部 395 条上跑出来的（当时 4 条局红线）。
  *
- * 带上「谱上第几手」之后，匹配就唯一了，而且几条路径天然都对：
- * 跟着谱走（游标与谱同步）、悔棋（只移动游标）、点着法列表跳转（游标跟着走）；
- * 一旦走了谱外的着法，签名对不上 → 回退引擎搜索。
+ * 按「第几手」定位天然避开这一点，而且几条路径都对：跟着谱走（游标与谱同步）、
+ * 悔棋（游标退回，前缀跟着变短）、点着法列表跳转（游标跟着走）。
+ *
+ * **对手一变着，前缀就断了** —— 这是有意的：`pv` 里红方的下一手只对 `pv` 上那个局面成立，
+ * 硬接着往下走会走出错的棋。断了就回退引擎搜索（与没有线的局完全一样）。
+ *
+ * ## 谁来用
+ *
+ *   「提示」  → 一直用它：局面在线上就直接给谱上的着法，省掉最长 1.5 秒的搜索等待
+ *   AI       → **默认不用**（一律实时搜索、按挡位出着）；「对局」面板里的
+ *              「AI 按谱应着」开关打开后才走这里给出的着法，于是玩家顺着那条线
+ *              能一直走到将死。开关默认关，见 `main.js` 的 `requestAiMove`。
  *
  * ## 为什么单独一个文件
  *
- * 展开与查表是纯逻辑（局面签名 + ICCS 坐标换算），写进 `main.js` 就没法单测，
+ * 展开与查表是纯逻辑（ICCS 坐标换算 + 前缀比对），写进 `main.js` 就没法单测，
  * 而它是「界面表现对不对」的关键一环 —— 包括 `lineOf` / `lineLabel` 那套措辞。
  * 与 share.js / custom-endgames.js 同一个理由。
  *
@@ -45,8 +53,7 @@
  * 这一层只做换算与查表，不做合法性判断 —— 数据本身已经过 `verify-solutions.mjs` 校验。
  */
 import { COLS } from './config.js';
-import { parseFen, toFen, positionSignature } from './position.js';
-import { encodeMove, moveFrom, moveTo } from './rules.js';
+import { encodeMove } from './rules.js';
 import { solutionOf } from './solutions.js';
 import { PREFIXES } from './prefixes.js';
 
@@ -67,49 +74,35 @@ export function moveOfIccs(tok) {
   return encodeMove(from, to);
 }
 
-/** 在局面上走一步（就地改。这一层只跟着法序列打交道，不需要哈希之类的增量状态） */
-function play(pos, move) {
-  const from = moveFrom(move);
-  const to = moveTo(move);
-  pos.cells[to] = pos.cells[from];
-  pos.cells[from] = 0;
-  pos.side = -pos.side;
-}
-
 /**
- * 把一条杀线展开成 `{ moves, before }`：两组等长数组。
+ * 把一条谱展开成着法数组：`moves[i]` 是第 i 手（0 基，红黑交替）。
  *
- *   `moves[i]`   第 i 手（0 基，红黑交替）
- *   `before[i]`  走第 i 手**之前**那个局面的签名
- *
- * `initialFen` 与 `pv` 都来自同一局的 `endgames.js` + `solutions.js`。
- * 两者对不上（数据错了）不会抛 —— 展开只是照着走，界面上表现为「查不到、回退引擎」；
- * 数据本身该由 `verify-solutions.mjs` 在离线时挡住，运行时不该为此崩页面。
+ * 纯换算，**不需要棋盘** —— 前缀匹配只比着法编码（见 `bookMove`），
+ * 所以这一层既不 `parseFen`，也不维护「第 i 手之前的局面」。
  */
-export function buildBook(initialFen, pv) {
+export function buildBook(pv) {
   const moves = [];
-  const before = [];
-  if (!pv) return { moves, before };
-
-  const pos = parseFen(initialFen);
-  for (const tok of String(pv).trim().split(/\s+/).filter(Boolean)) {
-    before.push(positionSignature(toFen(pos)));
-    const move = moveOfIccs(tok);
-    moves.push(move);
-    play(pos, move);
-  }
-  return { moves, before };
+  if (!pv) return { moves };
+  for (const tok of String(pv).trim().split(/\s+/).filter(Boolean)) moves.push(moveOfIccs(tok));
+  return { moves };
 }
 
 /**
- * 谱载着法：**只有当「走到第 ply 手」这个位置与谱上对得上时**才给。
+ * 谱载着法：**只有「已走的着法逐手都是谱的前 `ply` 手」时**才给。
  *
- * `ply` = 已走的半层数（`game.cursor`）。返回 0 表示没命中 ——
- * 走岔了、悔棋到谱外、或者这一局本来就没有解法，调用方据此回退引擎搜索。
+ * `played` 是已走的着法编码（`game.moves[i].move`，长度不小于 `ply`），
+ * `ply` 是已走的半层数（`game.cursor`）。返回 0 表示没命中 —— 走岔了、悔棋到谱外、
+ * 对手变了着、或者这一局本来就没有谱，调用方据此回退引擎搜索。
+ *
+ * 逐手比而不是只查「当前局面」：见文件头「怎么匹配」—— 杀线里重复局面是常态，
+ * 同一个局面在两处要走向不同的着法。
  */
-export function bookMove(book, fen, ply) {
+export function bookMove(book, played, ply) {
   if (!book || !Number.isInteger(ply) || ply < 0 || ply >= book.moves.length) return 0;
-  return book.before[ply] === positionSignature(fen) ? book.moves[ply] : 0;
+  for (let i = 0; i < ply; i++) {
+    if (played[i] !== book.moves[i]) return 0;
+  }
+  return book.moves[ply];
 }
 
 /**

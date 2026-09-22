@@ -278,6 +278,38 @@ console.log('对局状态机测试\n');
   check('老存档缺 twoPlayer 字段时降级为关', back2.twoPlayer, false);
 }
 
+// --- 「AI 按谱应着」开关（谱表只影响 AI 的出着，不参与规则）---
+//
+// 这一组只钉「默认值」与「存档往返」：读它的只有 main.js 的 requestAiMove，
+// 但默认值必须是明确的 false —— 老存档里没有这个字段，`restoreInto` 不能把
+// undefined 漏进 `game.followBook`（行为上 `if (undefined)` 也当关着，
+// 但两个口径不一致，以后 `=== false` 之类的新判断就会咬人）。
+{
+  check('createGame 默认不按谱应着', G.createGame().followBook, false);
+  check('createGame 能开「AI 按谱应着」', G.createGame({ followBook: true }).followBook, true);
+
+  const P = await load('persist.js');
+  const mem = new Map();
+  const st = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+
+  P.save(st, G.createGame({ followBook: true }));
+  const back = G.createGame();
+  P.restoreInto(back, st);
+  check('存档能往返「AI 按谱应着」', back.followBook, true);
+
+  // 老存档没有这个字段 → 关，正好是默认值（和 twoPlayer 一样，不必升版本号）
+  const raw = JSON.parse(st.getItem(P.STORAGE_KEY));
+  delete raw.followBook;
+  st.setItem(P.STORAGE_KEY, JSON.stringify(raw));
+  const back2 = G.createGame({ followBook: true });
+  P.restoreInto(back2, st);
+  check('老存档缺 followBook 字段时降级为关', back2.followBook, false);
+}
+
 // --- 存档（persist.js） ---
 // storage 是注入的，所以不需要真的 localStorage。这里重点测**容错**：
 // 存档坏掉导致白屏是最糟糕的体验，宁可丢掉一局棋也不能让页面起不来。

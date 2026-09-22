@@ -37,6 +37,11 @@ export function createGame(options = {}) {
     // 开着的时候 playerSide 只在「初始是否翻转棋盘」上还有意义，
     // 所以界面会把「执子」禁掉（见 main.js 的 updateButtons）。
     twoPlayer: options.twoPlayer || false,
+    // AI 严格按谱应着（谱 = solutions.js / prefixes.js 里那条线）。
+    // **默认关**：AI 一律实时搜索、按挡位出着。打开后 AI 走谱上写的着法，
+    // 于是玩家顺着那条线能一直走到将死 —— 界面只在「这一局有谱」时才显示这个开关。
+    // 这个标记本身不参与规则，读它的只有 main.js 的 requestAiMove。
+    followBook: options.followBook || false,
   };
 }
 

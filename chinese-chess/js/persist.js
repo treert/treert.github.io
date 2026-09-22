@@ -43,6 +43,7 @@ export function save(storage, game) {
       level: game.level,
       endgameId: game.endgameId,
       twoPlayer: !!game.twoPlayer,
+      followBook: !!game.followBook,
     }));
     return true;
   } catch {
@@ -113,7 +114,8 @@ export function restoreInto(game, storage = defaultStorage()) {
   game.playerSide = data.playerSide;
   game.level = data.level || 'medium';
   game.endgameId = data.endgameId || null;
-  game.twoPlayer = !!data.twoPlayer; // 老存档没有这个字段 → false，正好是默认值
+  game.twoPlayer = !!data.twoPlayer;   // 老存档没有这个字段 → false，正好是默认值
+  game.followBook = !!data.followBook; // 同理：老存档没有 → false（默认关）
   return true;
 }
 
