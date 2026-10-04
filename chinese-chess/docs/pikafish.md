@@ -124,7 +124,7 @@ ok    《适情雅趣》第002局 马蹀阏氏  (shiqingyaqu-551-002)  20 步杀
          ...
 ```
 
-不带参数就是校验全部 395 条。
+不带参数就是校验全部 440 条。
 
 ### 2. 拿引擎现算一个局面
 
@@ -136,7 +136,7 @@ go mate 30 movetime 30000
 ```
 
 有 30 步内的杀就回 `score mate N` + 完整 `pv`；没有则只回 `score cp <分>`（一个评估，不是答案）。
-「谱载胜但引擎找不到杀」的那 106 局，表现就是后者。
+「谱载胜但引擎找不到杀」的那些局（清单见 [`pikafish-unfinished.md`](./pikafish-unfinished.md) 的 A / B / C 三组），表现就是后者。
 
 ### 3. 确认一条 PV 真的杀完了
 
@@ -162,7 +162,7 @@ bestmove (none)
 | `tools/prefix-scan.mjs` | **「引擎首选前缀 / 参考线」**：给「没解出杀线」的局面走一条引擎自己最想走的线（`gen`，加 `--playout` 则走成完整线）、用规则层复核成候选（`promote`）、或把一条已知线（谱载 / `--line` 手给）与引擎首选逐点对照（`compare`），`emit` 写 `js/prefixes.js`。中间结果在 `tmp/prefix-work.json`。**它产出的是「引擎也同意」，不是「正解 / 必须」** —— 理由见下节 |
 | `tools/solve.mjs` | **中控**：把上面那条链路按顺序跑完 —— 校验局面 → 找杀（快/慢轮）→ 走到底 → 复核候选 → 写两个数据文件 → 校验 → 更新清单。**加 / 改局面跑这一条就够**：`--ids <id>`（会带 `--force`）/ `--status`（只看现状）/ `--dry-run`（只打印命令）。失败即停并给出单独重跑的命令 |
 | `tools/verify-solutions.mjs` | **校验**：不需要引擎。`node ... verify-solutions.mjs [id]` 传 id 就只看一局 |
-| `js/solutions.js` | 生成物（**别手改**）：395 条 `{ pv, mate, ms }` + `SOLUTIONS_SOURCE` |
+| `js/solutions.js` | 生成物（**别手改**）：440 条 `{ pv, mate, ms, src }`（`src='mate'` 399 + `src='walk'` 41）+ `SOLUTIONS_SOURCE` |
 | `tmp/solutions-work.json` | 生成器的账本（每局一条记录）—— 删了要从零重跑 |
 | `tmp/solutions-issues.md` | 疑点清单：反杀 / 未解出 / 和局核对，**人工核查用**（留在 tmp，随跑批更新） |
 | `docs/pikafish-unfinished.md` | **没解出来的局面清单**（生成物，进仓库）：按「该不该人工核查」分成反杀 / 评估≈0 / 大优无杀三组，另附全部和局备查 |

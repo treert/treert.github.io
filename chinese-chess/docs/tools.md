@@ -1,0 +1,37 @@
+# 中国象棋模块 · 工具与测试
+
+全部用 Node 直接跑，不需要浏览器、不需要装依赖：
+
+| 命令 | 作用 |
+|------|------|
+| `node chinese-chess/tools/test-rules.mjs` | 规则引擎：着法生成、攻击判定、合法性、终局 |
+| `node chinese-chess/tools/test-notation.mjs` | 中文记谱 |
+| `node chinese-chess/tools/test-engine.mjs` | AI 层：哈希、评估与位置表、搜索、将军延伸、连将杀探测、挡位弱化、循环规则（长将）、开局回归 |
+| `node chinese-chess/tools/test-game.mjs` | 对局状态机：悔棋、复盘跳转、截断、存档容错 |
+| `node chinese-chess/tools/test-custom-endgames.mjs` | 自定义局面：FEN 入库校验、增删、损坏数据容错 |
+| `node chinese-chess/tools/test-share.mjs` | 分享链接：编解码、往返、坏参数 |
+| `node chinese-chess/tools/test-solution-book.mjs` | 谱载解法查表：每条解法逐步命中、走岔后查不到、重复局面不串 |
+| `node chinese-chess/tools/selfplay.mjs [红挡位] [黑挡位] [上限]` | 端到端自对弈冒烟 |
+| `node chinese-chess/tools/verify-endgames.mjs` | 残局库校验：局面合法性、字段规范、子力一致性 |
+| `node chinese-chess/tools/verify-solutions.mjs` | 残局解法校验：逐步合法、末局将死、长度与 mate 对得上（**不需要引擎**） |
+| `node chinese-chess/tools/gen-solutions.mjs` | 残局解法生成：`fast` / `slow` / `emit` / `issues`（**需要本地有 Pikafish**，用法见文件头） |
+| `node chinese-chess/tools/prefix-scan.mjs` | 参考线生成 / 对照：`gen`（`--playout` 走成完整线）/ `promote`（规则层复核）/ `compare`（与已知线逐点对照）/ `emit` |
+| `node chinese-chess/tools/solve.mjs` | **中控**：把上面两条链路按顺序跑完（校验 → 找杀 → 走到底 → 复核 → 写数据 → 校验 → 清单）。加/改局面跑这一条就够：`--ids <id>` / `--status` / `--dry-run` |
+
+最后四个是**离线工具**：`gen-solutions.mjs` 与 `prefix-scan.mjs` 驱动外部引擎 Pikafish
+分别生成 `js/solutions.js`（解法）与 `js/prefixes.js`（参考线），
+`solve.mjs` 是这两条链路的**中控**（加/改局面只需要跑它），
+`verify-solutions.mjs` 用本模块自己的规则层把那份解法数据逐条钉一遍。
+引擎与权重不进仓库；生成物是数据，**运行时不需要引擎、也不联网**。
+Pikafish 的下载、常用命令、坐标换算，以及「怎么手动验一局」的三个现成配方，
+见 [`pikafish.md`](./pikafish.md)。
+
+改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
+
+## 一起看
+
+| 想知道 | 看 |
+|--------|-----|
+| 测试策略为什么这么定（不钉节点数、冒烟管状态组合） | [`decisions.md`](./decisions.md) 第 7、8 条 |
+| 残局数据怎么生成、怎么校验、怎么加一局 | [`endgames.md`](./endgames.md) |
+| Pikafish 的安装与命令 | [`pikafish.md`](./pikafish.md) |
