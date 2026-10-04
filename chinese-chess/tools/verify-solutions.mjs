@@ -108,7 +108,7 @@ for (const [id, sol] of entries) {
 
   console.log(`ok    ${eg.name}  (${id})  ${sol.mate} 步杀 / ${toks.length} 半层${lenWarn}`);
   if (only) {
-    // 单局模式才打整条杀线 —— 全量跑 395 条会把屏幕刷没
+    // 单局模式才打整条杀线 —— 全量跑 440 条会把屏幕刷没
     console.log(`        初始局面：${eg.fen}`);
     for (let i = 0; i < notes.length; i += 2) {
       const black = notes[i + 1] ? `  ${notes[i + 1]}` : '';
