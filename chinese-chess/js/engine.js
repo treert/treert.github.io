@@ -7,13 +7,16 @@
 
 import {
   CELLS, EMPTY, K, P, RED,
-  PIECE_VALUE, PIECE_SQUARE, PASSED_PAWN_BONUS, MIRROR_INDEX, LEVELS,
+  PIECE_VALUE, PIECE_SQUARE_OPENING, PIECE_SQUARE_ENDGAME,
+  PAWN_BONUS_OPENING, PAWN_BONUS_ENDGAME,
+  PHASE_WEIGHT, PHASE_MAX, MIRROR_INDEX, LEVELS,
 } from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
 import {
   generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
   perpetualChecker, moveFrom, moveTo,
 } from './rules.js';
+import { pickOpening } from './openings.js';
 
 const INF = 1e9;
 /** 将死分值。带上「离根多远」，让引擎偏好更快的杀棋、更晚的被杀 */
@@ -52,19 +55,41 @@ const MATE_PROBE_MAX_MS = 1400;
 const TIMEOUT = { timeout: true };
 
 /**
- * 静态评估：子力 + 位置表 + 兵过河。
+ * 静态评估：子力 + **按相位插值的**位置表 + 兵过河。
  *
  * 返回**轮走方视角**的分值 —— 负极大值搜索要求「分数总是对当前走子方有利为正」。
  *
- * 位置项（`config.js` 的 PIECE_SQUARE）是必需的，不是锦上添花：没有它的时候开局的
- * 所有着法分值一模一样，AI 选哪个纯凭搜索先试到谁，于是会走「弃炮换马」这类
- * 只有浅层才看着划算的着法。
+ * ## 位置项是必需的，不是锦上添花
+ *
+ * 没有它的时候开局的所有着法分值一模一样，AI 选哪个纯凭搜索先试到谁，
+ * 于是会走「弃炮换马」这类只有浅层才看着划算的着法。
+ *
+ * ## 相位插值（这一版新增的）
+ *
+ * **同一枚棋子在开局和残局里价值不一样** —— 这是象棋最基本的常识之一
+ * （马在开阔的残局更强、炮缺了炮架所以中路油水变少、帅可以出来助攻、
+ * 士相是残局里守和的资本、过河兵在残局里能定生死）。
+ *
+ * 做法是标准的 tapered eval：用**剩余子力的加权和**（`PHASE_WEIGHT`，
+ * 满盘 = `PHASE_MAX`）当「这个局面离开局有多远」，然后
+ *
+ *   score = (开局分 × phase + 残局分 × (PHASE_MAX - phase)) / PHASE_MAX
+ *
+ * 于是子力越多越靠近开局表、越少越靠近残局表，中间平滑过渡。
+ * 相位是**在同一个循环里顺带累加**的（评估本来就要遍历 90 格，不额外开一遍循环）；
+ * 代价是每个棋子多一次查表（两张表各查一次），换来的是评估知道自己在哪个阶段。
+ *
+ * 「过河兵加分」也分两套值（`PAWN_BONUS_OPENING` / `PAWN_BONUS_ENDGAME`），
+ * 和位置表一起插值 —— 这是相位带来的最直观的一处变化。
  *
  * 刻意**不加任何需要生成着法的项**（机动性、威胁数…）：评估在叶节点被调用上百万次，
- * 生成着法等于把搜索成本翻倍。位置表是 O(1) 查表，这才是对的方向。
+ * 生成着法等于把搜索成本翻倍。位置表 + 相位是 O(1) 查表，这才是对的方向。
  */
 export function evaluate(cells, side) {
-  let score = 0; // 先按红方视角累加
+  let opening = 0; // 先按红方视角累加：开局表下的分值
+  let endgame = 0; //                       残局表下的分值
+  let phase = 0;   //                       剩余子力的相位权重和
+
   for (let i = 0; i < CELLS; i++) {
     const v = cells[i];
     if (v === EMPTY) continue;
@@ -72,14 +97,32 @@ export function evaluate(cells, side) {
     const abs = Math.abs(v);
     const red = v > 0;
     // 黑方按 y 镜像查同一张表（左右对称，不必再镜像横轴）
-    let value = PIECE_VALUE[abs] + PIECE_SQUARE[abs * CELLS + (red ? i : MIRROR_INDEX[i])];
+    const sq = abs * CELLS + (red ? i : MIRROR_INDEX[i]);
+    const value = PIECE_VALUE[abs];
+
+    phase += PHASE_WEIGHT[abs];
+
+    // 过河兵：开局 / 残局两套加分（红兵过河到 y <= 4，黑卒到 y >= 5）
+    let bonusOpening = 0;
+    let bonusEndgame = 0;
     if (abs === P) {
       const y = yOf(i);
-      const crossed = red ? y <= 4 : y >= 5;
-      if (crossed) value += PASSED_PAWN_BONUS;
+      if (red ? y <= 4 : y >= 5) {
+        bonusOpening = PAWN_BONUS_OPENING;
+        bonusEndgame = PAWN_BONUS_ENDGAME;
+      }
     }
-    score += red ? value : -value;
+
+    const openingValue = value + PIECE_SQUARE_OPENING[sq] + bonusOpening;
+    const endgameValue = value + PIECE_SQUARE_ENDGAME[sq] + bonusEndgame;
+    opening += red ? openingValue : -openingValue;
+    endgame += red ? endgameValue : -endgameValue;
   }
+
+  // 相位插值。phase 只减不增（棋子只会被吃掉），但非法局面可能带更多子力，
+  // 所以夹一下上界，免得插值跑到表外去。round 让分值保持整数。
+  const p = phase > PHASE_MAX ? PHASE_MAX : phase;
+  const score = Math.round((opening * p + endgame * (PHASE_MAX - p)) / PHASE_MAX);
   return side === RED ? score : -score;
 }
 
@@ -681,10 +724,36 @@ export function search(fen, level, options = {}) {
   if (!lv) throw new Error(`未知挡位：${level}`);
 
   const pos = parseFen(fen);
-  const searcher = new Searcher(pos.cells, pos.side, lv, options.rng || Math.random,
-    options.history || []);
-
+  const rng = options.rng || Math.random;
   const started = Date.now();
+
+  // === 先查开局库（在造 Searcher 之前，走谱时连搜索对象都不必建）===
+  //
+  // 命中条件是「挡位允许 + 局面在库里」。走谱的着法**不施加挡位弱化**：
+  // 谱上的着法是「已知合理的开局」，不是搜索结论 —— 把它换成随机着法，
+  // 坏掉的不是棋力而是「像不像人」这件事本身（那正是开局库要修的）。
+  //
+  // 返回前**再过一遍合法着法**：数据写错、或者局面其实不是库里那一个时，
+  // 宁可回退常规搜索。绝不能把非法着法交给上层 —— 上层会静默丢掉它，
+  // 表现成「AI 不动了」（见 future-work.md E9）。
+  if (lv.book > 0 && rng() < lv.book) {
+    const bookMove = pickOpening(fen, rng);
+    if (bookMove && generateLegalMoves(pos).includes(bookMove)) {
+      return {
+        move: bookMove,
+        from: moveFrom(bookMove),
+        to: moveTo(bookMove),
+        score: 0,
+        depth: 0,      // 不是搜索深度：这一步没搜
+        nodes: 0,
+        timeMs: Date.now() - started,
+        blundered: false,
+        book: true,    // 给测试与自对弈日志分辨「这是谱上的着法」
+      };
+    }
+  }
+
+  const searcher = new Searcher(pos.cells, pos.side, lv, rng, options.history || []);
   const limit = lv.timeLimitMs;
 
   // === 先做一次连将杀探测 ===
@@ -755,6 +824,7 @@ export function search(fen, level, options = {}) {
       nodes: searcher.nodes,
       timeMs: Date.now() - started,
       blundered,
+      book: false,
     };
   }
 

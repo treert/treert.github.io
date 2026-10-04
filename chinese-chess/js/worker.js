@@ -43,6 +43,9 @@ self.onmessage = (e) => {
       nodes: result.nodes,
       timeMs: result.timeMs,
       blundered: result.blundered,
+      // 这一步是不是开局库给的（engine.js）。界面目前不用它，但它是「这一步
+      // 为什么这么快、为什么深度是 0」的答案，转发出来便于排查。
+      book: result.book || false,
     });
   } catch (err) {
     self.postMessage({ type: 'error', id: msg.id, message: String((err && err.message) || err) });

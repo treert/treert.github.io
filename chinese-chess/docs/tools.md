@@ -6,7 +6,8 @@
 |------|------|
 | `node chinese-chess/tools/test-rules.mjs` | 规则引擎：着法生成、攻击判定、合法性、终局 |
 | `node chinese-chess/tools/test-notation.mjs` | 中文记谱 |
-| `node chinese-chess/tools/test-engine.mjs` | AI 层：哈希、评估与位置表、搜索、将军延伸、连将杀探测、挡位弱化、循环规则（长将）、开局回归 |
+| `node chinese-chess/tools/test-engine.mjs` | AI 层：哈希、评估与相位插值、搜索、将军延伸、连将杀探测、挡位弱化、循环规则（长将）、开局库接线、开局回归 |
+| `node chinese-chess/tools/test-openings.mjs` | 开局库数据：每条线从标准开局逐步重放、逐手合法、走子方正确、索引不多不少 |
 | `node chinese-chess/tools/test-game.mjs` | 对局状态机：悔棋、复盘跳转、截断、存档容错 |
 | `node chinese-chess/tools/test-custom-endgames.mjs` | 自定义局面：FEN 入库校验、增删、损坏数据容错 |
 | `node chinese-chess/tools/test-share.mjs` | 分享链接：编解码、往返、坏参数 |
@@ -34,4 +35,5 @@ Pikafish 的下载、常用命令、坐标换算，以及「怎么手动验一�
 |--------|-----|
 | 测试策略为什么这么定（不钉节点数、冒烟管状态组合） | [`decisions.md`](./decisions.md) 第 7、8 条 |
 | 残局数据怎么生成、怎么校验、怎么加一局 | [`endgames.md`](./endgames.md) |
+| 开局库的数据格式、索引、怎么加一条线 | [`openings.md`](./openings.md) |
 | Pikafish 的安装与命令 | [`pikafish.md`](./pikafish.md) |

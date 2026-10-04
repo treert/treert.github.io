@@ -30,7 +30,7 @@ import { dirname, resolve } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href);
 
-const { CELLS, EMPTY, P, RED, PIECE_VALUE, PASSED_PAWN_BONUS } = await load('config.js');
+const { CELLS, EMPTY, P, RED, PIECE_VALUE, PAWN_BONUS_ENDGAME } = await load('config.js');
 const { parseFen, toFen, yOf } = await load('position.js');
 const { isLegalPosition, generateLegalMoves } = await load('rules.js');
 const { ENDGAMES, RESULTS, endgameTabs } = await load('endgames.js');
@@ -41,7 +41,12 @@ const TAB_IDS = new Set(TABS.map((t) => t.id));
 
 let failed = 0;
 
-/** 先手方（红方）视角的子力价值，兵过河算加分 —— 与 engine.js 的评估口径一致 */
+/**
+ * 先手方（红方）视角的子力价值，兵过河算加分 —— 与 engine.js 的评估口径一致。
+ *
+ * 残局库里的局面都是接近残局的，所以过河兵用 **残局那一档**加分
+ * （`PAWN_BONUS_ENDGAME`）。它只是一条「挡住强弱写反」的启发式，不追求和引擎逐分一致。
+ */
 function material(cells, side) {
   let sum = 0;
   for (let i = 0; i < CELLS; i++) {
@@ -51,7 +56,7 @@ function material(cells, side) {
     let val = PIECE_VALUE[abs];
     if (abs === P) {
       const y = yOf(i);
-      if (v > 0 ? y <= 4 : y >= 5) val += PASSED_PAWN_BONUS;
+      if (v > 0 ? y <= 4 : y >= 5) val += PAWN_BONUS_ENDGAME;
     }
     sum += val;
   }

@@ -148,12 +148,16 @@ console.log('AI 层测试\n');
     check('红方多一个车：黑方视角 -900', evaluate(cells, -1), -900);
   }
 
-  // 兵过河加分
+  // 兵过河加分（位置分是 0，所以这两个数是「兵的价值 + 过河加分」的干净样本）
+  //
+  // **过河加分分两套值（开局 50 / 残局 100），评估按相位插值** ——
+  // 「单兵 + 两个将」已经是残局相位（phase = PHASE_WEIGHT[P] = 1），
+  // 于是过河兵 = (150 × 1 + 200 × 49) / 50 = 199；未过河兵两套值都是 100。
   {
     const own = build(['K@3,9', 'k@5,0', 'P@4,6']).cells;
     const crossed = build(['K@3,9', 'k@5,0', 'P@4,4']).cells;
     check('红兵未过河记 100', evaluate(own, 1), 100);
-    check('红兵过河记 150', evaluate(crossed, 1), 150);
+    check('红兵过河（残局相位，按残局加分插值）= 199', evaluate(crossed, 1), 199);
   }
 
   // 黑卒过河同样加分（方向相反）
@@ -161,7 +165,7 @@ console.log('AI 层测试\n');
     const own = build(['K@3,9', 'k@5,0', 'p@4,3']).cells;
     const crossed = build(['K@3,9', 'k@5,0', 'p@4,5']).cells;
     check('黑卒未过河记 100（黑方视角）', evaluate(own, -1), 100);
-    check('黑卒过河记 150（黑方视角）', evaluate(crossed, -1), 150);
+    check('黑卒过河 = 199（黑方视角）', evaluate(crossed, -1), 199);
   }
 
   // 帅 / 将不计入子力：双方恒各有一个，算进去只会互相抵消
@@ -170,7 +174,7 @@ console.log('AI 层测试\n');
     check('只有两个将时分值为 0', evaluate(cells, 1), 0);
   }
 
-  // 位置表（config.js 的 PIECE_SQUARE）
+  // 位置表（config.js 的 PIECE_SQUARE_OPENING / PIECE_SQUARE_ENDGAME）
   //
   // **只钉方向，不钉数值** —— 数值是会调的（那是这块数据的全部意义），
   // 但「中路比边路值钱、出子比压底线值钱」这些方向不能反过来，
@@ -191,6 +195,60 @@ console.log('AI 层测试\n');
     check('黑方按 y 镜像查表（红黑对称）',
       evaluate(build(['K@3,9', 'k@5,0', 'N@1,7']).cells, 1),
       -evaluate(build(['K@3,9', 'k@5,0', 'n@1,2']).cells, 1));
+  }
+
+  // 相位插值（开局 ⇄ 残局）
+  //
+  // 评估用「剩余子力的加权和」当相位，在**开局位置表**和**残局位置表**之间插值。
+  // 这一组钉三件事：相位的刻度是对的、插值真的在两张表之间移动、方向符合棋理。
+  {
+    const { PHASE_WEIGHT, PHASE_MAX, PAWN_BONUS_OPENING } = await load('config.js');
+
+    // 满盘时的相位和必须正好等于 PHASE_MAX ——
+    // 不然插值的两端永远取不到（改了权重忘改 PHASE_MAX 就会这样，静默失效）
+    {
+      const start = startPosition();
+      let sum = 0;
+      for (let i = 0; i < CELLS; i++) {
+        const v = start.cells[i];
+        if (v) sum += PHASE_WEIGHT[Math.abs(v)];
+      }
+      check('开局满子的相位和 = PHASE_MAX', sum, PHASE_MAX);
+    }
+
+    // 同一个过河兵：空旷局面（残局相位）应当比满盘（开局相位）值钱。
+    // 差额 = 「这枚兵」在两种相位下各自的贡献，别的子力相减时正好抵消。
+    {
+      const bare = evaluate(build(['K@3,9', 'k@5,0']).cells, 1);
+      const bareWithPawn = evaluate(build(['K@3,9', 'k@5,0', 'P@4,4']).cells, 1);
+
+      const full = startPosition().cells;
+      const fullWithPawn = full.slice();
+      fullWithPawn[idxOf('4,4')] = PIECE_OF_FEN.P;
+
+      const deltaBare = bareWithPawn - bare;
+      const deltaFull = evaluate(fullWithPawn, 1) - evaluate(full, 1);
+
+      check('满盘局面的静态评估仍是 0（左右对称）', evaluate(full, 1), 0);
+      check('残局相位下的过河兵比开局相位下值钱', deltaBare > deltaFull, true);
+      check('残局相位下过河兵 = 兵 100 + 残局加分 100（插值后 199）', deltaBare, 199);
+      check('开局相位下过河兵 = 兵 100 + 开局加分 50', deltaFull, 100 + PAWN_BONUS_OPENING);
+    }
+
+    // 炮的中路优势：残局缺炮架，所以「中路比边路值钱」这件事在残局里没那么明显。
+    // 这是拿方向钉「插值确实按相位在两张表之间移动」——数值差很小（12 vs 8），
+    // 但方向由两张表的表值直接决定，不受取整影响。
+    {
+      const spreadBare = evaluate(build(['K@3,9', 'k@5,0', 'C@4,7']).cells, 1)
+                       - evaluate(build(['K@3,9', 'k@5,0', 'C@0,7']).cells, 1);
+
+      const full = startPosition().cells;
+      const mid = full.slice(); mid[idxOf('4,7')] = PIECE_OF_FEN.C;
+      const edge = full.slice(); edge[idxOf('0,7')] = PIECE_OF_FEN.C;
+      const spreadFull = evaluate(mid, 1) - evaluate(edge, 1);
+
+      check('开局相位下「炮的中路优势」比残局相位下更大', spreadFull > spreadBare, true);
+    }
   }
 }
 
@@ -438,11 +496,48 @@ console.log('AI 层测试\n');
   }
 }
 
+// --- 开局库 ---
+// 局面在库里、且挡位允许时，引擎**不搜索**，直接走谱上的着法（见 engine.js 的 search 开头）。
+// 库数据本身在 tools/test-openings.mjs 里逐步重放校验过（每一步合法、在库、走子方正确）；
+// 这一组钉的是**引擎真的用了它**、以及库外的局面一切照旧。
+{
+  const { search } = await load('engine.js');
+  const { openingEntry } = await load('openings.js');
+  const { generateLegalMoves } = await load('rules.js');
+
+  const withBook = { id: 'bk', name: '库', depth: 3, timeLimitMs: 10000,
+                     quiescence: false, noise: 0, blunderRate: 0, book: 1 };
+
+  const entry = openingEntry(START_FEN);
+  const r = search(START_FEN, withBook, { rng: seededRng(1) });
+
+  check('开局库：起始局面走的是库里的候选',
+    entry.some((e) => e.move === r.move), true);
+  check('开局库：返回的着法合法',
+    generateLegalMoves(parseFen(START_FEN)).includes(r.move), true);
+  check('开局库：结果标了 book', r.book, true);
+  check('开局库：不花搜索（0 个节点、0 层）', [r.nodes, r.depth], [0, 0]);
+
+  // 挡位把 book 关掉（或干脆没有这个字段）时完全不查库 —— 走常规搜索
+  check('book = 0 时结果不标 book',
+    search(START_FEN, { ...withBook, book: 0 }, { rng: seededRng(1) }).book, false);
+  check('挡位里没有 book 字段时结果不标 book',
+    search(START_FEN, { ...withBook, book: undefined }, { rng: seededRng(1) }).book, false);
+
+  // 局面不在库里 → 即使 book = 1 也回退搜索
+  // （黑将在 (3,0)、红帅在 (5,9)：不同纵线，不是照面，是个干净的非库局面）
+  const offBook = '3k5/9/9/9/9/9/9/9/9/5K3 w - - 0 1';
+  check('局面不在库里时回退搜索（不标 book）',
+    search(offBook, withBook, { rng: seededRng(1) }).book, false);
+}
+
 // --- 回归：开局不许「用炮换马」 ---
 // 用户报过这一步：高级挡位的第一手走 炮八进七 —— 借对方的炮当炮架，一个炮换一个马。
 // 成因是**评估没有位置项**：开局所有安静的着法分值一模一样（全是 0），而这一步在
 // 浅层搜索里看着是赚的（先吃马，「被吃回来」是下一层的事），于是总被选中。
-// 加了位置表（config.js 的 PIECE_SQUARE）之后它不该再出现；这条钉的就是用户看得见的那一步。
+// 加了位置表（config.js 的 PIECE_SQUARE_*）之后它不该再出现；这条钉的就是用户看得见的那一步。
+// 注意这里用的是**没有 book 字段**的自定义挡位 —— 钉的是评估本身，
+// 不是「开局库把这一步挡掉了」（开局库另有一组断言）。
 {
   const { search } = await load('engine.js');
   const lv = { id: 'open', name: '开局', depth: 6, timeLimitMs: 60000,

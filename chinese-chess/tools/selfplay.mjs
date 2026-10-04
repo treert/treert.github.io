@@ -82,7 +82,8 @@ while (plies < maxPlies) {
 
   plies++;
   const eaten = captured === 0 ? '  ' : ' 吃';
-  const mark = result.blundered ? ' [失误]' : '';
+  // 开局库给的着法标出来：它没搜（深度 / 节点都是 0），不说清楚会看着像引擎坏了
+  const mark = result.book ? ' [开局库]' : (result.blundered ? ' [失误]' : '');
   // 分值也打出来：深度突然变小（比如从 5 掉到 1）时要能一眼看出是不是「找到杀棋」提前停了
   console.log(`${String(plies).padStart(3)}. ${mover} ${notation}${eaten} `
     + `深度${result.depth} 分${String(result.score).padStart(6)} `

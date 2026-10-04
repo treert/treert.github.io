@@ -48,35 +48,55 @@ export const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBA
 export const PIECE_VALUE = [0, 0, 200, 200, 400, 900, 450, 100];
 //                          占位 K   A    B    N    R    C    P
 
-// 兵 / 卒过河的额外加分
-export const PASSED_PAWN_BONUS = 50;
+// 兵 / 卒过河的额外加分。**开局一套、残局一套** ——
+// 同一枚过河兵在残局里值钱得多（残局里一个贴近九宫的兵常常直接决定胜负），
+// 评估按相位在这两个数之间插值，见 engine.js 的 evaluate()。
+export const PAWN_BONUS_OPENING = 50;
+export const PAWN_BONUS_ENDGAME = 100;
 
-// === 位置表（piece-square） ===
+// === 相位（开局 ⇄ 残局）===
+//
+// 「这个局面离开局有多远」用**剩余子力的加权和**衡量：满盘 = PHASE_MAX（50），
+// 子力越少越接近 0，也就是越像残局。evaluate() 用它在**开局位置表**和**残局位置表**
+// 之间线性插值 —— 于是同一枚棋子在不同阶段有不同的位置价值。
+//
+// 权重只表达「这类子力还剩多少决定局面像不像开局」：车最重（4），马炮次之（2），
+// 士象兵再次之（1），帅 / 将不参与（双方恒各一个，不携带信息）。
+// 满盘时的和必须正好等于 PHASE_MAX，`test-engine.mjs` 钉着这条 ——
+// 不然插值的两端永远取不到，表调了也看不出效果。
+export const PHASE_MAX = 50;
+export const PHASE_WEIGHT = [0, 0, 1, 1, 2, 4, 2, 1];
+//                          占位 K  A  B  N  R  C  P
+
+// === 位置表（piece-square）===
 //
 // 评估里唯一的位置项。没有它的时候，开局的 44 个着法分值**一模一样**（全是 0，
 // 因为评估只有子力），选哪个纯凭搜索先试到谁 —— 于是 AI 会走「借对方的炮当炮架、
 // 一个炮换一个马」这类只在浅层看着划算的着法，也就是人一眼就说「哪有这么开局的」。
 //
-// 只表达几条**能讲出理由**的常识，不追求精确（第一版）：
-//   马 / 炮 用中路的纵线、过河是好事（鼓励出子、中炮）
-//   炮 待在自己或对方的底线上是死子
-//   车 离开底线、占到中间几行是好事
-//   帅 / 将 离开底线是坏事
-//   仕 / 相 在九宫中心 / 中路象位是好事
-//   兵 / 卒 不另开表：它的位置分就是已有的过河加分（PASSED_PAWN_BONUS）
+// **两张表：开局一张、残局一张，evaluate() 按相位插值。** 只表达几条
+// **能讲出理由**的常识，不追求精确：
+//   开局表 —— 出子（马炮走出来）、中路比边路值钱（这就是「中炮」的道理）、
+//             炮待在对方底线上是死子、车离开底线、帅别乱动、士相待在要点
+//   残局表 —— 同样的形状，按残局的棋理重新给值：马在开阔的残局更强、
+//             炮缺了炮架所以中路油水变少、帅可以「老将出马」助攻（出走惩罚减轻）、
+//             士相是守和的资本（单车难胜士象全）
 //
-// **写成「纵线分 + 行分」两张小表再铺开，不是 90 格逐格手填。** 逐格手填的 630 个数
+// **写成「纵线分 + 行分」两张小表再铺开，不是 90 格逐格手填。** 逐格手填的 1260 个数
 // 没人复核得了，也没人知道为什么是那个值；可分离的形式下每个数都对应上面一条理由，
 // 将来要从引擎（Pikafish）换算实测表，替换的也只是这一块数据。
 //
 // 红方视角：y=0 是黑方底线、y=9 是红方底线、x=4 是中路。左右对称（只依赖 |x-4|），
 // 所以黑方按 y 镜像查同一张表就够（见 MIRROR_INDEX 与 engine.js 的 evaluate）。
-const FILE_BY_DISTANCE = {
+//
+// 两张表左右都对称 → 开局那种左右对称的局面两边加起来正好抵消，
+// 静态评估仍然是 0（`test-engine.mjs` 里有这条断言）。
+const FILE_OPENING = {
   [N]: [0, -6, -12, -18, -24],   // 马：越靠边越别扭
   [C]: [12, 8, 2, 0, 0],         // 炮：中路最好（这就是「中炮」的道理），其次三七路
 };
 
-const RANK_BONUS = {
+const RANK_OPENING = {
   [N]: [-6, -2, 2, 6, 6, 4, 2, 0, -8, -18],  // 马：过河最好，压在底线上最差（催它出子）
   [C]: [-24, 0, 4, 8, 6, 6, 4, 0, -2, -10],  // 炮：敌方底线是死子，我方底线只是过渡
   [R]: [4, 6, 6, 6, 8, 8, 8, 6, 2, 0],       // 车：出到中间几行就好
@@ -84,30 +104,52 @@ const RANK_BONUS = {
 };
 
 /** 单点加分，[x, y, 分] —— 只有这两个点值得单说 */
-const SPOT_BONUS = {
+const SPOT_OPENING = {
   [A]: [[4, 8, 6]],   // 仕在九宫中心
   [B]: [[4, 7, 6]],   // 相在中路象位
 };
 
+// 残局表：每条值都对应一句残局棋理（与上面的开局表逐项对照着看）。
+const FILE_ENDGAME = {
+  [N]: [0, -4, -9, -14, -18],    // 马：残局棋盘开阔，边马的损失比开局小
+  [C]: [8, 5, 1, 0, 0],          // 炮：残局缺炮架，中路的油水比开局少一半
+};
+
+const RANK_ENDGAME = {
+  [N]: [-6, 2, 8, 14, 14, 6, 3, 0, -6, -14],  // 马：残局的马「八面威风」，占到过河位值一大截
+  [C]: [-16, 2, 4, 6, 4, 4, 2, 0, -2, -6],    // 炮：沉在对方底线的惩罚减轻（残局沉底炮能做杀）
+  [R]: [2, 4, 6, 8, 10, 10, 8, 6, 2, 0],      // 车：依然是最强子，占中行要道
+  [K]: [0, 0, 0, 0, 0, 0, 0, -30, -12, 0],    // 帅：残局可以出来助攻，出走惩罚比开局小
+};
+
+const SPOT_ENDGAME = {
+  [A]: [[4, 8, 8]],   // 仕：残局的士是守和的资本（单车难胜士象全）
+  [B]: [[4, 7, 8]],   // 相：同上
+};
+
 /**
- * 铺成一张平表：索引 = 棋子编码 * 90 + 格子。铺一次，评估里只剩一次查表 ——
- * evaluate() 在叶节点会被调用上百万次，多一层数组套数组都嫌贵。
+ * 把「纵线分 + 行分 + 单点分」铺成一张平表：索引 = 棋子编码 * 90 + 格子。
+ * 铺一次，评估里只剩一次查表 —— evaluate() 在叶节点会被调用上百万次，
+ * 多一层数组套数组都嫌贵。
  */
-export const PIECE_SQUARE = (() => {
+function buildPieceSquareTable(file, rank, spot) {
   const table = new Int16Array(8 * CELLS);
   for (let piece = 0; piece < 8; piece++) {
-    const file = FILE_BY_DISTANCE[piece];
-    const rank = RANK_BONUS[piece];
+    const fileBonus = file[piece];
+    const rankBonus = rank[piece];
     for (let idx = 0; idx < CELLS; idx++) {
       const x = idx % COLS;
       const y = (idx - x) / COLS;
-      let v = (file ? file[Math.abs(x - 4)] : 0) + (rank ? rank[y] : 0);
-      for (const [sx, sy, sv] of SPOT_BONUS[piece] || []) if (sx === x && sy === y) v += sv;
+      let v = (fileBonus ? fileBonus[Math.abs(x - 4)] : 0) + (rankBonus ? rankBonus[y] : 0);
+      for (const [sx, sy, sv] of spot[piece] || []) if (sx === x && sy === y) v += sv;
       table[piece * CELLS + idx] = v;
     }
   }
   return table;
-})();
+}
+
+export const PIECE_SQUARE_OPENING = buildPieceSquareTable(FILE_OPENING, RANK_OPENING, SPOT_OPENING);
+export const PIECE_SQUARE_ENDGAME = buildPieceSquareTable(FILE_ENDGAME, RANK_ENDGAME, SPOT_ENDGAME);
 
 /**
  * 黑方查表用的下标映射：上下镜像（x 不变）。
@@ -140,6 +182,11 @@ export const MIRROR_INDEX = (() => {
 // 详见 engine.js 的 probeMate()：攻击方只走将军着法，实测把《适情雅趣》那种排局
 // 从「要上千万节点、根本搜不到底」降到十几万节点。弱挡位给 0：入门/初级不该一眼看穿杀棋。
 //
+// book（开局库）是**查谱的概率**：局面在开局库里、且掷骰子命中时，直接走谱上的着法
+// （按权重随机挑一条），不派发搜索 —— 于是开局不再「不像人」，而且零耗时。
+// 弱挡位给得低：它们本来就该常常不按谱走、走出新手的样子。
+// 库、匹配方式与「谱外怎么办」都在 openings.js 与 docs/openings.md。
+//
 // depth 是迭代加深的上限，实际由 timeLimitMs 截断。
 // noise 是根节点评分扰动幅度（与评估函数同单位）；blunderRate 是按概率故意走次优着。
 //
@@ -147,8 +194,8 @@ export const MIRROR_INDEX = (() => {
 // 卡住（几百毫秒就返回），多出来的预算只有探测会用 —— 而《适情雅趣》那类十三层连杀
 // 要 700ms 上下才证得完。hard 的时间上限没动，所以「一步最多等 1.5 秒」仍然成立。
 export const LEVELS = [
-  { id: 'novice', name: '入门', depth: 1,  timeLimitMs: 200,  quiescence: false, noise: 120, blunderRate: 0.35, checkExtension: 0, mateProbePly: 0 },
-  { id: 'easy',   name: '初级', depth: 3,  timeLimitMs: 400,  quiescence: false, noise: 60,  blunderRate: 0.15, checkExtension: 0, mateProbePly: 0 },
-  { id: 'medium', name: '中级', depth: 5,  timeLimitMs: 1200, quiescence: true,  noise: 20,  blunderRate: 0.03, checkExtension: 6, mateProbePly: 13 },
-  { id: 'hard',   name: '高级', depth: 64, timeLimitMs: 1500, quiescence: true,  noise: 0,   blunderRate: 0,    checkExtension: 6, mateProbePly: 15 },
+  { id: 'novice', name: '入门', depth: 1,  timeLimitMs: 200,  quiescence: false, noise: 120, blunderRate: 0.35, checkExtension: 0, mateProbePly: 0,  book: 0.5 },
+  { id: 'easy',   name: '初级', depth: 3,  timeLimitMs: 400,  quiescence: false, noise: 60,  blunderRate: 0.15, checkExtension: 0, mateProbePly: 0,  book: 0.7 },
+  { id: 'medium', name: '中级', depth: 5,  timeLimitMs: 1200, quiescence: true,  noise: 20,  blunderRate: 0.03, checkExtension: 6, mateProbePly: 13, book: 0.9 },
+  { id: 'hard',   name: '高级', depth: 64, timeLimitMs: 1500, quiescence: true,  noise: 0,   blunderRate: 0,    checkExtension: 6, mateProbePly: 15, book: 1 },
 ];

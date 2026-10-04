@@ -49,30 +49,16 @@
  * ## 坐标
  *
  * 解法里的着法用 **ICCS 坐标**（列 a-i 从左到右、行 0-9 从红方底线往上），
- * 与本模块的 `(x, y)`（y 从上往下）互为镜像，换算见 `moveOfIccs`。
+ * 与本模块的 `(x, y)`（y 从上往下）互为镜像，换算见 `iccs.js` 的 `moveOfIccs`
+ * （开局库用的是同一份换算，所以它单独一个文件；这里 re-export 保持对外接口不变）。
  * 这一层只做换算与查表，不做合法性判断 —— 数据本身已经过 `verify-solutions.mjs` 校验。
  */
-import { COLS } from './config.js';
-import { encodeMove } from './rules.js';
 import { solutionOf } from './solutions.js';
 import { PREFIXES } from './prefixes.js';
+import { moveOfIccs } from './iccs.js';
 
-/**
- * ICCS 坐标 → 内部着法编码（`from * 90 + to`）。
- *
- * `b5b9` → `(1,4) → (1,0)`：列 `a`-`i` 对应 `x = 0..8`；行 `0`-`9` 从红方底线往上，
- * 而我们的 `y = 0` 是黑方底线，所以 `y = 9 - rank`。
- *
- * **格子索引是 `y * COLS + x`（一格 9），不是 `y * CELLS + x`** ——
- * `CELLS = 90` 是格子**总数**，只在着法编码 `from * CELLS + to` 里用。
- * 这两个常量写混了不会报错，只会把着法整体算歪（`y * 90 + x` 会跑出棋盘外），
- * 所以 test-solution-book.mjs 里拿 `b5b9 → (1,4)→(1,0)` 钉了一条定点。
- */
-export function moveOfIccs(tok) {
-  const from = (9 - Number(tok[1])) * COLS + (tok.charCodeAt(0) - 97);
-  const to = (9 - Number(tok[3])) * COLS + (tok.charCodeAt(2) - 97);
-  return encodeMove(from, to);
-}
+// 换算搬去了 iccs.js（开局库要用同一份），这里 re-export 保持对外接口不变
+export { moveOfIccs };
 
 /**
  * 把一条谱展开成着法数组：`moves[i]` 是第 i 手（0 基，红黑交替）。
