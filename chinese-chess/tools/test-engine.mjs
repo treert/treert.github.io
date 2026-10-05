@@ -397,6 +397,7 @@ console.log('AI 层测试\n');
     const lv = { id: 'ord', name: 'ord', depth: 4, timeLimitMs: 60000, quiescence: true,
                  noise: 0, blunderRate: 0, checkExtension: 2, book: 0 };
     let sameLazy = true; let samePVS = true; let nodesEqual = true;
+    let sameBadcap = true; let badcapHelps = 0;
     for (const fen of fens) {
       const sorted = search(fen, { ...lv, useLazyOrder: false, usePVS: false }, { rng: seededRng(3) });
       const lazy = search(fen, { ...lv, useLazyOrder: true, usePVS: false }, { rng: seededRng(3) });
@@ -404,10 +405,19 @@ console.log('AI 层测试\n');
       if (lazy.move !== sorted.move || lazy.score !== sorted.score) sameLazy = false;
       if (pvs.move !== sorted.move || pvs.score !== sorted.score) samePVS = false;
       if (lazy.nodes !== sorted.nodes) nodesEqual = false;
+
+      // 坏吃子降级：**分值必须不变**（同深度下 minimax 值唯一）。
+      // 着法可能换到另一个同分着法 —— 排序改了这事是允许的，所以只比分值。
+      const off = search(fen, { ...lv, badCaptureOrder: false }, { rng: seededRng(3) });
+      const on = search(fen, { ...lv, badCaptureOrder: true }, { rng: seededRng(3) });
+      if (off.score !== on.score) sameBadcap = false;
+      if (on.nodes < off.nodes) badcapHelps++;
     }
     check('懒选择排序：结论与「拷贝 + 全排序」完全一致', sameLazy, true);
     check('懒选择排序：节点数一模一样（它省的是每节点开销，不是节点）', nodesEqual, true);
     check('PVS：结论与全窗口完全一致', samePVS, true);
+    check('坏吃子降级：分值不变', sameBadcap, true);
+    check('坏吃子降级：确实省节点', badcapHelps > 0, true);
   }
 
   // 置换表命中率：连搜两次同一局面，第二次的节点数应明显更少

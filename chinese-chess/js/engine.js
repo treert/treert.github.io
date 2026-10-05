@@ -164,6 +164,8 @@ export class Searcher {
     this.usePVS = level.usePVS === true;
     // useLazyOrder = false 用来做对照实验：验证「懒选择排序」与旧的「拷贝 + 全排序」结果一致
     this.useLazyOrder = level.useLazyOrder !== false;
+    // badCaptureOrder = false 用来做对照实验：验证「坏吃子降级」值不值
+    this.badCaptureOrder = level.badCaptureOrder !== false;
 
     // 将 / 帅的位置，增量维护：kings[0] 是红帅、kings[1] 是黑将，-1 表示已不在盘上。
     // 搜索里「这一步走完之后己方将还安全吗」每试一个着法都要问一次，
@@ -281,25 +283,39 @@ export class Searcher {
     const n = moves.length;
     let buf = this.orderBuf[ply];
     if (!buf || buf.length < n) buf = this.orderBuf[ply] = new Int32Array(Math.max(n + 8, 64));
-    for (let i = 0; i < n; i++) {
-      const move = moves[i];
-      let s;
-      if (move === ttMove) {
-        s = 1e7;
-      } else {
-        const victim = this.cells[moveTo(move)];
-        if (victim !== EMPTY) {
-          // MVV-LVA：优先「用小子吃大子」
-          s = 1e6 + PIECE_VALUE[Math.abs(victim)] * 10
-                  - PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
-        } else {
-          const k = this.killers[ply];
-          s = k && k[0] === move ? 9e5 : k && k[1] === move ? 8e5 : this.history[move];
-        }
-      }
-      buf[i] = s;
-    }
+    for (let i = 0; i < n; i++) buf[i] = this.orderScore(moves[i], ply, ttMove);
     return moves;
+  }
+
+  /**
+   * 单个着法的排序分值 —— **两条排序路径共用**（懒选择与旧的整表排序都调它）。
+   *
+   * 共用一个函数是为了让「换实现」与「改优先级」两件事分得开：`orderMovesOld` 只该是
+   * 「用旧机制排同一个分值」，测试才钉得住「懒选择只省开销、不改节点」。
+   *
+   * 优先级：
+   *   置换表着法 > 好/中性吃子（MVV-LVA）> 杀手着法 > **反走着法** > 历史启发 > 坏吃子
+   */
+  orderScore(move, ply, ttMove) {
+    if (move === ttMove) return 1e7;
+    const victim = this.cells[moveTo(move)];
+    if (victim !== EMPTY) {
+      const victimValue = PIECE_VALUE[Math.abs(victim)];
+      const attackerValue = PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
+      // **坏吃子降级**（近似 SEE）：目标格受对方保护、而吃到的子**并不比自己的子值钱** ——
+      // 这种吃子多半要亏，排到安静着法**后面**去。真 SEE 得把整条交换序列算完，
+      // 这里只算「受不受保护」，是廉价近似（有炮架时炮的「保护」会被高估）。
+      // 降到 −1 正好落在历史启发（≥ 0）之下 —— 也就是经典的
+      // 「好吃子 → 安静着法 → 坏吃子」这个顺序。
+      if (this.badCaptureOrder && victimValue <= attackerValue
+          && isAttacked(this.cells, moveTo(move), -this.side)) return -1;
+      // MVV-LVA：优先「用小子吃大子」
+      return 1e6 + victimValue * 10 - attackerValue;
+    }
+    const k = this.killers[ply];
+    if (k && k[0] === move) return 9e5;
+    if (k && k[1] === move) return 8e5;
+    return this.history[move];
   }
 
   /**
@@ -307,21 +323,10 @@ export class Searcher {
    * （`useLazyOrder: false` 时走它，测试用它证明「懒选择只省节点、不改结果」）。
    */
   orderMovesOld(moves, ply, ttMove) {
-    const score = (move) => {
-      if (move === ttMove) return 1e7;
-      const victim = this.cells[moveTo(move)];
-      if (victim !== EMPTY) {
-        return 1e6 + PIECE_VALUE[Math.abs(victim)] * 10
-                    - PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
-      }
-      const k = this.killers[ply];
-      if (k) {
-        if (k[0] === move) return 9e5;
-        if (k[1] === move) return 8e5;
-      }
-      return this.history[move];
-    };
-    return moves.slice().sort((a, b) => score(b) - score(a));
+    // 与 prepareOrder 用**同一个** orderScore：两条路径的差别只该是「怎么挑」，
+    // 不该是「挑什么标准」。否则测试里的「节点数一模一样」就失去意义了。
+    return moves.slice().sort((a, b) =>
+      this.orderScore(b, ply, ttMove) - this.orderScore(a, ply, ttMove));
   }
 
   /**
@@ -421,7 +426,7 @@ export class Searcher {
    *
    * stand-pat（静止分）：如果连一步吃子都不走就已经很好了，就不必再算下去。
    *
-   * orderMoves 的第三个参数传 0 表示「没有置换表着法」—— 0 这个编码
+   * 排序的第三个参数传 0 表示「没有置换表着法」—— 0 这个编码
    * （from = to = 0）永远不可能是合法着法，当哨兵用是安全的。
    */
   quiesce(alpha, beta, ply, qdepth) {
