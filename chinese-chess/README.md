@@ -5,11 +5,14 @@
 外加一个**局面库**：内置 559 局残局（8 局实用残局 + 551 局《适情雅趣》），
 还可以把你下到一半的局面存下来，或者粘贴外部 FEN 导进来。
 
-**AI 有开局库了**：标准开局的头几手走的是谱上的着法（中炮对屏风马、顺炮、列炮、
-仙人指路、飞相局、起马局），局面在库里就直接走谱、**不做搜索**（零耗时）。
-挡位越高越倾向按谱走（入门只有一半的时候按谱，高级只要库里有就一定走）；
+**AI 有开局库了**：标准开局的头几手走的是谱上的着法，局面在库里就直接走谱、**不做搜索**（零耗时）。
+库有**两半**：手写的 7 条线（中炮对屏风马、顺炮、列炮、单提马、仙人指路、飞相局、起马局），
+以及 **Pikafish 离线生成的谱**（1,789 个局面 / 3,492 条候选，覆盖到第 8 个半回合），
+合并后索引里 1,794 个局面。挡位越高越倾向按谱走（入门只有一半的时候按谱，高级只要库里有就一定走）；
 对手不按谱走、或者库没写到那么深时，一律回退常规搜索。
-数据格式、索引方式与「为什么它和位置表是两回事」都在 [`docs/openings.md`](./docs/openings.md)。
+**左右镜像的局面同样命中**：库只写右手那一半，你走 炮八平五 与 炮二平五，AI 按同一套谱应着。
+数据格式、索引方式、生成器怎么跑、以及「为什么它和位置表是两回事」都在
+[`docs/openings.md`](./docs/openings.md)。
 
 **长将会判负**：同一局面出现三次本来判和，但如果走成循环的一方**每一步都在将军**，
 按棋规**判那一方负**（双方互将则判和）。**AI 也知道这一条** —— 它既不会自己一路将军
@@ -81,7 +84,8 @@ chinese-chess/
 │   ├── notation.js           中文记谱生成                              ← 纯逻辑
 │   ├── iccs.js               ICCS 坐标换算（解法与开局库共用）        ← 纯逻辑
 │   ├── engine.js             评估 + 搜索（负极大值 alpha-beta）        ← 纯逻辑
-│   ├── openings.js           开局库：手写开局线 + 局面索引            ← 纯逻辑
+│   ├── openings.js           开局库：手写开局线 + 局面索引（两半数据共用） ← 纯逻辑
+│   ├── openings-generated.js 开局库的生成那半（Pikafish 离线产物，纯数据）
 │   ├── game.js               对局状态机（走子 / 悔棋 / 复盘 / 截断 / 残局模式） ← 纯逻辑
 │   ├── endgames.js           残局库数据 + 查询入口（唯一需要手工维护的数据文件）
 │   ├── custom-endgames.js    FEN 校验（两档）+ 自定义局面的 localStorage 存储  ← 纯逻辑
@@ -104,7 +108,7 @@ chinese-chess/
 | [`docs/future-work.md`](./docs/future-work.md) | **实际做成了什么样、还差什么** —— 偏离 / 可优化项 / 踩坑 |
 | [`docs/endgames.md`](./docs/endgames.md) | 残局库 —— 数据 / 考据 / 结论可靠性 / 生成链路 / 加改一局 |
 | [`docs/positions.md`](./docs/positions.md) | 局面的进出 —— 保存导入 / 临时局面 / 分享链接 / 两道校验 |
-| [`docs/openings.md`](./docs/openings.md) | 开局库 —— 数据格式 / 索引 / 怎么接进引擎 / 怎么加一条线 |
+| [`docs/openings.md`](./docs/openings.md) | 开局库 —— 两半数据 / 索引 / 怎么接进引擎 / 怎么加线、怎么重跑生成器 |
 | [`docs/tools.md`](./docs/tools.md) | 工具与测试 —— 跑哪些、怎么跑 |
 | [`docs/pikafish.md`](./docs/pikafish.md) | Pikafish 操作手册 —— 下载、命令、坐标换算、手动验局的配方 |
 | [`docs/pikafish-unfinished.md`](./docs/pikafish-unfinished.md) | 没解出来的局面清单（生成物，人工核查用） |
@@ -126,7 +130,7 @@ chinese-chess/
 
 ## 关键设计决策
 
-**13 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
+**16 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
 [`docs/decisions.md`](./docs/decisions.md)。
 
 **编号是稳定的引用锚点**：README、`future-work.md` 以及别的模块的文档都按号引用
@@ -164,20 +168,33 @@ chinese-chess/
 `PIECE_SQUARE_ENDGAME` / `PHASE_WEIGHT` / `PAWN_BONUS_*`。
 
 位置表已经做了**两张**（开局 / 残局），评估按相位插值 —— 见
-[`docs/decisions.md`](./docs/decisions.md) 第 11、12 条。但它们都是**手写的常识版**：
-下一步可以从 Pikafish 换算一份实测位置表，替换 `config.js` 里那两块数据即可，
-`evaluate()` 不用动。
+[`docs/decisions.md`](./docs/decisions.md) 第 11、12 条。但它们都是**手写的常识版**。
+
+**"换成 Pikafish 实测表"这条路 2026-10-05 试过了，结论是不行**：引擎的分值刻度
+与模块的子力比差得远（它认的车 ≈ 690、兵 ≈ 22），位置表会被迫去替子力做补偿，解出来巨大而锯齿；
+换成模块原有的「纵线分 + 行分」结构化形式、甚至把样本换成引擎对局，也都一样。
+四种尝试的**同局面排序相关**都只有 0.11~0.16，而现有手写表是 **0.22~0.32**（随测的分布变）——
+手写这套在真正重要的维度上每次都赢。过程与数据见
+[`docs/future-work.md`](./docs/future-work.md) C1，工具留在
+[`tools/gen-pst.mjs`](./tools/gen-pst.mjs)（随时可以再试）。
 
 **不要加「机动性」这类需要生成着法的项** —— 评估在叶节点被调用上百万次，
 生成着法等于把搜索成本翻倍。位置表之所以能加，是因为它是 O(1) 查表。
 
-**开局方向**：加开局线改 `js/openings.js`（加一行 + 跑 `node chinese-chess/tools/test-openings.mjs`），
-见 [`docs/openings.md`](./docs/openings.md)。
+**开局方向**：手写那半改 `js/openings.js`（加一行 + 跑 `node chinese-chess/tools/test-openings.mjs`）；
+生成那半重跑 `node chinese-chess/tools/gen-openings.mjs grow/report/emit`（要本地有 Pikafish，
+深度 / 每层候选数 / 阈值怎么权衡见 [`docs/openings.md`](./docs/openings.md) 第 6 节）。
 
 **搜索方向**：改 `LEVELS` 里的 `checkExtension`（将军延伸的层数上限）与
 `mateProbePly`（连将杀探测的层数上限）。这两个是「排局连杀」从看不见到看得见的开关，
 机制见 [`docs/decisions.md`](./docs/decisions.md) 第 9 条。加大它们的代价是同样的时间预算下常规搜索浅一层 ——
 `config.js` 里写了怎么权衡。
+
+**着法排序**已经是「置换表着法 → 吃子 MVV-LVA → 杀手 → 历史启发」，实现上是**按需挑选**
+（不做整表排序）：节点数与旧写法逐位相同、时间少 1.3~1.5 倍。PVS 试过、实测不划算、默认关 ——
+两条都见 [`docs/decisions.md`](./docs/decisions.md) 第 16 条与
+[`docs/future-work.md`](./docs/future-work.md) C2（那里也写明了：**1.3 倍速度 ≈ 0.15 层**，
+常数因子买不来棋力）。
 
 **不顺手的挡位**：还是改 `LEVELS` 里的 `depth` / `timeLimitMs` / `noise` / `blunderRate`。
 
@@ -203,12 +220,12 @@ chinese-chess/
 |------|------|
 | `node chinese-chess/tools/test-rules.mjs` | 规则引擎：着法生成、攻击判定、合法性、终局 |
 | `node chinese-chess/tools/test-engine.mjs` | AI 层：哈希、评估与相位插值、搜索、挡位弱化、循环规则（长将）、开局库接线 |
-| `node chinese-chess/tools/test-openings.mjs` | 开局库数据：每条线从标准开局逐步重放、逐手合法、索引不多不少 |
+| `node chinese-chess/tools/test-openings.mjs` | 开局库数据：手写线逐步重放，生成谱逐条查合法 / 归一朝向 / 无重复 / 连通，索引不多不少 |
 | `node chinese-chess/tools/test-game.mjs` | 对局状态机：悔棋、复盘跳转、截断、存档容错 |
 | `node chinese-chess/tools/selfplay.mjs` | 端到端自对弈冒烟 |
 
 改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
-**其余测试与四个离线工具**（生成解法 / 参考线、中控 `solve.mjs`，需要本地有 Pikafish）
+**其余测试与五个离线工具**（生成解法 / 参考线 / 开局谱、中控 `solve.mjs`，需要本地有 Pikafish）
 见 [`docs/tools.md`](./docs/tools.md)，引擎操作见 [`docs/pikafish.md`](./docs/pikafish.md)。
 
 ## 已知限制
@@ -222,7 +239,7 @@ chinese-chess/
 | **循环规则只做长将** | 长将判负已实现（规则层定性 + AI 侧同步，见 [`docs/decisions.md`](./docs/decisions.md) 第 10 条）。长捉 / 长兑 / 一将一杀仍然不做 |
 | **重复判定在搜索里提前一次** | 引擎按「局面第 2 次出现」就当作循环成立（棋规要第 3 次）。这是引擎里的标准近似：能原样回来一次就能一直回来 |
 | **评估是「子力 + 手写位置表（开局 / 残局两张，按相位插值）」** | 两张表都是「纵线分 + 行分」的手写版（常识级：中路、过河、出子、帅不乱动 / 残局马更强、炮缺炮架、老将出马…），不是从强引擎换算的实测表。相位权重也是手写的。高级挡位大约业余中低水平（连杀例外 —— 那是搜出来的，不是评出来的） |
-| **开局库只到第 4~8 手** | 手写 **7 条线 / 25 个局面**（中炮对屏风马、顺炮、列炮、单提马、仙人指路、飞相局、起马局）。库外的局面（对手不按谱走、或者走得更深）一律回退常规搜索 —— 于是「不按谱出子」这件事仍可能出现在开局稍后几步。详见 [`docs/openings.md`](./docs/openings.md) |
+| **开局库到第 8 个半回合为止** | 两半数据：手写 **7 条线 / 25 个局面** + Pikafish 生成的谱 **1,789 个局面 / 3,492 条候选**（合并后索引 1,794 个局面），**左右镜像归一**（只写右手那一半，走左炮也命中）。库外的局面一律回退常规搜索 —— 注意**谱里只有引擎认为可走的着法，对手走一步次优着就掉出谱**，所以它治的是「开局不像人」，不是棋力。详见 [`docs/openings.md`](./docs/openings.md) |
 | **弱挡位看不见一步杀** | 入门 / 初级两个开关都没开（将军延伸、静态搜索），`depth <= 0` 的节点不生成着法，所以看不见。中级 / 高级两个都开着，能看见 |
 | **连杀探测只证明「有杀」** | 本地引擎的探测把攻击方限制在将军着法上，所以「找不到」不等于「没有」。**有谱载解法的局不受这条影响**（那是引擎证明过的杀线）；没解法的局仍可能给出错的提示 |
 | **AI 思考期间不能中断** | 最长 1.5 秒内禁用操作，不做取消 |

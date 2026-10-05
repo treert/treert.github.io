@@ -6,7 +6,8 @@
  *
  * ## 重点不是「查表能不能查到」，而是**数据有没有写错**
  *
- * 开局库是**手写的数据**（`js/openings.js` 的 `LINES`），而手写着法最容易出的三种错
+ * 开局库有**两半数据**：手写的线（`js/openings.js` 的 `LINES`）与生成的谱
+ * （`js/openings-generated.js`，`tools/gen-openings.mjs` 的产物）。手写着法最容易出的三种错
  * 都是静默的：
  *
  *   1. **这一步根本走不通**（记法算错、棋子不在那儿、被蹩腿 / 塞眼）
@@ -19,6 +20,11 @@
  *   - 走子方必须与手数交替一致（红先）
  *   - 库里这个局面的**所有**候选（含转置合并进来的）都必须是合法着法
  *
+ * 另外两件单独钉住的事：
+ *   - **左右镜像归一**：镜像局面也要命中，且镜像回来的候选在镜像局面里同样合法
+ *     （镜像算错不会报错，只会让 AI「不动了」—— 引擎会静默丢掉非法着法，见 E9）
+ *   - **归一后的键数**与索引规模一致：镜像归一会让互为镜像的局面合并，数目必须对得上
+ *
  * 这是 `future-work.md` E10 那条教训的正面用法：数据有外部标准（象棋规则）时，
  * 一定要有一层**自己写的校验**钉住，不能只靠「看起来对」。
  */
@@ -30,12 +36,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const load = (name) => import(pathToFileURL(resolve(HERE, '../js/', name)).href);
 
 const { START_FEN, CELLS, EMPTY } = await load('config.js');
-const { parseFen, toFen } = await load('position.js');
+const { parseFen, toFen, indexOf, mirrorIdx, mirrorMove } = await load('position.js');
 const { generateLegalMoves } = await load('rules.js');
 const { moveOfIccs, iccsOfMove } = await load('iccs.js');
 const {
   openingEntry, pickOpening, openingLines, openingLineCount, openingPositionCount,
+  openingCanonicalFen, openingGeneratedCount,
 } = await load('openings.js');
+const { GENERATED_TREE } = await load('openings-generated.js');
 
 let failed = 0;
 function check(name, actual, expected) {
@@ -121,8 +129,11 @@ console.log(`开局库测试：${openingLineCount()} 条线 / ${openingPositionC
   }
 
   check('每条线的每一步都合法、在库、走子方正确', problems, []);
-  // 库的键 = 所有线的所有前缀局面（含标准开局本身），一条不多一条不少
-  check('索引里的局面数 = 所有线的前缀局面数', openingPositionCount(), visited.size);
+  // 库的键 = 手写线的前缀局面 ∪ 生成谱的局面（两边都归一），一条不多一条不少
+  const canonicalKeys = new Set([...visited].map((fen) => openingCanonicalFen(fen)));
+  for (const [fen] of GENERATED_TREE) canonicalKeys.add(openingCanonicalFen(fen));
+  check('索引里的局面数 = 手写前缀 ∪ 生成谱（归一后）',
+    openingPositionCount(), canonicalKeys.size);
 }
 
 // --- 4. 起始局面：候选就是几个主流首着 ---
@@ -189,6 +200,103 @@ console.log(`开局库测试：${openingLineCount()} 条线 / ${openingPositionC
   check('规范化后的候选与标准写法一致',
     (openingEntry(messy) || []).map((e) => e.move),
     (openingEntry(START_FEN) || []).map((e) => e.move));
+}
+
+// --- 9. 左右镜像归一：从左边开局也能吃到右边的谱 ---
+{
+  // 炮二平五（h2e2，右）与 炮八平五（b2e2，左）互为镜像
+  const afterRight = parseFen(START_FEN);
+  applyMove(afterRight, moveOfIccs('h2e2'));
+  const afterLeft = parseFen(START_FEN);
+  applyMove(afterLeft, moveOfIccs('b2e2'));
+
+  // 先单独钉住镜像本身 —— 这部分和库无关，错了后面全歪
+  check('格子镜像 x → 8-x（b5 ↔ h5）', mirrorIdx(indexOf(1, 4)), indexOf(7, 4));
+  check('中列是镜像不动点（e5）', mirrorIdx(indexOf(4, 4)), indexOf(4, 4));
+  check('镜像是对合（两次回到自身）', mirrorIdx(mirrorIdx(indexOf(1, 4))), indexOf(1, 4));
+  check('着法镜像：炮二平五 ↔ 炮八平五',
+    mirrorMove(moveOfIccs('h2e2')), moveOfIccs('b2e2'));
+  check('着法镜像：马8进7 ↔ 马2进3',
+    mirrorMove(moveOfIccs('h9g7')), moveOfIccs('b9c7'));
+
+  check('炮二平五 与 炮八平五 归一到同一个键',
+    openingCanonicalFen(toFen(afterLeft)), openingCanonicalFen(toFen(afterRight)));
+
+  const right = openingEntry(toFen(afterRight));
+  const left = openingEntry(toFen(afterLeft));
+  check('炮八平五 之后也能查到库（镜像归一）', left !== null, true);
+
+  // 左侧候选 = 右侧候选逐个镜像（含权重），顺序不限
+  const sig = (list) => list.map((e) => `${e.move}:${e.weight}`).sort().join(',');
+  check('左侧候选 = 右侧候选逐个镜像',
+    sig(left || []),
+    sig((right || []).map((e) => ({ move: mirrorMove(e.move), weight: e.weight }))));
+
+  // 镜像出来的候选必须在**左侧**局面里合法 —— 非法的会被引擎静默丢掉（E9）
+  const legalLeft = generateLegalMoves(afterLeft);
+  check('左侧候选全是左侧局面下的合法着法',
+    (left || []).every((e) => legalLeft.includes(e.move)), true);
+
+  // 按权重挑走的是同一条路，挑出来的必须是候选、且合法
+  const rng = seededRng(20261005);
+  const picks = new Set();
+  for (let i = 0; i < 200; i++) picks.add(pickOpening(toFen(afterLeft), rng));
+  check('左侧局面挑出来的着法都在候选里',
+    [...picks].every((m) => (left || []).some((e) => e.move === m)), true);
+  check('左侧局面挑出来的着法都合法', [...picks].every((m) => legalLeft.includes(m)), true);
+  check('左侧局面能走遍所有候选', picks.size, (left || []).length);
+}
+
+// --- 10. 生成谱（js/openings-generated.js）：归一的、合法的、连通的 ---
+{
+  const badKey = []; const badLegal = []; const badEntry = []; const badWeight = [];
+  const seen = new Set(); const dup = [];
+
+  for (const [fen, moves] of GENERATED_TREE) {
+    if (seen.has(fen)) dup.push(fen);
+    seen.add(fen);
+    // 生成器只在归一空间里展开，所以写出来必须已经是归一朝向（不是的话说明两处规则漂了）
+    if (openingCanonicalFen(fen) !== fen) badKey.push(fen);
+    const pos = parseFen(fen);
+    const legal = new Set(generateLegalMoves(pos));
+    const entry = openingEntry(fen);
+    for (const [iccs, w] of moves) {
+      const mv = moveOfIccs(iccs);
+      if (!legal.has(mv)) badLegal.push(`${fen} ${iccs}`);
+      if (!(entry || []).some((e) => e.move === mv)) badEntry.push(`${fen} ${iccs}`);
+      if (!(Number.isInteger(w) && w > 0)) badWeight.push(`${fen} ${iccs} w=${w}`);
+    }
+  }
+
+  check('生成谱非空（这才是「更多开局库」的兑现）', openingGeneratedCount() > 1000, true);
+  check('生成谱每条记录的着法都合法（过本模块规则层）', badLegal.slice(0, 3), []);
+  check('生成谱每个着法都能在库里查到（索引真的建了）', badEntry.slice(0, 3), []);
+  check('生成谱的局面都是归一朝向', badKey.slice(0, 3), []);
+  check('生成谱的权重都是正整数', badWeight.slice(0, 3), []);
+  check('生成谱没有重复局面', dup.slice(0, 3), []);
+
+  // 连通性：表里的每个局面都要能从标准开局**沿表里的着法**走到。
+  // 平表（局面 → 候选）不带路径，所以只能这样自证：从根 BFS 一遍，走不到的条目就是孤立的。
+  const keys = new Set(GENERATED_TREE.map(([fen]) => fen));
+  const visitedG = new Set([openingCanonicalFen(START_FEN)]);
+  const queue = [...visitedG];
+  while (queue.length) {
+    const fen = queue.shift();
+    const entry = openingEntry(fen);
+    if (!entry) continue;                      // 出了谱就停（谱外本来就没得走）
+    for (const e of entry) {
+      const child = parseFen(fen);
+      applyMove(child, e.move);
+      const ck = openingCanonicalFen(toFen(child));
+      if (visitedG.has(ck)) continue;
+      visitedG.add(ck);
+      if (keys.has(ck)) queue.push(ck);
+    }
+  }
+  const orphans = [...keys].filter((f) => !visitedG.has(f));
+  check('生成谱里没有孤立局面（都能从标准开局走到）', orphans.slice(0, 3), []);
+  check('生成谱的局面都真的进了索引',
+    [...keys].every((f) => openingEntry(f) !== null), true);
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);

@@ -16,12 +16,16 @@
 | `node chinese-chess/tools/verify-endgames.mjs` | 残局库校验：局面合法性、字段规范、子力一致性 |
 | `node chinese-chess/tools/verify-solutions.mjs` | 残局解法校验：逐步合法、末局将死、长度与 mate 对得上（**不需要引擎**） |
 | `node chinese-chess/tools/gen-solutions.mjs` | 残局解法生成：`fast` / `slow` / `emit` / `issues`（**需要本地有 Pikafish**，用法见文件头） |
+| `node chinese-chess/tools/gen-openings.mjs` | 开局谱生成：`grow`（可分批，`--budget-ms`）/ `emit` / `report`，产出 `js/openings-generated.js`（**需要本地有 Pikafish**，用法与参数见文件头） |
+| `node chinese-chess/tools/gen-pst.mjs` | 位置表蒸馏：`snapshot` / `sample` / `fit` / `agree` —— **试过，结论是没换成**（详见文件头与 `future-work.md` C1） |
 | `node chinese-chess/tools/prefix-scan.mjs` | 参考线生成 / 对照：`gen`（`--playout` 走成完整线）/ `promote`（规则层复核）/ `compare`（与已知线逐点对照）/ `emit` |
 | `node chinese-chess/tools/solve.mjs` | **中控**：把上面两条链路按顺序跑完（校验 → 找杀 → 走到底 → 复核 → 写数据 → 校验 → 清单）。加/改局面跑这一条就够：`--ids <id>` / `--status` / `--dry-run` |
 
-最后四个是**离线工具**：`gen-solutions.mjs` 与 `prefix-scan.mjs` 驱动外部引擎 Pikafish
+最后六个是**离线工具**：`gen-solutions.mjs` 与 `prefix-scan.mjs` 驱动外部引擎 Pikafish
 分别生成 `js/solutions.js`（解法）与 `js/prefixes.js`（参考线），
-`solve.mjs` 是这两条链路的**中控**（加/改局面只需要跑它），
+`gen-openings.mjs` 生成 `js/openings-generated.js`（开局谱），
+`gen-pst.mjs` 是**评估蒸馏的尝试**（2026-10-05 试过，没换成，工具留着以后接着试），
+`solve.mjs` 是残局那两条链路的**中控**（加/改局面只需要跑它），
 `verify-solutions.mjs` 用本模块自己的规则层把那份解法数据逐条钉一遍。
 引擎与权重不进仓库；生成物是数据，**运行时不需要引擎、也不联网**。
 Pikafish 的下载、常用命令、坐标换算，以及「怎么手动验一局」的三个现成配方，
@@ -35,5 +39,5 @@ Pikafish 的下载、常用命令、坐标换算，以及「怎么手动验一�
 |--------|-----|
 | 测试策略为什么这么定（不钉节点数、冒烟管状态组合） | [`decisions.md`](./decisions.md) 第 7、8 条 |
 | 残局数据怎么生成、怎么校验、怎么加一局 | [`endgames.md`](./endgames.md) |
-| 开局库的数据格式、索引、怎么加一条线 | [`openings.md`](./openings.md) |
+| 开局库的数据格式、索引、怎么加线、怎么重跑生成器 | [`openings.md`](./openings.md) |
 | Pikafish 的安装与命令 | [`pikafish.md`](./pikafish.md) |

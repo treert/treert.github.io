@@ -9,7 +9,21 @@
  * 中炮、屏风马、仙人指路这些人类几百年的开局共识，浅层搜索给不出来。
  * 开局库就是把这份共识直接写下来：库里有的局面**直接走谱上的着法，不做搜索**。
  *
- * ## 数据格式：一行一条线，用 ICCS 坐标
+ * ## 库里有两半数据，分开维护
+ *
+ * | 哪一半 | 在哪个文件 | 怎么来的 | 规模 |
+ * |--------|-----------|----------|------|
+ * | **手写的线** | 本文件（`LINES`） | 人写的常识：中炮对屏风马、顺炮、列炮… | 7 条线 / 25 个局面 |
+ * | **生成的谱** | `openings-generated.js` | `tools/gen-openings.mjs` 驱动 Pikafish 离线展开 | 1,789 个局面 / 3,492 条候选 |
+ *
+ * 两半走**同一条入库路径**（`indexLines` / `indexGenerated`），撞到同一个局面时权重相加 ——
+ * 也就是「手写线和引擎都说这一步好」。分成两个文件是因为**谁是生成物要说清楚**：
+ * 生成的那份带生成命令与引擎版本，手写的那份是人维护的常识，混在一起以后没人敢改。
+ *
+ * 生成的那份治的是「开局不像人」（着法宽得多、有分值权重），**治不了「对手走偏」**：
+ * 谱里只有引擎认为可走的着法，对手一步次优着就掉出谱、回退搜索。详见 `docs/openings.md`。
+ *
+ * ## 数据格式（手写那半）：一行一条线，用 ICCS 坐标
  *
  *   `{ name: '中炮对屏风马', weight: 3, moves: 'h2e2 h9g7 h0g2 ...' }`
  *
@@ -20,6 +34,10 @@
  * `weight` 是这条线的分量（默认 1）。同一个局面下有多条线给出不同的着法时，
  * 权重决定**随机挑到**它们的概率 —— 这就是「AI 会变着」的来源。
  * 主力线（屏风马）给大一点，冷门线给小一点。
+ *
+ * 生成那半的格式不一样 —— 它**按局面**存（`[局面 FEN, [[着法, 权重], ...]]`），
+ * 因为那是一棵树：按线存会把内部局面重复几十遍，而权重要**逐局面**给，
+ * 一条线只能带一个权重，decompose 不成。两个文件的取舍理由见 `docs/decisions.md` 第 15 条。
  *
  * ## 索引：局面 → 可选的着法（带权重）
  *
@@ -35,6 +53,12 @@
  * **键是规范化后的完整 FEN（含轮走方）** —— 用 `toFen` 而不是直接比传进来的字符串，
  * 于是「尾部字段写成 `w - - 12 34` 的同一个局面」也能命中。轮走方必须在键里：
  * 同一个盘面轮到谁走，可选着法完全不同。
+ *
+ * **键还要做左右镜像归一**：局面自身与它的左右镜像，取 FEN 字符串小的那个当代表，
+ * 于是 炮二平五 之后的局面与 炮八平五 之后的局面落到**同一个键**上。
+ * 这成立是因为棋盘与标准开局都左右对称（唯一成立的对称，见 `position.js` 的 `mirrorIdx`）——
+ * 库不必为「从左边出子 / 从右边出子」各写一遍线。查表命中镜像键时，候选着法会
+ * **镜像回来**再返回，所以上层拿到的永远是**当前局面下**的着法。
  *
  * ## 谁用它、怎么用
  *
@@ -62,15 +86,18 @@
  *
  * ## 特意不做的事
  *
- * - **不追求开局理论的深度。** 库到第 4~8 手就停（再深就要维护一整套变例树），
- *   剩下的交给搜索 —— 位置表已经在催 AI 出子、占中路了。
- * - **不放进 `solutions.js` / `prefixes.js`。** 那两个是**离线引擎生成的产物**、
- *   针对残局；开局库是**手写的常识数据**、针对标准开局。混在一起会让「谁是生成物」
- *   这件事说不清，也会把 Engine 的 Worker 拖进几百 KB 的解法数据里。
+ * - **不追求开局理论的深度。** 到第 8 个半回合（4 个回合）为止 —— 再深，变例树按层数
+ *   指数膨胀，而边际价值很低：谱外的事只能交给搜索（位置表在催 AI 出子、占中路）。
+ * - **不放进 `solutions.js` / `prefixes.js`。** 那两个是**残局的杀线**（`go mate` 的输出），
+ *   与「开局的候选着法」是两种数据：前者是一条条要跟着走的线，后者是局面到着法的表。
+ *   混在一起还会把 Engine 的 Worker 拖进几百 KB 的解法数据里。
+ * - **不从棋谱数据库生成。** 那需要一份有授权的谱库、还得逐条核对（`future-work.md` B1）。
+ *   生成那半数据的输入是**引擎自己的搜索输出**，没有授权问题。
  */
 import { START_FEN, CELLS, EMPTY } from './config.js';
-import { parseFen, toFen } from './position.js';
+import { parseFen, toFen, mirrorMove, mirrorPosition } from './position.js';
 import { moveOfIccs } from './iccs.js';
+import { GENERATED_TREE } from './openings-generated.js';
 
 /**
  * 开局主线。加一条线就加一行 —— 但**加完必须跑 `tools/test-openings.mjs`**，
@@ -108,22 +135,67 @@ function applyMove(pos, move) {
   pos.side = -pos.side;
 }
 
-function buildBook() {
+/** 往表里塞一条候选：同一个局面的同一步在两条线上都出现时，权重相加。 */
+function insert(key, move, weight) {
+  let entry = BOOK.get(key);
+  if (!entry) BOOK.set(key, (entry = []));
+  const found = entry.find((e) => e.move === move);
+  if (found) found.weight += weight;
+  else entry.push({ move, weight });
+}
+
+/**
+ * 局面的**归一朝向**：自身与它的左右镜像，取 FEN 字符串小的那个当代表。
+ *
+ * `mirrored` 表示「这个局面本身不是代表、要镜像一次才是」——建索引时把着法换成
+ * 代表朝向的写法再存，查表命中时再镜像回来。挑哪个当代表无所谓，只要建与查一致；
+ * 用 FEN 字符串的大小关系，只是因为它是一个**确定性的**全序，不必额外定义比较规则。
+ */
+function canonicalOfPos(pos) {
+  const own = toFen(pos);
+  const flipped = toFen(mirrorPosition(pos));
+  return flipped < own ? { key: flipped, mirrored: true } : { key: own, mirrored: false };
+}
+
+/** 归一后的键（测试与文档用）。左右镜像的两个局面得到同一个值。 */
+export function openingCanonicalFen(fen) { return canonicalOfPos(parseFen(fen)).key; }
+
+/** 手写的那一半：把每条线从标准开局逐步重放，把「走这一步之前的局面」当键 */
+function indexLines() {
   const start = parseFen(START_FEN);
   for (const line of LINES) {
     const weight = line.weight || 1;
     const pos = { cells: start.cells.slice(), side: start.side };
     for (const tok of line.moves.trim().split(/\s+/).filter(Boolean)) {
       const move = moveOfIccs(tok);
-      const key = toFen(pos);
-      let entry = BOOK.get(key);
-      if (!entry) BOOK.set(key, (entry = []));
-      const found = entry.find((e) => e.move === move);
-      if (found) found.weight += weight;
-      else entry.push({ move, weight });
+      const { key, mirrored } = canonicalOfPos(pos);
+      // 局面本身是镜像朝向时，着法要换成代表朝向的写法再存
+      insert(key, mirrored ? mirrorMove(move) : move, weight);
       applyMove(pos, move);
     }
   }
+}
+
+/**
+ * 生成的那一半（`openings-generated.js`）：一条一条是 `[局面 FEN, [[着法, 权重], ...]]`。
+ *
+ * 生成物本身已经是**归一朝向**的（生成器就在归一空间里展开），这里照样再走一遍
+ * `canonicalOfPos` —— 两套数据共用**同一条入库路径**，将来生成器换了朝向也不会静默错位，
+ * 而且手写线与生成谱撞到同一个局面时权重自然相加（这就是「两条线都推荐这一步」）。
+ */
+function indexGenerated() {
+  for (const [fen, moves] of GENERATED_TREE) {
+    const { key, mirrored } = canonicalOfPos(parseFen(fen));
+    for (const [iccs, weight] of moves) {
+      const move = moveOfIccs(iccs);
+      insert(key, mirrored ? mirrorMove(move) : move, weight);
+    }
+  }
+}
+
+function buildBook() {
+  indexLines();
+  indexGenerated();
 }
 
 buildBook();
@@ -133,9 +205,15 @@ buildBook();
  *
  * `fen` 可以是任何合法写法的 FEN（尾部字段不参与比较）—— 内部先 `parseFen` 再 `toFen`
  * 规范化，所以 `... w - - 12 34` 和 `... w - - 0 1` 是同一个键。
+ *
+ * **左右镜像的局面也算命中**：查的是归一后的键，命中镜像朝向时候选着法镜像回来再返回，
+ * 所以返回值永远是这个局面下、能直接走的着法。
  */
 export function openingEntry(fen) {
-  return BOOK.get(toFen(parseFen(fen))) || null;
+  const { key, mirrored } = canonicalOfPos(parseFen(fen));
+  const entry = BOOK.get(key);
+  if (!entry) return null;
+  return mirrored ? entry.map((e) => ({ move: mirrorMove(e.move), weight: e.weight })) : entry;
 }
 
 /**
@@ -160,8 +238,11 @@ export function pickOpening(fen, rng = Math.random) {
   return entry[entry.length - 1].move;
 }
 
-/** 库里有几条线（文档 / 测试用） */
+/** 手写线有几条（文档 / 测试用） */
 export function openingLineCount() { return LINES.length; }
+
+/** 生成谱里有多少个局面（文档 / 测试用） */
+export function openingGeneratedCount() { return GENERATED_TREE.length; }
 
 /** 库里一共索引了多少个局面（文档 / 测试用） */
 export function openingPositionCount() { return BOOK.size; }

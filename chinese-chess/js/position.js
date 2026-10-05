@@ -72,6 +72,35 @@ export function clonePosition(pos) {
 }
 
 /**
+ * 左右镜像的格子映射：`x → COLS-1-x`，`y` 不变。
+ *
+ * **这是本模块唯一成立的对称。** 棋盘左右对称，标准开局也左右对称，
+ * 所以「一个局面」与「它的左右镜像」在棋理上完全等价 —— 红走 炮二平五 还是
+ * 炮八平五，只是从右边出子还是从左边出子，黑方的正确应手互为镜像。
+ *
+ * 另外两个方向**都不是**对称，不要照抄这个思路：
+ *   - 上下（y）不对称：兵只能向前、将帅九宫在各自底线；
+ *   - 红黑不对称：同样的棋子，红方的行进方向与黑方相反。
+ *
+ * 这个函数是**对合**（镜像两次回到自身），所以可以放心地拿它当双射来用。
+ */
+export function mirrorIdx(idx) {
+  return yOf(idx) * COLS + (COLS - 1 - xOf(idx));
+}
+
+/** 左右镜像一个着法编码（`from * CELLS + to`，两端各镜像一次）。 */
+export function mirrorMove(move) {
+  return mirrorIdx(Math.floor(move / CELLS)) * CELLS + mirrorIdx(move % CELLS);
+}
+
+/** 左右镜像一个局面（返回新对象，不动原局面）。**轮走方不变。** */
+export function mirrorPosition(pos) {
+  const cells = new Int8Array(CELLS);
+  for (let i = 0; i < CELLS; i++) cells[mirrorIdx(i)] = pos.cells[i];
+  return { cells, side: pos.side };
+}
+
+/**
  * 局面签名：FEN 的前两个字段。
  *
  * 用于「三次重复判和」。后三个字段（含回合数）每次都变，必须排除，
