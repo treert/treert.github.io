@@ -31,7 +31,7 @@ export function createGame(options = {}) {
     cursor: 0,
     mode: options.mode || 'play',           // play | endgame
     playerSide: options.playerSide || RED,
-    level: options.level || 'medium',
+    level: options.level || 'hard',
     endgameId: options.endgameId || null,
     // 双人对弈：两边都由人来点，不派发 AI 搜索。
     // 开着的时候 playerSide 只在「初始是否翻转棋盘」上还有意义，
