@@ -375,12 +375,39 @@ console.log('AI 层测试\n');
   {
     const pos = parseFen('4k4/9/9/9/4r4/9/9/9/9/3KR4 w - - 0 1');
     const s = new Searcher(pos.cells.slice(), pos.side, base);
-    const ordered = s.orderMoves(generateMoves(s.cells, s.side), 0, 0);
+    const moves = generateMoves(s.cells, s.side);
+    s.prepareOrder(moves, 0, 0);
+    const ordered = [];
+    for (let i = 0; i < moves.length; i++) ordered.push(s.nextBest(moves, 0, moves.length));
     const isCapture = ordered.map((m) => s.cells[moveTo(m)] !== 0);
     const lastCapture = isCapture.lastIndexOf(true);
     const firstQuiet = isCapture.indexOf(false);
     check('这个局面里红方确实有吃子可走', lastCapture >= 0, true);
     check('所有吃子都排在非吃子之前', lastCapture < firstQuiet, true);
+  }
+
+  // 懒选择排序与 PVS：都只该省节点 / 每节点开销，**不改结论**
+  // （与上面那条置换表测试同一套对照实验；PVS 默认关，但路径必须被测试走到）
+  {
+    const fens = [
+      START_FEN,
+      'rnbakabnr/9/1c2c4/p1p1C1p1p/9/9/P1P1P1P1P/7C1/9/RNBAKABNR b - - 0 1',
+      '4k4/9/9/9/r3p4/4R4/9/9/9/3K5 w - - 0 1',
+    ];
+    const lv = { id: 'ord', name: 'ord', depth: 4, timeLimitMs: 60000, quiescence: true,
+                 noise: 0, blunderRate: 0, checkExtension: 2, book: 0 };
+    let sameLazy = true; let samePVS = true; let nodesEqual = true;
+    for (const fen of fens) {
+      const sorted = search(fen, { ...lv, useLazyOrder: false, usePVS: false }, { rng: seededRng(3) });
+      const lazy = search(fen, { ...lv, useLazyOrder: true, usePVS: false }, { rng: seededRng(3) });
+      const pvs = search(fen, { ...lv, useLazyOrder: true, usePVS: true }, { rng: seededRng(3) });
+      if (lazy.move !== sorted.move || lazy.score !== sorted.score) sameLazy = false;
+      if (pvs.move !== sorted.move || pvs.score !== sorted.score) samePVS = false;
+      if (lazy.nodes !== sorted.nodes) nodesEqual = false;
+    }
+    check('懒选择排序：结论与「拷贝 + 全排序」完全一致', sameLazy, true);
+    check('懒选择排序：节点数一模一样（它省的是每节点开销，不是节点）', nodesEqual, true);
+    check('PVS：结论与全窗口完全一致', samePVS, true);
   }
 
   // 置换表命中率：连搜两次同一局面，第二次的节点数应明显更少

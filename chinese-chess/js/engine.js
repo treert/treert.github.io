@@ -42,6 +42,12 @@ const TT_UPPER = 2;
 /** 静态搜索的层数上限。兑子序列可能很长，必须封顶，否则单节点开销失控 */
 const MAX_QUIESCE_DEPTH = 6;
 
+/**
+ * 着法排序里「已经取过」的哨兵分值。用 Int32 最小值 —— 任何真实分值（历史启发 ≥ 0、
+ * 杀手 8e5、吃子 1e6、置换表着法 1e7）都比它高，所以标记不会跟真分值混淆。
+ */
+const PICKED = -2147483648;
+
 /** 连将杀探测最多能用掉的时间预算：总预算的这么一份，且不超过绝对上限（毫秒） */
 const MATE_PROBE_SHARE = 0.7;
 const MATE_PROBE_MAX_MS = 1400;
@@ -147,6 +153,18 @@ export class Searcher {
     this.killers = [];        // killers[ply] = [move1, move2]
     this.history = new Int32Array(CELLS * CELLS);
 
+    // 着法排序的 scratch：**按层**复用一份分值缓冲（同一时刻每层只有一个活跃节点，
+    // 所以按 ply 存不会互相踩）。见 prepareOrder / nextBest。
+    this.orderBuf = [];
+
+    // PVS（主变搜索）**默认关**：实测在现有排序质量下不划算（深度 6~7：三个局面里
+    // 一个省 15%、两个费 6~9%，节点数平均不省）。理由是它赌「后面的着法更差」，
+    // 而排序只是「TT + MVV-LVA + 杀手 + 历史」这一套 —— 赌不准就要重搜。
+    // 留着开关与对照测试：哪天排序变强了（比如换成 NNUE 排序），把它打开再量一次。
+    this.usePVS = level.usePVS === true;
+    // useLazyOrder = false 用来做对照实验：验证「懒选择排序」与旧的「拷贝 + 全排序」结果一致
+    this.useLazyOrder = level.useLazyOrder !== false;
+
     // 将 / 帅的位置，增量维护：kings[0] 是红帅、kings[1] 是黑将，-1 表示已不在盘上。
     // 搜索里「这一步走完之后己方将还安全吗」每试一个着法都要问一次，
     // 而 findKing 是 90 格全扫 —— 这是整个引擎最热的一处，值得单独维护。
@@ -249,15 +267,50 @@ export class Searcher {
   }
 
   /**
-   * 着法排序。顺序直接决定 alpha-beta 的剪枝效率，是引擎里性价比最高的一处优化。
-   * 优先级：置换表着法 > 吃子（MVV-LVA）> 杀手着法 > 历史启发。
+   * 着法排序（第一步）：**只算一遍分值**，不排序、不拷贝。
+   *
+   * 旧写法是 `moves.slice().sort(cmp)`：每个节点都要拷一份数组、把整个列表排完，
+   * 而且比较器里每比一次都要重算两边的分值。可 alpha-beta 的常态恰恰是**第一个着法就剪掉** ——
+   * 排完四十个着法纯属白干。这里改成「先算分，之后要一个最好的就挑一个」（`nextBest`），
+   * 剪枝越早省得越多。
+   *
+   * 优先级与旧版完全一致（只是执行方式变了）：
+   *   置换表着法 > 吃子（MVV-LVA）> 杀手着法 > 历史启发
    */
-  orderMoves(moves, ply, ttMove) {
+  prepareOrder(moves, ply, ttMove) {
+    const n = moves.length;
+    let buf = this.orderBuf[ply];
+    if (!buf || buf.length < n) buf = this.orderBuf[ply] = new Int32Array(Math.max(n + 8, 64));
+    for (let i = 0; i < n; i++) {
+      const move = moves[i];
+      let s;
+      if (move === ttMove) {
+        s = 1e7;
+      } else {
+        const victim = this.cells[moveTo(move)];
+        if (victim !== EMPTY) {
+          // MVV-LVA：优先「用小子吃大子」
+          s = 1e6 + PIECE_VALUE[Math.abs(victim)] * 10
+                  - PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
+        } else {
+          const k = this.killers[ply];
+          s = k && k[0] === move ? 9e5 : k && k[1] === move ? 8e5 : this.history[move];
+        }
+      }
+      buf[i] = s;
+    }
+    return moves;
+  }
+
+  /**
+   * 旧的排序写法：拷贝一份再整体排序。**只为对照实验留着**
+   * （`useLazyOrder: false` 时走它，测试用它证明「懒选择只省节点、不改结果」）。
+   */
+  orderMovesOld(moves, ply, ttMove) {
     const score = (move) => {
       if (move === ttMove) return 1e7;
       const victim = this.cells[moveTo(move)];
       if (victim !== EMPTY) {
-        // MVV-LVA：优先「用小子吃大子」
         return 1e6 + PIECE_VALUE[Math.abs(victim)] * 10
                     - PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])];
       }
@@ -269,6 +322,29 @@ export class Searcher {
       return this.history[move];
     };
     return moves.slice().sort((a, b) => score(b) - score(a));
+  }
+
+  /**
+   * 着法排序（第二步）：取「还没取过的里面分值最高」的那个。
+   *
+   * 取过的把分值标成哨兵（`PICKED`，比任何真实分值都低），于是**每次都从头扫** ——
+   * 这样拿到的顺序与「稳定排序」**逐个相同**。这一点很要紧：并列分值的那一大片
+   * （开局时历史启发还全是 0 的安静着法）在旧写法里保持的是**生成顺序**，
+   * 这里也必须保持，否则同一局面两条路径的节点数会不一样（测试钉着这条）。
+   *
+   * 代价是每次 O(n) 扫描，但剪枝时通常只取前一两个 —— 比「排完整个列表」便宜得多。
+   */
+  nextBest(moves, ply, n) {
+    const buf = this.orderBuf[ply];
+    let best = -1;
+    let bestScore = 0;
+    for (let j = 0; j < n; j++) {
+      const s = buf[j];
+      if (s === PICKED) continue;
+      if (best < 0 || s > bestScore) { best = j; bestScore = s; }
+    }
+    buf[best] = PICKED;
+    return moves[best];
   }
 
   /** 把一个着法记为杀手着法（在同一层造成剪枝的非吃子着法） */
@@ -367,10 +443,14 @@ export class Searcher {
 
     let best = alpha;
     let legalCount = 0;
-    const moves = generateMoves(this.cells, this.side)
+    const raw = generateMoves(this.cells, this.side)
       .filter((m) => checked || this.cells[moveTo(m)] !== EMPTY);
 
-    for (const move of this.orderMoves(moves, ply, 0)) {
+    const moves = this.useLazyOrder ? this.prepareOrder(raw, ply, 0) : this.orderMovesOld(raw, ply, 0);
+    const nMoves = moves.length;
+
+    for (let i = 0; i < nMoves; i++) {
+      const move = this.useLazyOrder ? this.nextBest(moves, ply, nMoves) : moves[i];
       const captured = this.make(move);
       if (!this.leavesKingSafe()) {
         this.unmake(move, captured);
@@ -465,15 +545,32 @@ export class Searcher {
     let bestMove = 0;
     let legalCount = 0;
 
-    for (const move of this.orderMoves(generateMoves(this.cells, this.side), ply, ttMove)) {
+    const moves = this.useLazyOrder
+      ? this.prepareOrder(generateMoves(this.cells, this.side), ply, ttMove)
+      : this.orderMovesOld(generateMoves(this.cells, this.side), ply, ttMove);
+    const nMoves = moves.length;
+
+    for (let i = 0; i < nMoves; i++) {
+      const move = this.useLazyOrder ? this.nextBest(moves, ply, nMoves) : moves[i];
       const captured = this.make(move);
       if (!this.leavesKingSafe()) {
         this.unmake(move, captured);
         continue;
       }
-      legalCount++;
 
-      const score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, ext);
+      // PVS（主变搜索）：**第一个合法着法开全窗口**，其余先用零窗口探「有没有比 alpha 好」，
+      // 只有真的更好（且还没到 beta）才用全窗口重搜一遍。
+      // 排序好的时候绝大多数着法探一次就否掉 —— 这是排序之外的第二大省节点手段。
+      let score;
+      if (this.usePVS && legalCount > 0) {
+        score = -this.negamax(depth - 1, -alpha - 1, -alpha, ply + 1, ext);
+        if (score > alpha && score < beta) {
+          score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, ext);
+        }
+      } else {
+        score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, ext);
+      }
+      legalCount++;
       this.unmake(move, captured);
 
       if (score > best) { best = score; bestMove = move; }
