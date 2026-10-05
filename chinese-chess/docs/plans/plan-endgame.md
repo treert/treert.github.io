@@ -557,7 +557,7 @@ node chinese-chess/tools/verify-endgames.mjs   # 残局库校验
 
 ## 已知限制
 
-> 本节的**权威版本在 [`future-work.md`](./future-work.md)**（含改进路径与工作量估算）。
+> 本节的**权威版本在 [`future-work.md`](../future-work.md)**（含改进路径与工作量估算）。
 > 这里保留的是撰写计划时的预期，供对照。
 
 | 限制 | 说明 |

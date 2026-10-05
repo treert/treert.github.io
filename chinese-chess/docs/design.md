@@ -98,7 +98,8 @@ chinese-chess/
 │   ├── openings.md            开局库 —— 数据格式 / 索引 / 怎么接进引擎 / 怎么加一条线
 │   ├── tools.md               工具与测试 —— 跑哪些、怎么跑
 │   ├── future-work.md         实际做成了什么样、还差什么
-│   └── plan*.md               各层的实现计划与执行记录
+│   └── plans/                 各层的实施计划与执行记录（历史文档，已完成）
+│       └── plan.md / plan-ai.md / plan-ui.md / plan-endgame.md
 ├── js/
 │   ├── config.js              所有可调参数 + LEVELS 挡位表          ← 纯逻辑
 │   ├── position.js            局面表示 + Zobrist + FEN 读写        ← 纯逻辑

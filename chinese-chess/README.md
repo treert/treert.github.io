@@ -67,12 +67,13 @@ chinese-chess/
 ├── index.html                页面骨架，只放 DOM，逻辑全在 js/
 ├── style.css                 模块样式，复用 ../global.css 的 CSS 变量
 ├── README.md                 本文件
-├── docs/                     共 13 份，见下面「文档地图」
+├── docs/                     当前设计与说明文档，9 份，见下面「文档地图」
 │   ├── design.md / decisions.md / future-work.md
 │   ├── endgames.md / positions.md / openings.md / tools.md
 │   ├── pikafish.md
 │   ├── pikafish-unfinished.md  没解出来的局面清单（生成物，人工核查用）
-│   └── plan*.md              各层的实现计划与执行记录
+│   └── plans/                历史实施计划与执行记录，4 份（已完成，留作追溯）
+│       └── plan.md / plan-ai.md / plan-ui.md / plan-endgame.md
 ├── js/
 │   ├── config.js             常量 + 子力价值 + 挡位策略表。纯数据
 │   ├── position.js           局面表示 + FEN 读写 + Zobrist 哈希        ← 纯逻辑
@@ -107,7 +108,7 @@ chinese-chess/
 | [`docs/tools.md`](./docs/tools.md) | 工具与测试 —— 跑哪些、怎么跑 |
 | [`docs/pikafish.md`](./docs/pikafish.md) | Pikafish 操作手册 —— 下载、命令、坐标换算、手动验局的配方 |
 | [`docs/pikafish-unfinished.md`](./docs/pikafish-unfinished.md) | 没解出来的局面清单（生成物，人工核查用） |
-| [`docs/plan.md`](./docs/plan.md) 等 `plan*.md` | 各层的实现计划与执行记录（规则 / AI / UI / 残局） |
+| [`docs/plans/plan.md`](./docs/plans/plan.md) 等 `plan*.md` | **历史实施计划与执行记录**（规则 / AI / UI / 残局）—— 已全部完成，只作追溯，不代表现状 |
 
 ## 架构
 

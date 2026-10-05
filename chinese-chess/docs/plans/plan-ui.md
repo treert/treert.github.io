@@ -763,7 +763,7 @@ node chinese-chess/tools/test-game.mjs       # 对局层
 
 ## 已知限制
 
-> 本节的**权威版本在 [`future-work.md`](./future-work.md)**（含改进路径与工作量估算）。
+> 本节的**权威版本在 [`future-work.md`](../future-work.md)**（含改进路径与工作量估算）。
 > 这里保留的是撰写计划时的预期，供对照。
 
 | 限制 | 说明 |
