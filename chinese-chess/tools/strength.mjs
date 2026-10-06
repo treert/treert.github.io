@@ -75,7 +75,7 @@ const { toNotation } = await load('notation.js');
 const { parseFen, toFen } = await load('position.js');
 const { iccsOfMove } = await load('iccs.js');
 const { generateLegalMoves } = await load('rules.js');
-// 局面集与「怎么取局面」都在这里（与 tools/move-dump.mjs 共用一份，见该文件头）
+// 局面集与「怎么取局面」都在这里（与 tools/move-diff.mjs、tools/eval-compare.mjs 共用一份）
 const { resolveSets, strengthPositions } =
   await import(pathToFileURL(resolve(HERE, 'strength-positions.mjs')).href);
 
@@ -121,7 +121,7 @@ function fenProblem(fen) {
 }
 
 // === 局面集 ===
-// 取法只有一份，在 strength-positions.mjs 里（tools/move-dump.mjs 用的是同一个函数）——
+// 取法只有一份，在 strength-positions.mjs 里（着法对照与配置对照用的是同一个函数）——
 // 两把仪器必须跑同一批局面，否则结果没法比。
 const picked = strengthPositions({ sets: SETS, tactical: TACTICAL, n: N });
 const groups = SETS.map((name) => ({

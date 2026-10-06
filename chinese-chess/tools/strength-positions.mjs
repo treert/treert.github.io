@@ -2,8 +2,9 @@
  * **棋力仪器的局面集**（数据 + 取法，不参与网页运行）。
  *
  * 文件分两半：下面三组**冻结的数据**，以及文件末尾的 `strengthPositions()` ——
- * 「这批局面怎么取」的**唯一一份实现**。`tools/strength.mjs`（棋力尺子）与
- * `tools/move-diff.mjs`（着法对照）都从它取局面：**两把仪器必须跑同一批局面**，
+ * 「这批局面怎么取」的**唯一一份实现**。三把仪器都从它取局面：
+ * `tools/strength.mjs`（棋力尺子）、`tools/move-diff.mjs`（着法对照）、
+ * `tools/eval-compare.mjs`（配置对照）—— **必须跑同一批局面**，
  * 否则一边说「变好了」另一边说「没变」，谁也说不清。取法只留这一份，
  * 与 `js/iccs.js` 「换算只该有一份」是同一个理由。
  *
@@ -59,6 +60,7 @@
  *   node chinese-chess/tools/strength.mjs --set endgame,regression
  *   node chinese-chess/tools/strength.mjs --set all
  *   node chinese-chess/tools/move-diff.mjs dump --out tmp/a.json
+ *   node chinese-chess/tools/eval-compare.mjs --configs "mobility=3/2/3,mobility=0/0/0"
  *
  * **不要**在这里手改 FEN 去「调一调局面」—— 想换局面就重跑采集脚本、重新抽样，
  * 否则这一组就不再是「引擎自己走出来的」了。

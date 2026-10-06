@@ -130,7 +130,7 @@ chinese-chess/
 
 ## 关键设计决策
 
-**24 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
+**25 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
 [`docs/decisions.md`](./docs/decisions.md)。
 
 **编号是稳定的引用锚点**：README、`future-work.md` 以及别的模块的文档都按号引用
@@ -212,8 +212,24 @@ node chinese-chess/tools/move-diff.mjs compare tmp/a.json --judge   # 2. 比 + �
 ```
 
 **「换了 0 步」是一个结论，不是失败**：说明这个改动碰不到着法选择（静态形状类的
-位置表数据经常如此），就不必再上尺子了。两把仪器跑的是**同一批局面**（取法只有一份，
+位置表数据经常如此），就不必再上尺子了。三把仪器跑的是**同一批局面**（取法只有一份，
 在 `tools/strength-positions.mjs` 里）。
+
+**比一组参数用 [`tools/eval-compare.mjs`](./tools/eval-compare.mjs)**：把几组参数各走一遍
+（固定深度 ⇒ 完全确定），逐局面算损失并做**配对对照**；裁判评分按 `(局面, 着法)` 缓存，
+所以扫一组配置很便宜。
+
+```bash
+# 机动性权重：现状 / 关掉；或者子力值（士/相/马/车/炮/兵）
+node chinese-chess/tools/eval-compare.mjs --configs "mobility=3/2/3,mobility=0/0/0"
+node chinese-chess/tools/eval-compare.mjs --configs "piece=200/200/400/900/450/100,piece=200/200/400/900/500/100"
+```
+
+⚠️ **固定深度的结论必须在至少两个深度上复核**（这条是 2026-10-06 用一次「漂亮但假」的
+改动换来的）：把炮的基础值从 450 提到 600，在**深度 6** 上是总损失 −979、配对 20 胜 7 负、
+四个组全变好、扫 450~900 还是有内部最优的光滑曲线 —— 换到**深度 7 当场消失**
+（同 124 个开局局面从 −457/9 胜 2 负 变成 −54/**5 胜 8 负**），真实预算的尺子也不支持，
+最后**撤销**了。对照：机动性开关在两个深度上量级一致（中局 +322 → +447），才算站得住。
 
 **这把尺子按局面集分组报**，因为「全混在一个数里」的读数骗过我们：
 ★那盘 430cp 的漏着只凭自己就把整组均值抬了一倍（同一个 opening 组，
@@ -300,8 +316,8 @@ node chinese-chess/tools/strength.mjs --set all    # 四组全跑（65 个局面
 | `node chinese-chess/tools/selfplay.mjs` | 端到端自对弈冒烟 |
 
 改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
-**其余测试与八个离线工具**（生成解法 / 参考线 / 开局谱、**棋力尺子 `strength.mjs`** 与它旁边的
-**着法对照 `move-diff.mjs`**、中控 `solve.mjs`，需要本地有 Pikafish）
+**其余测试与九个离线工具**（生成解法 / 参考线 / 开局谱、**棋力尺子 `strength.mjs`** 与它旁边的
+**着法对照 `move-diff.mjs`**、**配置对照 `eval-compare.mjs`**、中控 `solve.mjs`，需要本地有 Pikafish）
 见 [`docs/tools.md`](./docs/tools.md)，引擎操作见 [`docs/pikafish.md`](./docs/pikafish.md)。
 
 ## 已知限制
