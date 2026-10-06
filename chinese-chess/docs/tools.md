@@ -18,7 +18,8 @@
 | `node chinese-chess/tools/gen-solutions.mjs` | 残局解法生成：`fast` / `slow` / `emit` / `issues`（**需要本地有 Pikafish**，用法见文件头） |
 | `node chinese-chess/tools/gen-openings.mjs` | 开局谱生成：`grow`（可分批，`--budget-ms`）/ `emit` / `report`，产出 `js/openings-generated.js`（**需要本地有 Pikafish**，用法与参数见文件头） |
 | `node chinese-chess/tools/gen-pst.mjs` | 位置表蒸馏：`snapshot` / `sample` / `fit` / `agree` —— **试过，结论是没换成**（详见文件头与 `future-work.md` C1） |
-| `node chinese-chess/tools/strength.mjs` | **棋力尺子**：拿 Pikafish 当裁判量「平均损失 / 漏着率」（`--tactical` 只看有吃子的局面、`--no-null` 做对照）。判评估 / 搜索改动好不好用它，别看感觉（**需要本地有 Pikafish**） |
+| `node chinese-chess/tools/strength.mjs` | **棋力尺子**：拿 Pikafish 当裁判量「平均损失 / 中位数 / 漏着率」，**按局面集分组报**，回归集另外逐条列出「改主意了吗」。`--set opening,middlegame,endgame,regression`（或 `all`，默认 `opening,regression`）、`--tactical` 只看有吃子的开局局面、`--no-null` / `--no-mobility` 做对照。判评估 / 搜索改动好不好用它，别看感觉（**需要本地有 Pikafish**） |
+| `node chinese-chess/tools/strength-positions.mjs` | **数据，不是命令**：尺子的冻结局面集（20 个中局 + 10 个残局 + 5 个回归局面）。怎么采的、为什么不能手改，写在文件头；尺子的读法见 `decisions.md` 第 20 条 |
 | `node chinese-chess/tools/prefix-scan.mjs` | 参考线生成 / 对照：`gen`（`--playout` 走成完整线）/ `promote`（规则层复核）/ `compare`（与已知线逐点对照）/ `emit` |
 | `node chinese-chess/tools/solve.mjs` | **中控**：把上面两条链路按顺序跑完（校验 → 找杀 → 走到底 → 复核 → 写数据 → 校验 → 清单）。加/改局面跑这一条就够：`--ids <id>` / `--status` / `--dry-run` |
 
@@ -26,10 +27,12 @@
 分别生成 `js/solutions.js`（解法）与 `js/prefixes.js`（参考线），
 `gen-openings.mjs` 生成 `js/openings-generated.js`（开局谱），
 `gen-pst.mjs` 是**评估蒸馏的尝试**（2026-10-05 试过，没换成，工具留着以后接着试），
-`strength.mjs` 是**棋力尺子**（拿 Pikafish 当裁判量「平均损失 / 漏着率」——
-任何评估 / 搜索改动该用它验收，别靠感觉），
+`strength.mjs` 是**棋力尺子**（拿 Pikafish 当裁判量「平均损失 / 中位数 / 漏着率」，
+**分局面集报** —— 任何评估 / 搜索改动该用它验收，别靠感觉），
 `solve.mjs` 是残局那两条链路的**中控**（加/改局面只需要跑它），
 `verify-solutions.mjs` 用本模块自己的规则层把那份解法数据逐条钉一遍。
+另有 `strength-positions.mjs`：**不是命令，是尺子的局面集数据**（中局 / 残局 / 回归三组），
+它得跟着仓库走，否则两次跑的局面不一样、结果没法比。
 引擎与权重不进仓库；生成物是数据，**运行时不需要引擎、也不联网**。
 Pikafish 的下载、常用命令、坐标换算，以及「怎么手动验一局」的三个现成配方，
 见 [`pikafish.md`](./pikafish.md)。

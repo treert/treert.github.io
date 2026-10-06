@@ -13,30 +13,50 @@
  *   1. 模块引擎自己走一手（默认 1.5 秒 = 高级挡位的预算，去掉随机性与开局库 ——
  *      量的是**搜索 + 评估**，不是谱）；
  *   2. 问 Pikafish：这个局面最优能有多少分（走子方视角）；
- *   3. 问 Pikafish：走了模块那一步之后，走子方还剩多少分；
+ *   3. 问 Pikafish：走了模块那一步之后，走子方还剩多少分（对手视角，取负）；
  *   4. 两者之差 = 这一手的**损失 cp**（夹到 ≥ 0）。
  *
- * 输出平均损失、中位数、漏着率（损失 > 100cp 的比例），以及最差几手的**裁判推荐线**
- * （方便复盘：它到底看不到什么）。
+ * 输出**按局面集分组**的平均损失、中位数、漏着率（>100cp 的比例）。
+ *
+ * ## 局面集（这是 2026-10-06 补的，也是它现在最有用的地方）
+ *
+ * | 组 | 来源 | 关心什么 |
+ * |---|---|---|
+ * | `opening` | 从 `js/openings-generated.js` 现扫（4~8 半回合） | 开局阶段「评估不犯傻」 |
+ * | `middlegame` | `tools/strength-positions.mjs` 冻结的 20 个（引擎自对弈走出来的中局） | 评估 + 深度都说了算 |
+ * | `endgame` | 同上文件的 10 个（子力 ≤ 6 大子） | 残局位置表、相位权重 |
+ * | `regression` | 同上文件的 5 个（**历史上的漏着**） | 「修好没」—— 最硬的判据 |
+ *
+ * **为什么要分组**：原来只有「开局谱局面 + 1 个★局面」混在一起，
+ * 改进容易被平均掉（一处 −20cp 与一处 +20cp 相消，看起来「没变」）。
+ * 分组之后，「中局变好了、但残局变差了」这种话才说得出来。
+ * 分组的口径、局面怎么采的、为什么不能手改，都写在 `tools/strength-positions.mjs` 的文件头。
  *
  * ## 怎么读（别只看第一列）
  *
  * - **平均损失容易被一个 400cp 的漏着带跑**，所以同时给中位数与「去掉最大一个」的均值。
- *   判改动好不好，先看中位数与漏着数。
- * - **局面集决定结论**：默认取自生成的开局谱（4~8 半回合），**多是安静局面** ——
- *   那里评估说了算，深度体现不出来。想量深度收益就加 `--tactical`
- *   （只取走子方有吃子的「有接触」局面）。
+ *   判改动好不好，**先看中位数与漏着数**。
+ * - **回归集看的是逐条 ✅/❌**（模块这一手与裁判首选是否一致），不是它的平均损失 ——
+ *   五个局面里四个是同一个毛病（炮往前顶 / 横挪），平均一下就把最严重的那条埋了。
+ * - **局面集决定结论**：开局局面里**多是安静局面**，那里评估说了算、深度体现不出来。
+ *   想量深度收益得看 `middlegame`。`--tactical` 只对 `opening` 生效
+ *   （只取走子方有吃子的局面）—— 中局 / 残局那两组本来就是照真实对弈采的，不再筛。
  * - 时间预算是**有抖动**的：同一配置连跑两次差几个 cp 是正常的，差别要明显才算数。
  *
  * ## 用法
  *
- *   node chinese-chess/tools/strength.mjs                        # 真实 1.5 秒，安静局面 30 个
- *   node chinese-chess/tools/strength.mjs --tactical --n 40      # 只要「有接触」的局面
- *   node chinese-chess/tools/strength.mjs --ms 3000 --pf 18      # 给更多时间 / 更深的裁判
- *   node chinese-chess/tools/strength.mjs --no-null              # 对照：关掉空着裁剪
+ *   node chinese-chess/tools/strength.mjs                      # opening + regression（默认，最快）
+ *   node chinese-chess/tools/strength.mjs --set all             # 四组全跑（要十几分钟）
+ *   node chinese-chess/tools/strength.mjs --set middlegame
+ *   node chinese-chess/tools/strength.mjs --set all --tactical  # opening 组只取有吃子的
+ *   node chinese-chess/tools/strength.mjs --ms 3000 --pf 18     # 给更多时间 / 更深的裁判
+ *   node chinese-chess/tools/strength.mjs --no-null             # 对照：关掉空着裁剪
+ *   node chinese-chess/tools/strength.mjs --no-mobility         # 对照：关掉某个评估项
  *
+ * `--n N` 是**每组**取多少个（默认 30）。
  * **需要本地有 Pikafish**（路径与 `gen-solutions.mjs` 等工具一致）。裁判默认搜到
  * depth 16 —— 再深出分很慢，而它对「这一手差多少」的判断已经足够了。
+ * 进度打在 **stderr**，报错表打在 stdout（这样 `... > 报告.txt` 拿到的还是干净的报告）。
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -49,13 +69,15 @@ const EXE = process.env.PIKAFISH
   || resolve(ROOT, 'tmp/pikafish/Pikafish-Windows-x86-64-universal.exe');
 const load = (rel) => import(pathToFileURL(resolve(HERE, '../js', rel)).href);
 
-const { CELLS, EMPTY, START_FEN } = await load('config.js');
+const { CELLS, EMPTY, COLS, ROWS } = await load('config.js');
 const { search } = await load('engine.js');
 const { toNotation } = await load('notation.js');
 const { parseFen, toFen } = await load('position.js');
 const { iccsOfMove } = await load('iccs.js');
-const { generateMoves } = await load('rules.js');
+const { generateMoves, generateLegalMoves } = await load('rules.js');
 const { GENERATED_TREE } = await load('openings-generated.js');
+const { MIDDLEGAME, ENDGAME, REGRESSION } =
+  await import(pathToFileURL(resolve(HERE, 'strength-positions.mjs')).href);
 
 const arg = (name, dflt) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -64,20 +86,48 @@ const arg = (name, dflt) => {
 const MS = Number(arg('ms', 1500));          // 模块的时间预算（0 = 用 --depth 的固定深度）
 const DEPTH = Number(arg('depth', 6));       // MS 为 0 时用它
 const PF = Number(arg('pf', 16));            // 裁判搜多深
-const N = Number(arg('n', 30));              // 用多少个局面
+const N = Number(arg('n', 30));              // **每组**用多少个局面
 const NO_NULL = process.argv.includes('--no-null');
 const NO_MOBILITY = process.argv.includes('--no-mobility');
-/** 只要「有接触」的局面（走子方至少有一个吃子）—— 安静局面上评估说了算，深度体现不出来 */
+/** 只要「有接触」的局面（走子方至少有一个吃子）—— 只作用于 opening 组 */
 const TACTICAL = process.argv.includes('--tactical');
 
+const ALL_SETS = ['opening', 'middlegame', 'endgame', 'regression'];
+const SETS = String(arg('set', 'opening,regression')).split(',')
+  .map((s) => s.trim().toLowerCase()).filter(Boolean)
+  .flatMap((s) => (s === 'all' ? ALL_SETS : [s]));
+for (const s of SETS) {
+  if (!ALL_SETS.includes(s)) {
+    console.log(`不认识的局面集「${s}」—— 可选：${ALL_SETS.join(' / ')} / all`);
+    process.exit(1);
+  }
+}
+
+// === FEN 自检 ===
+// Pikafish 碰到**非法局面是直接不回复**的（不是报错，是卡住 → 只会看到超时），
+// 所以喂进去之前先自己验一遍：行数 / 每行 9 格 / 两边将帅都在 / 至少有一个合法着法。
+// 这一条是拿 `future-work.md` 的坑 1 换来的。
+function fenProblem(fen) {
+  const board = String(fen).trim().split(/\s+/)[0];
+  const rows = board.split('/');
+  if (rows.length !== ROWS) return `棋盘 ${rows.length} 行（应为 ${ROWS}）`;
+  for (const row of rows) {
+    let w = 0;
+    for (const ch of row) w += /[1-9]/.test(ch) ? Number(ch) : 1;
+    if (w !== COLS) return `有一行是 ${w} 格（应为 ${COLS}）`;
+  }
+  if (!board.includes('K') || !board.includes('k')) return '少一个将 / 帅';
+  try {
+    if (generateLegalMoves(parseFen(fen)).length === 0) return '没有合法着法';
+  } catch (e) { return e.message; }
+  return null;
+}
+
 // === 局面集 ===
-// 从生成谱里按步长扫（大部分局面是黑走的，扫密一点才凑得够数），只取红走的便于比较；
-// 最后固定补上那个「★关键局面」—— 就是用户那盘 炮八平五 炮8平5 炮五进四 之后，
-// 引擎在这里走过 炮5进4（亏 400+cp），它是最好的回归样本。
-const positions = [];
-{
-  const seen = new Set();
-  for (let i = 0; i < GENERATED_TREE.length && positions.length < N - 1; i += 5) {
+/** opening 组：从生成谱里按步长扫（大部分局面是黑走的，扫密一点才凑得够数） */
+function openingPositions(limit) {
+  const out = []; const seen = new Set();
+  for (let i = 0; i < GENERATED_TREE.length && out.length < limit; i += 5) {
     const [fen] = GENERATED_TREE[i];
     const pos = parseFen(fen);
     if (pos.side !== 1) continue;
@@ -86,11 +136,31 @@ const positions = [];
     }
     if (seen.has(fen)) continue;
     seen.add(fen);
-    positions.push([(TACTICAL ? '战术#' : '谱#') + positions.length, fen]);
+    out.push([(TACTICAL ? '战术#' : '谱#') + out.length, fen]);
+  }
+  return out;
+}
+const frozen = (list) => list.slice(0, N).map((p) => [p.id, p.fen, p]);
+
+const groups = [];
+for (const name of SETS) {
+  if (name === 'opening') groups.push({ name, positions: openingPositions(N) });
+  if (name === 'middlegame') groups.push({ name, positions: frozen(MIDDLEGAME) });
+  if (name === 'endgame') groups.push({ name, positions: frozen(ENDGAME) });
+  if (name === 'regression') groups.push({ name, positions: frozen(REGRESSION) });
+}
+const TOTAL = groups.reduce((s, g) => s + g.positions.length, 0);
+
+// 喂给引擎之前先自检（有问题的那一个直接停，免得卡在「等 info」上十几分钟）
+for (const g of groups) {
+  for (const [id, fen] of g.positions) {
+    const bad = fenProblem(fen);
+    if (bad) {
+      console.log(`局面非法（${g.name} ${id}）：${bad}\n  ${fen}\n修好再跑 —— 非法局面会让 Pikafish 卡住。`);
+      process.exit(1);
+    }
   }
 }
-positions.push(['★关键局面（炮五进四 之后）',
-  'rnbakabnr/9/1c2c4/p1p1C1p1p/9/9/P1P1P1P1P/7C1/9/RNBAKABNR b - - 0 1']);
 
 // === 裁判 ===
 const proc = spawn(EXE, [], { cwd: dirname(EXE) });
@@ -144,44 +214,106 @@ const lv = {
 };
 
 console.log(`模块：${MS > 0 ? `真实预算 ${MS}ms` : `固定深度 ${DEPTH}`}｜空着裁剪 ${NO_NULL ? '关' : '开'}`
-  + `｜机动性 ${NO_MOBILITY ? '关' : '开'}｜裁判 Pikafish depth ${PF}｜局面 ${positions.length} 个`
-  + `${TACTICAL ? '（只取有吃子的）' : ''}\n`);
+  + `｜机动性 ${NO_MOBILITY ? '关' : '开'}｜裁判 Pikafish depth ${PF}`
+  + `｜${groups.map((g) => `${g.name} ${g.positions.length}`).join(' + ')} = ${TOTAL} 个局面`
+  + `${TACTICAL ? '（opening 只取有吃子的）' : ''}\n`);
 
-const rows = [];
-for (const [name, fen] of positions) {
-  const r = search(fen, lv, { history: [fen] });
-  if (!r) continue;
-  const best = await judge(fen);
-  const after = parseFen(fen);
-  const from = Math.floor(r.move / CELLS), to = r.move % CELLS;
-  after.cells[to] = after.cells[from];
-  after.cells[from] = EMPTY;
-  after.side = -after.side;
-  const afterJudge = await judge(toFen(after));         // 这一步之后，对手视角
-  rows.push({
-    name, fen, move: toNotation(parseFen(fen), r.move), iccs: iccsOfMove(r.move),
-    score: r.score, loss: Math.max(0, best.score - (-afterJudge.score)),
-    refMove: best.bestMove, refPv: best.pv,
-  });
+// === 跑 ===
+const done = [];
+const mateRows = [];      // 裁判判为杀棋的局面：损失变成 ±9000 的二元量，不计入统计
+const noMove = [];
+let step = 0;
+for (const g of groups) {
+  for (const [id, fen, meta] of g.positions) {
+    step += 1;
+    const r = search(fen, lv, { history: [fen] });
+    if (!r) {                                     // 没有合法着法（将死 / 困毙）
+      noMove.push([g.name, id, fen]);
+      process.stderr.write(`  [${step}/${TOTAL}] ${g.name} ${id} —— 模块没有着法可走，跳过\n`);
+      continue;
+    }
+    const ref = await judge(fen);
+    const after = parseFen(fen);
+    const from = Math.floor(r.move / CELLS), to = r.move % CELLS;
+    after.cells[to] = after.cells[from];
+    after.cells[from] = EMPTY;
+    after.side = -after.side;
+    const afterRef = await judge(toFen(after));
+    const row = {
+      group: g.name, id, fen, meta,
+      move: toNotation(parseFen(fen), r.move), iccs: iccsOfMove(r.move),
+      score: r.score,
+      refScore: ref.score, refMove: ref.bestMove, refPv: ref.pv,
+      hit: ref.bestMove === iccsOfMove(r.move),
+      // 走子方视角：走了这一手之后还剩多少 = 对手的分数取负
+      loss: Math.max(0, ref.score + afterRef.score),
+    };
+    if (Math.abs(ref.score) >= 9000 || Math.abs(afterRef.score) >= 9000) mateRows.push(row);
+    else done.push(row);
+    process.stderr.write(`  [${step}/${TOTAL}] ${g.name} ${id}  ${row.move}（${row.iccs}）`
+      + ` 损失 ${mateRows.includes(row) ? '（杀棋，不计）' : `${row.loss}cp`}\n`);
+  }
 }
 
-const sorted = rows.map((r) => r.loss).sort((a, b) => a - b);
-const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-const median = sorted[Math.floor(sorted.length / 2)];
-const meanTrim = sorted.slice(0, sorted.length - 1).reduce((s, v) => s + v, 0)
-  / Math.max(1, sorted.length - 1);
-const blunders = rows.filter((r) => r.loss > 100).length;
-console.log(`平均损失 ${mean.toFixed(1)} cp｜中位数 ${median}｜去掉最大一个后 ${meanTrim.toFixed(1)}`
-  + `｜漏着（>100cp）${blunders}/${rows.length} = ${(blunders / rows.length * 100).toFixed(0)}%\n`);
-console.log('最差的几手（含裁判推荐线与局面，便于复盘）：');
-for (const r of [...rows].sort((a, b) => b.loss - a.loss).slice(0, 5)) {
-  console.log(`  损失 ${String(r.loss).padStart(5)}cp  ${r.move.padEnd(6)} [${r.iccs}]  ${r.name}`
+// === 报告 ===
+function stats(rows) {
+  const ls = rows.map((r) => r.loss).sort((a, b) => a - b);
+  const sum = ls.reduce((s, v) => s + v, 0);
+  return {
+    n: rows.length,
+    mean: sum / ls.length,
+    median: ls[Math.floor(ls.length / 2)],
+    trim: ls.slice(0, ls.length - 1).reduce((s, v) => s + v, 0) / Math.max(1, ls.length - 1),
+    blunders: rows.filter((r) => r.loss > 100).length,
+  };
+}
+const num = (v, w) => v.toFixed(1).padStart(w);
+const head = '组'.padEnd(11) + '局面'.padStart(5) + '平均损失'.padStart(10)
+  + '中位数'.padStart(8) + '去掉最大'.padStart(10) + '漏着(>100cp)'.padStart(15);
+console.log(head);
+console.log('-'.repeat(head.length + 14));
+for (const g of groups) {
+  const rows = done.filter((r) => r.group === g.name);
+  if (!rows.length) { console.log(`${g.name.padEnd(11)}${String(0).padStart(5)}   （没有可统计的局面）`); continue; }
+  const s = stats(rows);
+  console.log(`${g.name.padEnd(11)}${String(s.n).padStart(5)}${num(s.mean, 10)}${num(s.median, 8)}`
+    + `${num(s.trim, 10)}${`${s.blunders}/${s.n} = ${(s.blunders / s.n * 100).toFixed(0)}%`.padStart(15)}`);
+}
+if (SETS.length > 1 && done.length) {
+  const s = stats(done);
+  console.log('-'.repeat(head.length + 14));
+  console.log(`${'ALL'.padEnd(11)}${String(s.n).padStart(5)}${num(s.mean, 10)}${num(s.median, 8)}`
+    + `${num(s.trim, 10)}${`${s.blunders}/${s.n} = ${(s.blunders / s.n * 100).toFixed(0)}%`.padStart(15)}`);
+}
+
+if (mateRows.length) {
+  console.log(`\n（另有 ${mateRows.length} 个局面裁判判为杀棋 —— 损失会变成 ±9000 的二元量，不计入上面的统计）`);
+  for (const r of mateRows) console.log(`  ${r.group} ${r.id}  ${r.move}  裁判 ${r.refMove}（${r.refScore}）`);
+}
+if (noMove.length) console.log(`\n（另有 ${noMove.length} 个局面模块没有着法可走，已跳过）`);
+
+// 逐条列出回归集 —— 这是比任何平均数都硬的一条判据
+const reg = done.filter((r) => r.group === 'regression');
+if (reg.length) {
+  console.log(`\n回归集（历史上踩过的坑，逐条看「改主意了吗」）：`
+    + `命中裁判首选 ${reg.filter((r) => r.hit).length}/${reg.length}`);
+  for (const r of reg) {
+    const was = r.meta && r.meta.wasMove ? `（当年走 ${r.meta.wasMove}，亏 ${r.meta.loss}cp）` : '';
+    console.log(`  ${r.hit ? '✅' : '❌'} ${r.id.padEnd(10)} 走 ${r.move.padEnd(6)} 损失 ${String(r.loss).padStart(4)}cp`
+      + `  自评 ${String(r.score).padStart(4)}  裁判首选 ${r.refMove} ${was}`);
+    console.log(`     裁判线：${r.refPv}`);
+    console.log(`     局面：${r.fen}`);
+  }
+}
+
+console.log('\n最差的几手（含裁判推荐线与局面，便于复盘）：');
+for (const r of [...done].sort((a, b) => b.loss - a.loss).slice(0, 6)) {
+  console.log(`  损失 ${String(r.loss).padStart(5)}cp  ${r.move.padEnd(6)} [${r.iccs}]  ${r.group} ${r.id}`
     + `  自评 ${r.score}  裁判首选 ${r.refMove}`);
   console.log(`     裁判线：${r.refPv}`);
   console.log(`     局面：${r.fen}`);
 }
-console.log('\n（判改动好坏：先看**中位数与漏着数**，再看均值 —— 均值容易被一个 400cp 带跑）');
+console.log('\n（判改动好坏：**先看中位数、漏着数与回归集逐条**，再看均值 —— 均值容易被一个 400cp 带跑）');
 
 send('quit');
 setTimeout(() => process.exit(0), 200);
-void START_FEN;

@@ -130,7 +130,7 @@ chinese-chess/
 
 ## 关键设计决策
 
-**19 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
+**20 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
 [`docs/decisions.md`](./docs/decisions.md)。
 
 **编号是稳定的引用锚点**：README、`future-work.md` 以及别的模块的文档都按号引用
@@ -172,6 +172,28 @@ chinese-chess/
 取舍与代价见 [`docs/decisions.md`](./docs/decisions.md) 第 19 条）。
 **量棋力请用 [`tools/strength.mjs`](./tools/strength.mjs)**（拿 Pikafish 当裁判算平均损失 / 漏着率）——
 别靠感觉，也别用「离老师的 MAE」那种判据（那是 `future-work.md` C1 踩过的坑）。
+
+**这把尺子按局面集分组报**，因为「全混在一个数里」的读数骗过我们：
+★那盘 430cp 的漏着只凭自己就把整组均值抬了一倍（同一个 opening 组，
+单独算是 45.9、混着★算是 60.8）。四组与当前基线（真实 1.5 秒、裁判 depth 16）：
+
+| 组 | 局面 | 现在是什么样 | 关心什么 |
+|---|---|---|---|
+| `opening` | 30 | 平均 45.9 / 漏着 3 | 开局阶段别犯傻 |
+| `middlegame` | 20 | 平均 36.1 / 漏着 2 | 评估与深度都说了算 |
+| `endgame` | 10 | 平均 7.9 / 漏着 0 | 别在残局里悄悄变坏（它**量不出提升**，最不灵敏） |
+| `regression` | 5 | 平均 179.0，**命中裁判首选 0/5** | 「那几条炮的着法修好了没」 |
+
+```bash
+node chinese-chess/tools/strength.mjs              # opening + regression（默认，最快）
+node chinese-chess/tools/strength.mjs --set all    # 四组全跑（65 个局面，十几分钟）
+```
+
+**回归集是逐条看的**（`✅` = 模块这一手与裁判首选一致），不是看它的平均数 ——
+那五条里四条是同一个毛病（炮往前顶 / 横挪），平均一下就埋了。
+局面集本身在 [`tools/strength-positions.mjs`](./tools/strength-positions.mjs)（冻结的数据，
+**别手改**：想换局面得重跑采集脚本），取舍与否决项见
+[`docs/decisions.md`](./docs/decisions.md) 第 20 条。
 
 位置表已经做了**两张**（开局 / 残局），评估按相位插值 —— 见
 [`docs/decisions.md`](./docs/decisions.md) 第 11、12 条。但它们都是**手写的常识版**。
