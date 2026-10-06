@@ -8,7 +8,7 @@
 import {
   COLS, ROWS, CELLS, EMPTY, K, N, R, C, P, RED,
   PIECE_VALUE, PIECE_SQUARE_OPENING, PIECE_SQUARE_ENDGAME,
-  PAWN_BONUS_OPENING, PAWN_BONUS_ENDGAME,
+  PAWN_BONUS_OPENING, PAWN_BONUS_ENDGAME, MOBILITY_WEIGHT,
   PHASE_WEIGHT, PHASE_MAX, MIRROR_INDEX, LEVELS,
 } from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
@@ -119,22 +119,12 @@ const TIMEOUT = { timeout: true };
  * 所以这种炮的数会很低。
  */
 /**
- * 机动性权重：**车 3 / 马 2 / 炮 3**（与 `docs/decisions.md` 第 19 条一致）。
+ * 机动性权重：`config.js` 的 `MOBILITY_WEIGHT`（**车 3 / 马 2 / 炮 3**）。
  *
- * 写成一串字面量时最容易错的正是**错位**：这个数组原来写作
- * `[0, 0, 0, 0, 3, 2, 3, 0]`（对齐注释是「占位 K A B N R C P」），于是把 **N 与 R 写反了** ——
- * 车拿 2、马拿 3，而文档与棋理都是车更重。2026-10-06 用固定深度对照量出来：
- * 65 个局面里两种写法有 7 步不同，裁判定向判分「写反的那版 347cp、写对的这版 237cp」，
- * 而且修完回归集第一次命中裁判首选。修法就是下面这种**按名字赋值**的写法 ——
- * 再也不会因为数位置数错而静默换掉权重。见 `docs/decisions.md` 第 22 条。
+ * 它挪到 `config.js` 去了 —— 那是**调出来的常量**，与 `PIECE_VALUE` / `PHASE_WEIGHT` /
+ * 两张位置表同一类，工具要像改位置表那样改它（`tmp/xq-mobility-tune.mjs` 就是这么扫的）。
+ * 写法（按名字赋值，不数位置）的理由也在那边，见 `docs/decisions.md` 第 22 条。
  */
-const MOBILITY_WEIGHT = (() => {
-  const w = new Int8Array(8);
-  w[R] = 3;
-  w[N] = 2;
-  w[C] = 3;
-  return w;
-})();
 
 /**
  * 车 / 炮的「可达格数」。

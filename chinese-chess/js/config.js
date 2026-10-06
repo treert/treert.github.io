@@ -173,6 +173,26 @@ export const PIECE_SQUARE_OPENING = buildPieceSquareTable(FILE_OPENING, RANK_OPE
 export const PIECE_SQUARE_ENDGAME = buildPieceSquareTable(FILE_ENDGAME, RANK_ENDGAME, SPOT_ENDGAME);
 
 /**
+ * **机动性权重**（`engine.js` 的 `mobility` 项）：车 / 马 / 炮的「可达格数」各值多少。
+ *
+ * 为什么写在 config.js：它和 `PIECE_VALUE` / `PHASE_WEIGHT` / 上面两张表一样，
+ * 是**调出来的常量**（数据），不是逻辑。放这里工具才能像改位置表那样改它 ——
+ * 2026-10-06 就是用它扫了一遍三个权重（`tmp/xq-mobility-tune.mjs`）。
+ *
+ * **按名字赋值，不数位置**：它原来是 `[0, 0, 0, 0, 3, 2, 3, 0]` 加一行对齐注释
+ * （`占位 K A B N R C P`），结果把 **N 与 R 写反了** —— 车拿 2、马拿 3，安静地错了一整轮。
+ * 那种写法每加一行表就得重新数一遍位置，错位不会报错、只会让权重悄悄换人，所以换成现在这样。
+ * 见 `docs/decisions.md` 第 22 条。
+ */
+export const MOBILITY_WEIGHT = (() => {
+  const w = new Int8Array(8);
+  w[R] = 3;
+  w[N] = 2;
+  w[C] = 3;
+  return w;
+})();
+
+/**
  * 黑方查表用的下标映射：上下镜像（x 不变）。
  *
  * 位置表左右对称，所以不必再镜像横轴 —— 于是开局那种左右对称的局面两边加起来
