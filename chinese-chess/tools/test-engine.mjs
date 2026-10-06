@@ -138,14 +138,19 @@ console.log('AI 层测试\n');
 {
   const { evaluate } = await load('engine.js');
 
+  // 钉「子力 + 位置表 + 过河兵」那套机器的精确值断言，一律把**机动性关掉**再比：
+  // 机动性（2026-10-06 新增，见下面单独一组）是独立的一项，混进来这些数就对不上，
+  // 而对不上的原因只是「多了个和棋理方向无关的数」，不是机器坏了。
+  const ev = (cells, side) => evaluate(cells, side, false);
+
   check('起始局面完全对称，分值为 0', evaluate(startPosition().cells, 1), 0);
   check('起始局面黑方视角也是 0', evaluate(startPosition().cells, -1), 0);
 
   // 红方多一个车
   {
     const cells = build(['K@3,9', 'k@5,0', 'R@0,9']).cells;
-    check('红方多一个车：红方视角 +900', evaluate(cells, 1), 900);
-    check('红方多一个车：黑方视角 -900', evaluate(cells, -1), -900);
+    check('红方多一个车：红方视角 +900（关掉机动性）', ev(cells, 1), 900);
+    check('红方多一个车：黑方视角 -900（关掉机动性）', ev(cells, -1), -900);
   }
 
   // 兵过河加分（位置分是 0，所以这两个数是「兵的价值 + 过河加分」的干净样本）
@@ -195,6 +200,29 @@ console.log('AI 层测试\n');
     check('黑方按 y 镜像查表（红黑对称）',
       evaluate(build(['K@3,9', 'k@5,0', 'N@1,7']).cells, 1),
       -evaluate(build(['K@3,9', 'k@5,0', 'n@1,2']).cells, 1));
+  }
+
+  // 机动性（2026-10-06 新增，见 engine.js 的 MOBILITY_WEIGHT）
+  //
+  // 这一组钉三件事：**它在起作用**（同一个子畅通时比被堵死值钱）、**它可关**
+  // （关掉之后那套老机器的数一分不差）、以及**它左右对称**（不然镜像局面会算歪）。
+  {
+    // 车：两边子力一样（三个过河兵，加分也一模一样），差别全在「能不能走」
+    const blocked = build(['K@3,9', 'k@5,0', 'R@4,4', 'P@3,4', 'P@5,4', 'P@4,3']).cells;
+    const open = build(['K@3,9', 'k@5,0', 'R@4,4', 'P@3,3', 'P@5,3', 'P@4,2']).cells;
+    check('车被自己人堵死比畅通时值钱少（机动性在起作用）',
+      evaluate(blocked, 1) < evaluate(open, 1), true);
+    check('关掉机动性后，上面两个局面一样值钱（差的全来自机动性）',
+      ev(blocked, 1), ev(open, 1));
+
+    // 炮的机动性（吃子要隔炮架）也得接上 —— 这条只钉「接上了」，数值不钉
+    const cannon = build(['K@3,9', 'k@5,0', 'C@4,4', 'p@4,2', 'r@4,0']).cells;
+    check('炮的机动性也生效（开关前后不同）',
+      evaluate(cannon, 1) !== ev(cannon, 1), true);
+
+    // 左右对称的局面：子力、位置表、机动性都得各自抵消
+    check('左右对称的局面评估为 0（机动性也抵消）',
+      evaluate(build(['K@4,9', 'k@4,0', 'R@1,7', 'r@7,2']).cells, 1), 0);
   }
 
   // 相位插值（开局 ⇄ 残局）

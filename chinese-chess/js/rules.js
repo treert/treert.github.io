@@ -6,15 +6,16 @@
  *   generateLegalMoves(pos)      合法着法 —— 界面走子校验、终局判定用
  */
 
-import { CELLS, EMPTY, K, A, B, N, R, C, P, RED } from './config.js';
+import { COLS, ROWS, CELLS, EMPTY, K, A, B, N, R, C, P, RED } from './config.js';
 import { indexOf, xOf, yOf, inBoard } from './position.js';
 
-// 四个正交方向
-const ORTHO = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+// 四个正交方向（导出：评估算机动性也要用同一张表 —— 方向表写两份迟早会错开）
+export const ORTHO = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
 // 马：[目标位移 dx, dy, 马腿位移 lx, ly]
 // 马腿是「先直走的那一格」，也就是位移绝对值等于 2 的那个方向上的相邻格
-const HORSE = [
+// （导出：评估算马的机动性要用同一张表）
+export const HORSE = [
   [1, -2, 0, -1], [-1, -2, 0, -1],
   [1, 2, 0, 1], [-1, 2, 0, 1],
   [2, -1, 1, 0], [2, 1, 1, 0],
@@ -53,9 +54,10 @@ export function generateMoves(cells, side) {
   const out = [];
   for (let from = 0; from < CELLS; from++) {
     const v = cells[from];
-    if (v === EMPTY || Math.sign(v) !== side) continue;
-    const x = xOf(from), y = yOf(from);
-    switch (Math.abs(v)) {
+    if (v === EMPTY || v * side < 0) continue;
+    const x = from % COLS, y = (from - x) / COLS;
+    const abs = v < 0 ? -v : v;
+    switch (abs) {
       case R: genRook(out, cells, from, x, y, side); break;
       case C: genCannon(out, cells, from, x, y, side); break;
       case N: genHorse(out, cells, from, x, y, side); break;
@@ -68,16 +70,30 @@ export function generateMoves(cells, side) {
   return out;
 }
 
+/**
+ * 下面这些生成器刻意写得“摊开”：方向表**按索引循环**（不用 `for (const [dx, dy] of …)`），
+ * 行列、越界、棋子编码都直接算，不调 `indexOf` / `inBoard` / `encodeMove` / `Math.sign`。
+ *
+ * 理由与 `isAttacked` 那一处相同：着法生成占搜索自耗时约 20%，而每个节点都要全量生成一次，
+ * 迭代器 + 解构 + 每格一次的函数调用在这个密度下是主要开销。
+ *
+ * **推入顺序必须与改前逐个相同** —— 并列分值的着法靠生成顺序决定先后，顺序一变节点数就变，
+ * “节点数一个不差”这条断言也就白设了。所以每个方向表的条目次序都原样保留。
+ */
+
 /** 车：四方向直线滑动，遇子停止，遇敌子可吃 */
 function genRook(out, cells, from, x, y, side) {
-  for (const [dx, dy] of ORTHO) {
+  const base = from * CELLS;
+  for (let d = 0; d < 4; d++) {
+    const dx = ORTHO[d][0], dy = ORTHO[d][1];
     let cx = x + dx, cy = y + dy;
-    while (inBoard(cx, cy)) {
-      const idx = indexOf(cx, cy);
-      if (cells[idx] === EMPTY) {
-        out.push(encodeMove(from, idx));
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
+      const idx = cy * COLS + cx;
+      const t = cells[idx];
+      if (t === EMPTY) {
+        out.push(base + idx);
       } else {
-        if (Math.sign(cells[idx]) !== side) out.push(encodeMove(from, idx));
+        if (t * side < 0) out.push(base + idx);
         break;
       }
       cx += dx; cy += dy;
@@ -91,21 +107,24 @@ function genRook(out, cells, from, x, y, side) {
  * 再找它后面的第一个子，是敌子才能吃。
  */
 function genCannon(out, cells, from, x, y, side) {
-  for (const [dx, dy] of ORTHO) {
+  const base = from * CELLS;
+  for (let d = 0; d < 4; d++) {
+    const dx = ORTHO[d][0], dy = ORTHO[d][1];
     let cx = x + dx, cy = y + dy;
 
-    while (inBoard(cx, cy) && cells[indexOf(cx, cy)] === EMPTY) {
-      out.push(encodeMove(from, indexOf(cx, cy)));
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
+      out.push(base + cy * COLS + cx);
       cx += dx; cy += dy;
     }
-    if (!inBoard(cx, cy)) continue;
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
 
     // (cx,cy) 是炮架，从它后面继续找第一个子
     cx += dx; cy += dy;
-    while (inBoard(cx, cy)) {
-      const idx = indexOf(cx, cy);
-      if (cells[idx] !== EMPTY) {
-        if (Math.sign(cells[idx]) !== side) out.push(encodeMove(from, idx));
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) {
+      const idx = cy * COLS + cx;
+      const t = cells[idx];
+      if (t !== EMPTY) {
+        if (t * side < 0) out.push(base + idx);
         break;
       }
       cx += dx; cy += dy;
@@ -115,68 +134,84 @@ function genCannon(out, cells, from, x, y, side) {
 
 /** 兵 / 卒：未过河只能向前一格，过河后可向前或左右一格，永不后退 */
 function genPawn(out, cells, from, x, y, side) {
-  const forward = -side; // 红方前进 y 减小，黑方前进 y 增大
-  const fy = y + forward;
-  if (inBoard(x, fy)) {
-    const idx = indexOf(x, fy);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+  const base = from * CELLS;
+  const fy = y - side; // 红方前进 y 减小，黑方前进 y 增大
+  if (fy >= 0 && fy < ROWS) {
+    const idx = fy * COLS + x;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 
   // 过河后才能横走：红兵到 y <= 4，黑卒到 y >= 5
   const crossed = side === RED ? y <= 4 : y >= 5;
   if (!crossed) return;
 
-  for (const dx of [-1, 1]) {
-    const cx = x + dx;
-    if (!inBoard(cx, y)) continue;
-    const idx = indexOf(cx, y);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+  if (x > 0) {
+    const idx = y * COLS + x - 1;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
+  }
+  if (x < COLS - 1) {
+    const idx = y * COLS + x + 1;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 }
 
 /** 将 / 帅：四方向一格，不得出九宫 */
 function genKing(out, cells, from, x, y, side) {
-  for (const [dx, dy] of ORTHO) {
-    const cx = x + dx, cy = y + dy;
+  const base = from * CELLS;
+  for (let d = 0; d < 4; d++) {
+    const cx = x + ORTHO[d][0], cy = y + ORTHO[d][1];
     if (!inPalace(cx, cy, side)) continue;
-    const idx = indexOf(cx, cy);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+    const idx = cy * COLS + cx;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 }
 
 /** 马：八个日字目标；马腿（先直走的那一格）有子则该方向全部禁止 */
 function genHorse(out, cells, from, x, y, side) {
-  for (const [dx, dy, lx, ly] of HORSE) {
-    const legX = x + lx, legY = y + ly;
+  const base = from * CELLS;
+  for (let d = 0; d < 8; d++) {
+    const h = HORSE[d];
+    const legX = x + h[2], legY = y + h[3];
     // 马腿在棋盘外时，对应的目标也必然在棋盘外，直接跳过
-    if (!inBoard(legX, legY) || cells[indexOf(legX, legY)] !== EMPTY) continue;
+    if (legX < 0 || legX >= COLS || legY < 0 || legY >= ROWS) continue;
+    if (cells[legY * COLS + legX] !== EMPTY) continue;
 
-    const cx = x + dx, cy = y + dy;
-    if (!inBoard(cx, cy)) continue;
-    const idx = indexOf(cx, cy);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+    const cx = x + h[0], cy = y + h[1];
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+    const idx = cy * COLS + cx;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 }
 
 /** 象 / 相：四个田字目标；象眼（田字中心）有子则禁；不得过河 */
 function genElephant(out, cells, from, x, y, side) {
-  for (const [dx, dy] of ELEPHANT) {
+  const base = from * CELLS;
+  for (let d = 0; d < 4; d++) {
+    const dx = ELEPHANT[d][0], dy = ELEPHANT[d][1];
     const cx = x + dx, cy = y + dy;
-    if (!inBoard(cx, cy)) continue;
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
     if (!ownHalf(cy, side)) continue;
-    if (cells[indexOf(x + dx / 2, y + dy / 2)] !== EMPTY) continue; // 塞象眼
-    const idx = indexOf(cx, cy);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+    if (cells[(y + dy / 2) * COLS + (x + dx / 2)] !== EMPTY) continue; // 塞象眼
+    const idx = cy * COLS + cx;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 }
 
 /** 士 / 仕：四个斜向一格；不得出九宫 */
 function genAdvisor(out, cells, from, x, y, side) {
-  for (const [dx, dy] of ADVISOR) {
-    const cx = x + dx, cy = y + dy;
+  const base = from * CELLS;
+  for (let d = 0; d < 4; d++) {
+    const cx = x + ADVISOR[d][0], cy = y + ADVISOR[d][1];
     if (!inPalace(cx, cy, side)) continue;
-    const idx = indexOf(cx, cy);
-    if (canLand(cells, idx, side)) out.push(encodeMove(from, idx));
+    const idx = cy * COLS + cx;
+    const t = cells[idx];
+    if (t === EMPTY || t * side < 0) out.push(base + idx);
   }
 }
 
@@ -199,58 +234,58 @@ export function findKing(cells, side) {
  * 于是「走完之后两将照面」会被合法性检查直接拒掉，不需要额外的规则代码。
  */
 export function isAttacked(cells, idx, bySide) {
-  const x = xOf(idx), y = yOf(idx);
+  // 采样里这是整个搜索**最热的单个函数**（自耗时约 27%），所以这里的写法偏执：
+  //   - 方向表按索引循环，不用 `for (const [dx, dy] of …)`（迭代器 + 解构每次调用都要走一遍）；
+  //   - 行列直接算，不调 xOf / yOf / indexOf / inBoard；
+  //   - 判色判型不调 Math.sign / Math.abs，改成「与敌方棋子编码直接比」（一次乘法预算好）。
+  // 语义与改前逐字对应 —— 改完**节点数必须一个不差**（tools/test-engine.mjs 里钉着）。
+  const x = idx % COLS, y = (idx - x) / COLS;
   const target = cells[idx];
+  const eR = bySide * R, eC = bySide * C, eK = bySide * K, eN = bySide * N, eP = bySide * P;
 
   // 车 / 炮 / 将：沿四个正交方向
-  for (const [dx, dy] of ORTHO) {
+  for (let d = 0; d < 4; d++) {
+    const dx = ORTHO[d][0], dy = ORTHO[d][1];
     let cx = x + dx, cy = y + dy;
-    while (inBoard(cx, cy) && cells[indexOf(cx, cy)] === EMPTY) { cx += dx; cy += dy; }
-    if (!inBoard(cx, cy)) continue;
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
+      cx += dx; cy += dy;
+    }
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
 
-    const first = cells[indexOf(cx, cy)];
-    if (Math.sign(first) === bySide) {
-      const abs = Math.abs(first);
-      if (abs === R) return true;                                   // 车
-      if (abs === K) {
-        if (Math.abs(cx - x) + Math.abs(cy - y) === 1) return true; // 将贴身
-        if (Math.abs(target) === K) return true;                    // 将帅照面（中间无子）
-      }
+    const first = cells[cy * COLS + cx];
+    if (first === eR) return true;                                   // 车
+    if (first === eK) {
+      if (cx - x === dx && cy - y === dy) return true;               // 将贴身
+      if (target === -eK) return true;                               // 将帅照面（中间无子）
     }
 
     // 炮：隔一个子才能吃
     cx += dx; cy += dy;
-    while (inBoard(cx, cy) && cells[indexOf(cx, cy)] === EMPTY) { cx += dx; cy += dy; }
-    if (inBoard(cx, cy)) {
-      const second = cells[indexOf(cx, cy)];
-      if (Math.sign(second) === bySide && Math.abs(second) === C) return true;
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
+      cx += dx; cy += dy;
     }
+    if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === eC) return true;
   }
 
   // 马：反过来找八个能跳到 idx 的位置
-  for (const [dx, dy, lx, ly] of HORSE) {
+  for (let d = 0; d < 8; d++) {
+    const dx = HORSE[d][0], dy = HORSE[d][1], lx = HORSE[d][2], ly = HORSE[d][3];
     const kx = x - dx, ky = y - dy;
-    if (!inBoard(kx, ky)) continue;
-    const v = cells[indexOf(kx, ky)];
-    if (Math.sign(v) !== bySide || Math.abs(v) !== N) continue;
-    if (cells[indexOf(kx + lx, ky + ly)] !== EMPTY) continue;       // 蹩马腿
+    if (kx < 0 || kx >= COLS || ky < 0 || ky >= ROWS) continue;
+    if (cells[ky * COLS + kx] !== eN) continue;
+    const bx = kx + lx, by = ky + ly;
+    if (bx < 0 || bx >= COLS || by < 0 || by >= ROWS) continue;
+    if (cells[by * COLS + bx] !== EMPTY) continue;                   // 蹩马腿
     return true;
   }
 
   // 兵 / 卒：正前方一格 + 过河后的左右一格
   const py = y + bySide; // 兵所在的行：红方(bySide=1)在下一行，黑方(bySide=-1)在上一行
-  if (inBoard(x, py)) {
-    const v = cells[indexOf(x, py)];
-    if (Math.sign(v) === bySide && Math.abs(v) === P) return true;
-  }
+  if (py >= 0 && py < ROWS && cells[py * COLS + x] === eP) return true;
   const crossed = bySide === RED ? y <= 4 : y >= 5;
   if (crossed) {
-    for (const dx of [-1, 1]) {
-      const px = x + dx;
-      if (!inBoard(px, y)) continue;
-      const v = cells[indexOf(px, y)];
-      if (Math.sign(v) === bySide && Math.abs(v) === P) return true;
-    }
+    if (x > 0 && cells[y * COLS + x - 1] === eP) return true;
+    if (x < COLS - 1 && cells[y * COLS + x + 1] === eP) return true;
   }
 
   return false;

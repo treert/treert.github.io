@@ -130,7 +130,7 @@ chinese-chess/
 
 ## 关键设计决策
 
-**16 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
+**19 条，每条都记下「否决了什么」**，避免以后重复讨论 —— 全文见
 [`docs/decisions.md`](./docs/decisions.md)。
 
 **编号是稳定的引用锚点**：README、`future-work.md` 以及别的模块的文档都按号引用
@@ -167,6 +167,12 @@ chinese-chess/
 **评估方向**：改 `engine.js` 的 `evaluate()` 与 `config.js` 的 `PIECE_SQUARE_OPENING` /
 `PIECE_SQUARE_ENDGAME` / `PHASE_WEIGHT` / `PAWN_BONUS_*`。
 
+**先看这段再动手**：评估已经补过一项**机动性**（车 / 马 / 炮的可达格数，在 `engine.js`），
+这是第一个在尺子上量出正收益的评估改动（平均损失 −4cp、漏着率 17% → 13%，
+取舍与代价见 [`docs/decisions.md`](./docs/decisions.md) 第 19 条）。
+**量棋力请用 [`tools/strength.mjs`](./tools/strength.mjs)**（拿 Pikafish 当裁判算平均损失 / 漏着率）——
+别靠感觉，也别用「离老师的 MAE」那种判据（那是 `future-work.md` C1 踩过的坑）。
+
 位置表已经做了**两张**（开局 / 残局），评估按相位插值 —— 见
 [`docs/decisions.md`](./docs/decisions.md) 第 11、12 条。但它们都是**手写的常识版**。
 
@@ -197,6 +203,10 @@ chinese-chess/
 [`docs/future-work.md`](./docs/future-work.md) C2（那里也写明了：**1.3 倍速度 ≈ 0.15 层**，
 常数因子买不来棋力）。
 
+**合法性判定**走「与将帅不共线就直接判合法」的快路径（`decisions.md` 第 17 条），
+`isAttacked` 与着法生成也按索引重写过：2026-10-06 这一轮合计 **−18% 时间** ——
+高级挡位那 1.5 秒里能搜的节点从约 1.6~2.1M 涨到 2.4~2.7M，四个测试局面里有一个多搜出一层。
+
 **不顺手的挡位**：还是改 `LEVELS` 里的 `depth` / `timeLimitMs` / `noise` / `blunderRate`。
 
 ### 加一个残局
@@ -226,7 +236,7 @@ chinese-chess/
 | `node chinese-chess/tools/selfplay.mjs` | 端到端自对弈冒烟 |
 
 改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
-**其余测试与五个离线工具**（生成解法 / 参考线 / 开局谱、中控 `solve.mjs`，需要本地有 Pikafish）
+**其余测试与六个离线工具**（生成解法 / 参考线 / 开局谱、**棋力尺子 `strength.mjs`**、中控 `solve.mjs`，需要本地有 Pikafish）
 见 [`docs/tools.md`](./docs/tools.md)，引擎操作见 [`docs/pikafish.md`](./docs/pikafish.md)。
 
 ## 已知限制

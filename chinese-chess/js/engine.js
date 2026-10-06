@@ -6,14 +6,14 @@
  */
 
 import {
-  CELLS, EMPTY, K, P, RED,
+  COLS, ROWS, CELLS, EMPTY, K, N, R, C, P, RED,
   PIECE_VALUE, PIECE_SQUARE_OPENING, PIECE_SQUARE_ENDGAME,
   PAWN_BONUS_OPENING, PAWN_BONUS_ENDGAME,
   PHASE_WEIGHT, PHASE_MAX, MIRROR_INDEX, LEVELS,
 } from './config.js';
 import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
 import {
-  generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
+  ORTHO, HORSE, generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
   perpetualChecker, moveFrom, moveTo,
 } from './rules.js';
 import { pickOpening } from './openings.js';
@@ -41,6 +41,24 @@ const TT_UPPER = 2;
 
 /** 静态搜索的层数上限。兑子序列可能很长，必须封顶，否则单节点开销失控 */
 const MAX_QUIESCE_DEPTH = 6;
+
+/**
+ * 「与将帅共线」判定用的查表：每格所在的行、列、两条对角线（`x-y` / `x+y`）。
+ *
+ * 合法性快路径每试一个着法要查两次（起点与终点），用查表替掉取模与除法 ——
+ * 这个判定本身要是太贵，快路径就白快了（第一版就是这么栽的：快了 1.8% 而已）。
+ */
+const FILE_OF = new Int8Array(CELLS);
+const RANK_OF = new Int8Array(CELLS);
+const DIAG_OF = new Int8Array(CELLS);
+const ANTI_OF = new Int8Array(CELLS);
+for (let i = 0; i < CELLS; i++) {
+  const x = i % COLS, y = (i - x) / COLS;
+  FILE_OF[i] = x;
+  RANK_OF[i] = y;
+  DIAG_OF[i] = x - y + ROWS;   // 加个常数只为保持非负，等值比较不受影响
+  ANTI_OF[i] = x + y;
+}
 
 /**
  * 着法排序里「已经取过」的哨兵分值。用 Int32 最小值 —— 任何真实分值（历史启发 ≥ 0、
@@ -88,13 +106,79 @@ const TIMEOUT = { timeout: true };
  * 「过河兵加分」也分两套值（`PAWN_BONUS_OPENING` / `PAWN_BONUS_ENDGAME`），
  * 和位置表一起插值 —— 这是相位带来的最直观的一处变化。
  *
- * 刻意**不加任何需要生成着法的项**（机动性、威胁数…）：评估在叶节点被调用上百万次，
- * 生成着法等于把搜索成本翻倍。位置表 + 相位是 O(1) 查表，这才是对的方向。
+ * ## 机动性（2026-10-06 补上的，它推翻上面那句「刻意不加」）
+ *
+ * 这里原来写着：「刻意**不加任何需要生成着法的项**（机动性、威胁数…）—— 评估在叶节点
+ * 被调用上百万次，生成着法等于把搜索成本翻倍」。**这条取舍被采样推翻了**：
+ * 自耗时里 `evaluate` 只占 **0.1%**，钱全花在着法生成与合法性判定上 ——
+ * 评估其实闲得很，完全负担得起古典评估里的主力项。
+ *
+ * 于是补上**机动性**（只算车 / 马 / 炮，权重见 `MOBILITY_WEIGHT`）。它对准的是
+ * `tools/strength.mjs` 量出来的那条短板：引擎爱把炮往前顶、往边上挪，
+ * 而那些炮常常「没有炮架、也够不着东西」—— 炮的机动性里**吃子单独算**，
+ * 所以这种炮的数会很低。
  */
-export function evaluate(cells, side) {
+const MOBILITY_WEIGHT = [0, 0, 0, 0, 3, 2, 3, 0];
+//                        占位 K  A  B  N  R  C  P
+
+/**
+ * 车 / 炮的「可达格数」。
+ *
+ * 车：空位一格一分，吃到第一个子（敌子）再加一分。
+ * 炮：空位一格一分；**吃子另算** —— 炮要吃子必须隔一个炮架，所以这里继续往后找第一个子，
+ * 是敌子才算。一门连炮架都找不到的炮，这个数会很低。
+ */
+function rayMobility(cells, x, y, side, isCannon) {
+  let n = 0;
+  for (let d = 0; d < 4; d++) {
+    const dx = ORTHO[d][0], dy = ORTHO[d][1];
+    let cx = x + dx, cy = y + dy;
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
+      n++; cx += dx; cy += dy;
+    }
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+
+    const first = cells[cy * COLS + cx];
+    if (!isCannon) {
+      if (first * side < 0) n++;          // 车：第一格是敌子就能吃
+      continue;
+    }
+    // 炮：第一个子（不分敌我）都能当炮架，继续找它后面的第一个子
+    cx += dx; cy += dy;
+    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
+      cx += dx; cy += dy;
+    }
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+    if (cells[cy * COLS + cx] * side < 0) n++;
+  }
+  return n;
+}
+
+/** 马的「可达格数」（马腿被蹩住的方向不算） */
+function horseMobility(cells, x, y, side) {
+  let n = 0;
+  for (let d = 0; d < 8; d++) {
+    const h = HORSE[d];
+    const legX = x + h[2], legY = y + h[3];
+    if (legX < 0 || legX >= COLS || legY < 0 || legY >= ROWS) continue;
+    if (cells[legY * COLS + legX] !== EMPTY) continue;
+    const cx = x + h[0], cy = y + h[1];
+    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+    if (cells[cy * COLS + cx] * side <= 0) n++;   // 空位或敌子
+  }
+  return n;
+}
+
+/**
+ * `useMobility` 让调用方关掉机动性 —— 测试里那些「子力 + 位置表 + 过河兵」的精确值
+ * 断言要钉的是那套机器，机动性是后加的独立项，所以显式关掉它再比
+ * （`tools/strength.mjs` 与挡位也都能用 `useMobility: false` 做对照）。
+ */
+export function evaluate(cells, side, useMobility = true) {
   let opening = 0; // 先按红方视角累加：开局表下的分值
   let endgame = 0; //                       残局表下的分值
   let phase = 0;   //                       剩余子力的相位权重和
+  let mobility = 0; //                      机动性（红方正、黑方负，不进相位插值）
 
   for (let i = 0; i < CELLS; i++) {
     const v = cells[i];
@@ -123,12 +207,23 @@ export function evaluate(cells, side) {
     const endgameValue = value + PIECE_SQUARE_ENDGAME[sq] + bonusEndgame;
     opening += red ? openingValue : -openingValue;
     endgame += red ? endgameValue : -endgameValue;
+
+    if (useMobility) {
+      const w = MOBILITY_WEIGHT[abs];
+      if (w) {
+        const x = i % COLS, y = (i - x) / COLS;
+        const sg = red ? 1 : -1;
+        const m = abs === N ? horseMobility(cells, x, y, sg)
+          : rayMobility(cells, x, y, sg, abs === C);
+        mobility += sg * m * w;
+      }
+    }
   }
 
   // 相位插值。phase 只减不增（棋子只会被吃掉），但非法局面可能带更多子力，
   // 所以夹一下上界，免得插值跑到表外去。round 让分值保持整数。
   const p = phase > PHASE_MAX ? PHASE_MAX : phase;
-  const score = Math.round((opening * p + endgame * (PHASE_MAX - p)) / PHASE_MAX);
+  const score = Math.round((opening * p + endgame * (PHASE_MAX - p)) / PHASE_MAX) + mobility;
   return side === RED ? score : -score;
 }
 
@@ -166,6 +261,16 @@ export class Searcher {
     this.useLazyOrder = level.useLazyOrder !== false;
     // badCaptureOrder = false 用来做对照实验：验证「坏吃子降级」值不值
     this.badCaptureOrder = level.badCaptureOrder !== false;
+
+    // 空着裁剪（见 negamaxNode 里的说明）。`useNullMove: false` 用来做对照实验 ——
+    // 也就是「全宽搜索」那一版，返回值与它逐位可比。
+    this.useNullMove = level.useNullMove !== false;
+    /** 空着裁剪缩减几层：2 是保守值，3 更凶也更容易误剪 */
+    this.nullMoveR = level.nullMoveR || 2;
+
+    // 机动性评估项（见 evaluate 的说明）。`useMobility: false` 用来与「只有子力 +
+    // 位置表 + 过河兵」那套机器做对照 —— 测试里那些精确值断言也是关掉它再比的。
+    this.useMobility = level.useMobility !== false;
 
     // 将 / 帅的位置，增量维护：kings[0] 是红帅、kings[1] 是黑将，-1 表示已不在盘上。
     // 搜索里「这一步走完之后己方将还安全吗」每试一个着法都要问一次，
@@ -230,6 +335,22 @@ export class Searcher {
   inCheck(side) {
     const king = this.kingOf(side);
     return king < 0 || isAttacked(this.cells, king, -side);
+  }
+
+  /**
+   * 走子方还有没有「重子」（车 / 马 / 炮）—— 空着裁剪的开关条件之一。
+   *
+   * 直觉就是「残局禁用空着裁剪」，但不该去算相位（那要扫一遍全盘）：
+   * 这里是**带提前退出**的扫描，开局中局里往往头几格就命中，代价可以忽略；
+   * 真的扫完一整盘（残局）时，正好也是该禁用的时候。
+   */
+  hasHeavyMaterial(side) {
+    const r = side * R, n = side * N, c = side * C;
+    for (let i = 0; i < CELLS; i++) {
+      const v = this.cells[i];
+      if (v === r || v === n || v === c) return true;
+    }
+    return false;
   }
 
   /**
@@ -368,10 +489,35 @@ export class Searcher {
    *
    * 将的位置直接从 kings 里读，不再 findKing 全盘扫 —— 这里每试一个着法就要问一次，
    * 是搜索里调用最密的一处。
+   *
+   * ## 快路径：不与将帅共线的着法直接判合法
+   *
+   * 采样显示 `isAttacked` 是整个搜索最贵的单个函数（自耗时约 27%），而它在这里的调用
+   * 绝大多数是**白算**的：只有「走的子 / 落点 / 被吃的子」与将帅在同一条线（横线、
+   * 竖线、斜线）上时，这一步才可能影响将帅的处境 —— 车、炮、将帅照面的攻击都发生在线上，
+   * 拆炮架 / 露出将脸也都是线上的事。
+   *
+   * 两处细节值得写下来：
+   *
+   * 1. **必须「走之前没被将军」才敢走快路径。** 被将军时要把将军解掉，而马 / 兵 / 将贴身
+   *    这几种攻击不吃线 —— 那种情况下「不共线」推不出「将帅安全」。`checked` 是上层
+   *    本来就为将军延伸算好的（见 negamax），所以这条快路径不额外花钱。
+   * 2. **马的腿格恰好落在将帅的线上**：马从 L 形位置攻将，它的腿格是与将帅**正交相邻**
+   *    的那一格 —— 也就是与将帅共线。所以「挪开自己的子让马腿通了」这种着法不会被漏掉
+   *    （它的起点就是那个腿格）。
    */
-  leavesKingSafe() {
+  leavesKingSafe(move, wasInCheck) {
     const king = this.kingOf(-this.side);
-    return king >= 0 && !isAttacked(this.cells, king, this.side);
+    if (king < 0) return false;
+    if (!wasInCheck) {
+      const kf = FILE_OF[king], kr = RANK_OF[king], kd = DIAG_OF[king], ka = ANTI_OF[king];
+      const from = moveFrom(move), to = moveTo(move);
+      if (FILE_OF[from] !== kf && RANK_OF[from] !== kr
+          && DIAG_OF[from] !== kd && ANTI_OF[from] !== ka
+          && FILE_OF[to] !== kf && RANK_OF[to] !== kr
+          && DIAG_OF[to] !== kd && ANTI_OF[to] !== ka) return true;
+    }
+    return !isAttacked(this.cells, king, this.side);
   }
 
   /**
@@ -434,7 +580,7 @@ export class Searcher {
 
     const checked = this.inCheck(this.side);
     if (!checked) {
-      const stand = evaluate(this.cells, this.side);
+      const stand = evaluate(this.cells, this.side, this.useMobility);
       if (stand >= beta) return beta;
       if (stand > alpha) alpha = stand;
     }
@@ -444,7 +590,7 @@ export class Searcher {
     // 而 iterativeDeepen 判断「找到杀棋」的条件是 |score| > MATE - 1000，
     // 于是会把 -INF 当成杀棋、提前停止加深（表现为挡位突然只搜 1 层）。
     // 这个 bug 是自对弈冒烟测试发现的。
-    if (qdepth <= 0) return evaluate(this.cells, this.side);
+    if (qdepth <= 0) return evaluate(this.cells, this.side, this.useMobility);
 
     let best = alpha;
     let legalCount = 0;
@@ -457,7 +603,7 @@ export class Searcher {
     for (let i = 0; i < nMoves; i++) {
       const move = this.useLazyOrder ? this.nextBest(moves, ply, nMoves) : moves[i];
       const captured = this.make(move);
-      if (!this.leavesKingSafe()) {
+      if (!this.leavesKingSafe(move, checked)) {
         this.unmake(move, captured);
         continue;
       }
@@ -488,7 +634,7 @@ export class Searcher {
    * 本体有好几条 return，超时还是从中间穿出去的异常；路径不还原的话，
    * search() 里紧接着施加挡位弱化时就会读到一个错乱的路径。
    */
-  negamax(depth, alpha, beta, ply, ext = 0) {
+  negamax(depth, alpha, beta, ply, ext = 0, nullNode = false) {
     this.nodes++;
 
     if (--this.checkEvery <= 0) {
@@ -499,6 +645,13 @@ export class Searcher {
     // 本层是否被将军。将军延伸要用它；它同时就是「**上一步**是否将军」——
     // 循环规则（长将）要按步记这个标记，所以只算一次，两处共用。
     const checked = this.inCheck(this.side);
+
+    // 空着裁剪引发的那次搜索（nullNode）**不进搜索路径**：它不是真实局面
+    // （同一个盘面翻个走子方），而路径是给循环规则（长将）用的 ——
+    // 混进去会让长将判定读到一步「不存在的着法」。
+    // 节点计数与超时检查照旧走（所以这里不能绕过 negamax 直接调 negamaxNode）。
+    if (nullNode) return this.negamaxNode(depth, alpha, beta, ply, ext, checked);
+
     this.pathKeys.push(this.key);
     this.pathFlags.push(checked ? 1 : 0);
 
@@ -543,7 +696,31 @@ export class Searcher {
     if (depth <= 0) {
       return this.level.quiescence
         ? this.quiesce(alpha, beta, ply, MAX_QUIESCE_DEPTH)
-        : evaluate(this.cells, this.side);
+        : evaluate(this.cells, this.side, this.useMobility);
+    }
+
+    // === 空着裁剪 ===
+    //
+    // 「让我一手，你还够不到 beta 吗？」够不到就说明这个局面远高于 beta，直接剪掉 ——
+    // 不必知道它到底多好。这是**唯一不依赖着法排序**的剪枝：它问的是「我什么都不做会怎样」，
+    // 而 LMR / 后期着法减少赌的是「排在后面的着法更差」，本模块这套中等排序赌不准
+    // （PVS 复测 +1.9% 就是证据），所以先上这一条。
+    //
+    // 三个禁用条件，每一个都对应一类会算错的情形：
+    //   - **被将军**：必须应将，「让一手」根本不是一个合法局面；
+    //   - **没有重子**（车 / 马 / 炮）：残局里困毙（无子可动判负）会把「让一手」变成
+    //     自杀式假设，这是空着裁剪最经典的翻车点；
+    //   - **depth < 3**：缩减掉 R 之后没有余量，测出来的东西没意义。
+    //
+    // 超时是抛异常穿出去的，这里不写 try/finally：与 make/unmake 同一约定 ——
+    // 最外层的 guarded() 会把棋盘、轮走方、哈希一起恢复（见它的注释）。
+    if (this.useNullMove && !checked && depth >= 3 && this.hasHeavyMaterial(this.side)) {
+      this.side = -this.side;
+      this.key = (this.key ^ hashSide()) >>> 0;
+      const nullScore = -this.negamax(depth - 1 - this.nullMoveR, -beta, -beta + 1, ply + 1, 0, true);
+      this.side = -this.side;
+      this.key = (this.key ^ hashSide()) >>> 0;
+      if (nullScore >= beta) return nullScore;
     }
 
     let best = -INF;
@@ -558,7 +735,7 @@ export class Searcher {
     for (let i = 0; i < nMoves; i++) {
       const move = this.useLazyOrder ? this.nextBest(moves, ply, nMoves) : moves[i];
       const captured = this.make(move);
-      if (!this.leavesKingSafe()) {
+      if (!this.leavesKingSafe(move, checked)) {
         this.unmake(move, captured);
         continue;
       }
