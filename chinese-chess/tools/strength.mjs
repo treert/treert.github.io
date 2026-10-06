@@ -74,9 +74,9 @@ const { search } = await load('engine.js');
 const { toNotation } = await load('notation.js');
 const { parseFen, toFen } = await load('position.js');
 const { iccsOfMove } = await load('iccs.js');
-const { generateMoves, generateLegalMoves } = await load('rules.js');
-const { GENERATED_TREE } = await load('openings-generated.js');
-const { MIDDLEGAME, ENDGAME, REGRESSION } =
+const { generateLegalMoves } = await load('rules.js');
+// 局面集与「怎么取局面」都在这里（与 tools/move-dump.mjs 共用一份，见该文件头）
+const { resolveSets, strengthPositions } =
   await import(pathToFileURL(resolve(HERE, 'strength-positions.mjs')).href);
 
 const arg = (name, dflt) => {
@@ -92,15 +92,12 @@ const NO_MOBILITY = process.argv.includes('--no-mobility');
 /** 只要「有接触」的局面（走子方至少有一个吃子）—— 只作用于 opening 组 */
 const TACTICAL = process.argv.includes('--tactical');
 
-const ALL_SETS = ['opening', 'middlegame', 'endgame', 'regression'];
-const SETS = String(arg('set', 'opening,regression')).split(',')
-  .map((s) => s.trim().toLowerCase()).filter(Boolean)
-  .flatMap((s) => (s === 'all' ? ALL_SETS : [s]));
-for (const s of SETS) {
-  if (!ALL_SETS.includes(s)) {
-    console.log(`不认识的局面集「${s}」—— 可选：${ALL_SETS.join(' / ')} / all`);
-    process.exit(1);
-  }
+let SETS;
+try {
+  SETS = resolveSets(arg('set', 'opening,regression'));
+} catch (e) {
+  console.log(e.message);
+  process.exit(1);
 }
 
 // === FEN 自检 ===
@@ -124,32 +121,14 @@ function fenProblem(fen) {
 }
 
 // === 局面集 ===
-/** opening 组：从生成谱里按步长扫（大部分局面是黑走的，扫密一点才凑得够数） */
-function openingPositions(limit) {
-  const out = []; const seen = new Set();
-  for (let i = 0; i < GENERATED_TREE.length && out.length < limit; i += 5) {
-    const [fen] = GENERATED_TREE[i];
-    const pos = parseFen(fen);
-    if (pos.side !== 1) continue;
-    if (TACTICAL && !generateMoves(pos.cells, pos.side).some((m) => pos.cells[m % CELLS] !== EMPTY)) {
-      continue;
-    }
-    if (seen.has(fen)) continue;
-    seen.add(fen);
-    out.push([(TACTICAL ? '战术#' : '谱#') + out.length, fen]);
-  }
-  return out;
-}
-const frozen = (list) => list.slice(0, N).map((p) => [p.id, p.fen, p]);
-
-const groups = [];
-for (const name of SETS) {
-  if (name === 'opening') groups.push({ name, positions: openingPositions(N) });
-  if (name === 'middlegame') groups.push({ name, positions: frozen(MIDDLEGAME) });
-  if (name === 'endgame') groups.push({ name, positions: frozen(ENDGAME) });
-  if (name === 'regression') groups.push({ name, positions: frozen(REGRESSION) });
-}
-const TOTAL = groups.reduce((s, g) => s + g.positions.length, 0);
+// 取法只有一份，在 strength-positions.mjs 里（tools/move-dump.mjs 用的是同一个函数）——
+// 两把仪器必须跑同一批局面，否则结果没法比。
+const picked = strengthPositions({ sets: SETS, tactical: TACTICAL, n: N });
+const groups = SETS.map((name) => ({
+  name,
+  positions: picked.filter((p) => p.set === name).map((p) => [p.id, p.fen, p.meta]),
+}));
+const TOTAL = picked.length;
 
 // 喂给引擎之前先自检（有问题的那一个直接停，免得卡在「等 info」上十几分钟）
 for (const g of groups) {

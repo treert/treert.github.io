@@ -182,8 +182,20 @@ chinese-chess/
 
 **量棋力请用 [`tools/strength.mjs`](./tools/strength.mjs)**（拿 Pikafish 当裁判算平均损失 / 漏着率）——
 别靠感觉，也别用「离老师的 MAE」那种判据（那是 `future-work.md` C1 踩过的坑）。
-**小改动先看它换了几步棋**：固定深度跑两遍（`tmp/xq-move-dump.mjs`，完全可复现），
-是 0 就不必再上尺子 —— 尺子自己的抖动就有几个 cp，分辨不了那么小的效应。
+
+**小改动先看它换了几步棋** —— 用 [`tools/move-diff.mjs`](./tools/move-diff.mjs)：
+固定深度 + 无随机性 ⇒ **完全可复现**，比的是离散量「选了哪一步」，不受时间抖动影响；
+`--judge` 时再**只在不同的那几个局面上**让 Pikafish 定向判分（信噪比最高的地方）。
+
+```bash
+node chinese-chess/tools/move-diff.mjs dump --out tmp/a.json   # 1. 存一份着法快照
+#   ...改代码...
+node chinese-chess/tools/move-diff.mjs compare tmp/a.json --judge   # 2. 比 + 定向判分
+```
+
+**「换了 0 步」是一个结论，不是失败**：说明这个改动碰不到着法选择（静态形状类的
+位置表数据经常如此），就不必再上尺子了。两把仪器跑的是**同一批局面**（取法只有一份，
+在 `tools/strength-positions.mjs` 里）。
 
 **这把尺子按局面集分组报**，因为「全混在一个数里」的读数骗过我们：
 ★那盘 430cp 的漏着只凭自己就把整组均值抬了一倍（同一个 opening 组，
@@ -270,7 +282,8 @@ node chinese-chess/tools/strength.mjs --set all    # 四组全跑（65 个局面
 | `node chinese-chess/tools/selfplay.mjs` | 端到端自对弈冒烟 |
 
 改着法生成或搜索后，除了跑对应测试，建议再跑一次自对弈。
-**其余测试与六个离线工具**（生成解法 / 参考线 / 开局谱、**棋力尺子 `strength.mjs`**、中控 `solve.mjs`，需要本地有 Pikafish）
+**其余测试与八个离线工具**（生成解法 / 参考线 / 开局谱、**棋力尺子 `strength.mjs`** 与它旁边的
+**着法对照 `move-diff.mjs`**、中控 `solve.mjs`，需要本地有 Pikafish）
 见 [`docs/tools.md`](./docs/tools.md)，引擎操作见 [`docs/pikafish.md`](./docs/pikafish.md)。
 
 ## 已知限制

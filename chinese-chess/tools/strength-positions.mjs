@@ -1,5 +1,11 @@
 /**
- * **棋力尺子的局面集**（数据，不参与网页运行）—— 冻结在这里，供 `tools/strength.mjs` 取用。
+ * **棋力仪器的局面集**（数据 + 取法，不参与网页运行）。
+ *
+ * 文件分两半：下面三组**冻结的数据**，以及文件末尾的 `strengthPositions()` ——
+ * 「这批局面怎么取」的**唯一一份实现**。`tools/strength.mjs`（棋力尺子）与
+ * `tools/move-dump.mjs`（着法对照）都从它取局面：**两把仪器必须跑同一批局面**，
+ * 否则一边说「变好了」另一边说「没变」，谁也说不清。取法只留这一份，
+ * 与 `js/iccs.js` 「换算只该有一份」是同一个理由。
  *
  * ## 为什么要有这个文件
  *
@@ -35,13 +41,20 @@
  *
  * ## 怎么用
  *
+ * 直接用（走 `strengthPositions()` 的）是这两把仪器，不用手动 import 这个文件：
+ *
  *   node chinese-chess/tools/strength.mjs --set middlegame
  *   node chinese-chess/tools/strength.mjs --set endgame,regression
  *   node chinese-chess/tools/strength.mjs --set all
+ *   node chinese-chess/tools/move-dump.mjs dump --out tmp/a.json
  *
  * **不要**在这里手改 FEN 去「调一调局面」—— 想换局面就重跑采集脚本、重新抽样，
  * 否则这一组就不再是「引擎自己走出来的」了。
  */
+import { CELLS, EMPTY } from '../js/config.js';
+import { parseFen } from '../js/position.js';
+import { generateMoves } from '../js/rules.js';
+import { GENERATED_TREE } from '../js/openings-generated.js';
 
 /** 中局：引擎自对弈走到子力还很足的局面（大子 8~12），有接触、有战术 */
 export const MIDDLEGAME = [
@@ -111,3 +124,59 @@ export const REGRESSION = [
   { id: '炮二平三', wasMove: '炮二进四', loss: 111,
     fen: '1rbakabnr/9/2n1c2c1/p1p1p1p1p/9/2P6/P3P1P1P/2N1C2C1/9/R1BAKABNR w - - 0 1' },
 ];
+
+// ================================================================ 取局面
+// 下面是「这批局面怎么取」的**唯一一份实现**，两把仪器都从它取（见文件头）。
+
+/** 四个组的名字（`--set` 的合法取值，另外还认一个 `all`） */
+export const SET_NAMES = ['opening', 'middlegame', 'endgame', 'regression'];
+
+/**
+ * 把 `--set` 的取值解析成组名列表：`all` 展开成四组全要。
+ *
+ * 不认识的名字**抛错**（调用方负责打印并退出）—— 不静默忽略：
+ * 打错一个字就会拿到一个意料之外的组，而「跑错了一批局面」是这里最贵的错误。
+ */
+export function resolveSets(spec = 'opening,regression') {
+  const names = String(spec).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    .flatMap((s) => (s === 'all' ? SET_NAMES : [s]));
+  for (const s of names) {
+    if (!SET_NAMES.includes(s)) {
+      throw new Error(`不认识的局面集「${s}」—— 可选：${SET_NAMES.join(' / ')} / all`);
+    }
+  }
+  return names;
+}
+
+/**
+ * 取这批局面。顺序 = 调用方给的组顺序，组内顺序固定（同一批局面每次必须一模一样）。
+ *
+ * `tactical` **只作用于 `opening`**：那组是从开局谱里扫出来的安静局面，
+ * 「只看有吃子的」才量得出深度收益；中局 / 残局 / 回归三组本来就是照真实对弈采的，不再筛。
+ */
+export function strengthPositions({ sets = ['opening', 'regression'], tactical = false, n = 30 } = {}) {
+  const out = [];
+  for (const set of sets) {
+    if (set === 'opening') {
+      // 生成谱里大部分局面是黑走的，扫密一点才凑得够数
+      const seen = new Set();
+      let k = 0;
+      for (let i = 0; i < GENERATED_TREE.length && k < n; i += 5) {
+        const [fen] = GENERATED_TREE[i];
+        const pos = parseFen(fen);
+        if (pos.side !== 1) continue;
+        if (tactical && !generateMoves(pos.cells, pos.side).some((m) => pos.cells[m % CELLS] !== EMPTY)) {
+          continue;
+        }
+        if (seen.has(fen)) continue;
+        seen.add(fen);
+        out.push({ set, id: (tactical ? '战术#' : '谱#') + k, fen });
+        k += 1;
+      }
+      continue;
+    }
+    const list = { middlegame: MIDDLEGAME, endgame: ENDGAME, regression: REGRESSION }[set];
+    for (const p of list.slice(0, n)) out.push({ set, id: p.id, fen: p.fen, meta: p });
+  }
+  return out;
+}
