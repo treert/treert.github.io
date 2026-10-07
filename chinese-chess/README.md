@@ -238,8 +238,10 @@ node chinese-chess/tools/move-diff.mjs dump --out tmp/a.json   # 1. 存一份着
 node chinese-chess/tools/move-diff.mjs compare tmp/a.json --judge   # 2. 比 + 定向判分
 ```
 
-**「换了 0 步」是一个结论，不是失败**：说明这个改动碰不到着法选择（静态形状类的
-位置表数据经常如此），就不必再上尺子了。三把仪器跑的是**同一批局面**（取法只有一份，
+**「换了 0 步」只是「筛掉了」，不是判决** ⚠️：它说明这个改动碰不到**浅层**的着法选择，
+但**固定深度会低估真实预算下的效果** —— 实测反例：那次机动性权重修复在固定深度 6 的快照里
+**中局一步没变**，而真实预算下中局平均损失 **37.0 → 14.9、漏着 2 → 0**。
+所以**准备采纳的改动，真实预算的尺子必须跑**。三把仪器跑的是**同一批局面**（取法只有一份，
 在 `tools/strength-positions.mjs` 里）。
 
 **比一组参数用 [`tools/eval-compare.mjs`](./tools/eval-compare.mjs)**：把几组参数各走一遍
