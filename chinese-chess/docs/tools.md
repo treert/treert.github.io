@@ -21,11 +21,12 @@
 | `node chinese-chess/tools/strength.mjs` | **棋力尺子**：拿 Pikafish 当裁判量「平均损失 / 中位数 / 漏着率」，**按局面集分组报**，回归集另外逐条列出「改主意了吗」。`--set opening,middlegame,endgame,regression`（或 `all`，默认 `opening,regression`）、`--tactical` 只看有吃子的开局局面、`--no-null` / `--no-mobility` 做对照。判评估 / 搜索改动好不好用它，别看感觉（**需要本地有 Pikafish**） |
 | `node chinese-chess/tools/move-diff.mjs` | **着法对照**：固定深度（noise 0、无连杀探测 ⇒ **完全可复现**）跑两遍，比「**换了哪几步棋**」；`--judge` 再**只在不同的那几个局面上**让 Pikafish 定向判分。尺子自己的抖动就有几个 cp，小幅改动它分辨不出来 —— 先用它筛（`dump` / `compare`）。判据怎么用见 `decisions.md` 第 21 条（**`--judge` 需要本地有 Pikafish**） |
 | `node chinese-chess/tools/eval-compare.mjs` | **配置对照**：把若干组**评估参数**各走一遍（固定深度 ⇒ 完全确定），逐局面算损失并做**配对对照**（胜/平/负）。裁判评分按 `(局面, 着法)` 缓存（默认落 `tmp/eval-cache.json`），所以扫一组配置很便宜。`--configs "mobility=3/2/3,mobility=0/0/0"` / `"piece=200/200/400/900/450/100"`。**读法与两条陷阱（固定深度必须在 ≥2 个深度上复核）写在文件头**（**需要本地有 Pikafish**） |
+| `node chinese-chess/tools/convert-test.mjs` | **定式转换测试**：拿 `js/endgames.js` 里**结果已知**的残局（`--category practical` / `composed-endgame`），让模块**自己走到终局**，看它赢了没有 / 和住了没有 —— **不用裁判、结果是二值**，专抓「赢棋走和 / 和棋走输」这类被 cp 均值平均掉的毛病。`--defender pf:12`（默认）或 `self`；`--depth` 固定深度即**可复现**（默认用挡位的时间预算，每次会不一样）（**防守方用 Pikafish 时需要本地有它**） |
 | `node chinese-chess/tools/strength-positions.mjs` | **局面集：数据 + 取法**（中局 100 + 残局 40 + 回归 5 个冻结局面；`opening` 那组由生成谱现扫，最多 124 个。`--set all --n 300` 共 269 个）。它同时导出三把仪器**共用**的取局面入口 `strengthPositions()` —— 取法只留这一份，否则两边跑的局面不一样、结果没法比。怎么采的、为什么不能手改，写在文件头 |
 | `node chinese-chess/tools/prefix-scan.mjs` | 参考线生成 / 对照：`gen`（`--playout` 走成完整线）/ `promote`（规则层复核）/ `compare`（与已知线逐点对照）/ `emit` |
 | `node chinese-chess/tools/solve.mjs` | **中控**：把上面两条链路按顺序跑完（校验 → 找杀 → 走到底 → 复核 → 写数据 → 校验 → 清单）。加/改局面跑这一条就够：`--ids <id>` / `--status` / `--dry-run` |
 
-最后九个是**离线工具**：`gen-solutions.mjs` 与 `prefix-scan.mjs` 驱动外部引擎 Pikafish
+最后十个是**离线工具**：`gen-solutions.mjs` 与 `prefix-scan.mjs` 驱动外部引擎 Pikafish
 分别生成 `js/solutions.js`（解法）与 `js/prefixes.js`（参考线），
 `gen-openings.mjs` 生成 `js/openings-generated.js`（开局谱），
 `gen-pst.mjs` 是**评估蒸馏的尝试**（2026-10-05 试过，没换成，工具留着以后接着试），
@@ -34,6 +35,8 @@
 `move-diff.mjs` 是它旁边的**着法对照**（固定深度、完全可复现，
 回答「这个改动到底换了几步棋」—— 尺子分辨不出来的小改动先用它筛），
 `eval-compare.mjs` 是**配置对照**（多组评估参数一次比完 + 逐局面配对 + 判分缓存），
+`convert-test.mjs` 是**定式转换测试**（结果已知的残局让模块自己走到终局，
+专抓「赢棋走和 / 和棋走输」—— cp 均值看不见的那类毛病），
 `solve.mjs` 是残局那两条链路的**中控**（加/改局面只需要跑它），
 `verify-solutions.mjs` 用本模块自己的规则层把那份解法数据逐条钉一遍。
 另有 `strength-positions.mjs`：**不是命令，是局面集本身**（中局 / 残局 / 回归三组数据
