@@ -45,8 +45,22 @@ export const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBA
 // === 评估 ===
 // 索引 = 棋子编码（1..7）。
 // 帅 / 将 记 0：双方恒各有一个，算进子力只会互相抵消，白增加一次查表。
-export const PIECE_VALUE = [0, 0, 200, 200, 400, 900, 450, 100];
-//                          占位 K   A    B    N    R    C    P
+//
+// **按名字赋值，不数位置**：这里原来写成 `[0, 0, 200, 200, 400, 900, 450, 100]`
+// 加一行 `占位 K A B N R C P` 的对齐注释 —— 那正是第 22 条那个 bug 的成因
+// （`MOBILITY_WEIGHT` 当年就是这么把 车 / 马 写反的，安静地错了一整轮）。
+// 那一轮的结论是「写法不改就会再犯」，这里照做（`tools/eval-compare.mjs` 的 `piece` 组
+// 仍然按下标改它，接口没变）。
+export const PIECE_VALUE = (() => {
+  const v = [0, 0, 0, 0, 0, 0, 0, 0];   // 0 号位占位；帅 / 将（K）也留 0
+  v[A] = 200;   // 仕 / 士
+  v[B] = 200;   // 相 / 象
+  v[N] = 400;   // 马
+  v[R] = 900;   // 车
+  v[C] = 450;   // 炮
+  v[P] = 100;   // 兵 / 卒
+  return v;
+})();
 
 // 兵 / 卒过河的额外加分。**开局一套、残局一套** ——
 // 同一枚过河兵在残局里值钱得多（残局里一个贴近九宫的兵常常直接决定胜负），
@@ -68,8 +82,17 @@ export const PAWN_BONUS_ENDGAME = 100;
 // 满盘时的和必须正好等于 PHASE_MAX，`test-engine.mjs` 钉着这条 ——
 // 不然插值的两端永远取不到，表调了也看不出效果。
 export const PHASE_MAX = 50;
-export const PHASE_WEIGHT = [0, 0, 1, 1, 2, 4, 2, 1];
-//                          占位 K  A  B  N  R  C  P
+// **按名字赋值，不数位置** —— 理由与上面的 `PIECE_VALUE` 一样（第 22 条）。
+export const PHASE_WEIGHT = (() => {
+  const w = [0, 0, 0, 0, 0, 0, 0, 0];   // 0 号位占位；帅 / 将（K）不参与
+  w[A] = 1;
+  w[B] = 1;
+  w[N] = 2;
+  w[R] = 4;
+  w[C] = 2;
+  w[P] = 1;
+  return w;
+})();
 
 // === 位置表（piece-square）===
 //

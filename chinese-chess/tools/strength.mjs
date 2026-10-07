@@ -52,6 +52,7 @@
  *   node chinese-chess/tools/strength.mjs --ms 3000 --pf 18     # 给更多时间 / 更深的裁判
  *   node chinese-chess/tools/strength.mjs --no-null             # 对照：关掉空着裁剪
  *   node chinese-chess/tools/strength.mjs --no-mobility         # 对照：关掉某个评估项
+ *   node chinese-chess/tools/strength.mjs --badcap-filter       # 打开：静态搜索里过滤明显亏的吃子
  *
  * `--n N` 是**每组**取多少个（默认 30）。
  * **需要本地有 Pikafish**（路径与 `gen-solutions.mjs` 等工具一致）。裁判默认搜到
@@ -89,6 +90,8 @@ const PF = Number(arg('pf', 16));            // 裁判搜多深
 const N = Number(arg('n', 30));              // **每组**用多少个局面
 const NO_NULL = process.argv.includes('--no-null');
 const NO_MOBILITY = process.argv.includes('--no-mobility');
+/** 打开「静态搜索里过滤明显亏的吃子」（默认关，见 engine.js 的 filterBadCaptures） */
+const BADCAP_FILTER = process.argv.includes('--badcap-filter');
 /** 只要「有接触」的局面（走子方至少有一个吃子）—— 只作用于 opening 组 */
 const TACTICAL = process.argv.includes('--tactical');
 
@@ -190,10 +193,12 @@ const lv = {
   quiescence: true, noise: 0, blunderRate: 0, checkExtension: 6, mateProbePly: 0, book: 0,
   ...(NO_NULL ? { useNullMove: false } : {}),
   ...(NO_MOBILITY ? { useMobility: false } : {}),
+  ...(BADCAP_FILTER ? { filterBadCaptures: true } : {}),
 };
 
 console.log(`模块：${MS > 0 ? `真实预算 ${MS}ms` : `固定深度 ${DEPTH}`}｜空着裁剪 ${NO_NULL ? '关' : '开'}`
-  + `｜机动性 ${NO_MOBILITY ? '关' : '开'}｜裁判 Pikafish depth ${PF}`
+  + `｜机动性 ${NO_MOBILITY ? '关' : '开'}｜静态搜索过滤坏吃子 ${BADCAP_FILTER ? '开' : '关'}`
+  + `｜裁判 Pikafish depth ${PF}`
   + `｜${groups.map((g) => `${g.name} ${g.positions.length}`).join(' + ')} = ${TOTAL} 个局面`
   + `${TACTICAL ? '（opening 只取有吃子的）' : ''}\n`);
 

@@ -417,5 +417,213 @@ console.log('规则引擎测试\n');
     ok(build(['K@3,9', 'k@4,0', 'P@0,5', 'P@1,5', 'P@2,5', 'P@3,5', 'P@4,5', 'P@5,5'])), false);
 }
 
+// --- 方向查表（`rules.js` 的 RAY_NEXT / HORSE_LEG / HORSE_TARGET）---
+// 这三张表是**生成**的，却同时喂 `isAttacked()`（搜索里最热的单个函数）与评估的机动性
+// （评估里最贵的一项 —— 两处合计超过一半的自耗时，见 `decisions.md` 第 32 / 34 条）。
+// 生成循环写错、或者以后有人把手写数据塞回来，都不会报错，只会让**两个热路径一起**悄悄偏向。
+//
+// 这里**不拿 ORTHO / HORSE 再算一遍** —— 那是同义反复（表本来就是它俩铺出来的）。
+// 钉的是**几何不变量**，其中第一条是最要紧的：
+//   1) 同一个方向在所有格子上的位移必须一致。不一致意味着射线走到一半会**拐弯** ——
+//      而「每格有四个正交邻居」这种集合型断言**抓不到**它。
+//   2) 车 / 炮的下一格必须与当前格正交相邻；每格的邻居集合 = 棋盘内的四个正交邻格。
+//   3) 马的腿格正交相邻于起点、目标格是「日」字，且腿格落在**长边**方向上
+//      （蹩马腿的语义就是长边那一格）；每格的目标集合 = 棋盘内的八个日字点。
+{
+  const { RAY_NEXT, HORSE_LEG, HORSE_TARGET } = await load('rules.js');
+  const { COLS: COLS_, ROWS: ROWS_ } = await load('config.js');
+  const xs = (i) => i % COLS_;
+  const ys = (i) => (i - xs(i)) / COLS_;
+  const key = (ax, ay, bx, by) => `${bx - ax},${by - ay}`;
+
+  // 1) + 2)
+  const raySteps = [];
+  let rayDirOk = true;
+  for (let d = 0; d < 4; d++) {
+    let step = null;
+    for (let i = 0; i < CELLS; i++) {
+      const j = RAY_NEXT[i * 4 + d];
+      if (j < 0) continue;
+      const s = key(xs(i), ys(i), xs(j), ys(j));
+      if (step === null) step = s;
+      else if (step !== s) rayDirOk = false;
+    }
+    raySteps.push(step);
+    if (!['0,-1', '0,1', '-1,0', '1,0'].includes(step)) rayDirOk = false;
+  }
+  check('RAY_NEXT：每个方向的位移在所有格子一致、且是正交单位步（不然射线会拐弯）',
+    rayDirOk, true);
+  check('RAY_NEXT：四个方向互不重复', new Set(raySteps).size, 4);
+
+  const orthoNeighbours = (i) => [[0, -1], [0, 1], [-1, 0], [1, 0]]
+    .map(([dx, dy]) => [xs(i) + dx, ys(i) + dy])
+    .filter(([nx, ny]) => nx >= 0 && nx < COLS_ && ny >= 0 && ny < ROWS_)
+    .map(([nx, ny]) => ny * COLS_ + nx).sort((a, b) => a - b);
+  let raySetOk = true;
+  for (let i = 0; i < CELLS; i++) {
+    const got = [0, 1, 2, 3].map((d) => RAY_NEXT[i * 4 + d]).filter((j) => j >= 0);
+    got.sort((a, b) => a - b);
+    if (JSON.stringify(got) !== JSON.stringify(orthoNeighbours(i))) raySetOk = false;
+  }
+  check('RAY_NEXT：每格的邻居集合正好是棋盘内的四个正交邻格', raySetOk, true);
+
+  // 3)
+  let horseOk = true;
+  let horseCount = 0;
+  for (let d = 0; d < 8; d++) {
+    let disp = null;
+    for (let i = 0; i < CELLS; i++) {
+      const leg = HORSE_LEG[i * 8 + d], t = HORSE_TARGET[i * 8 + d];
+      if (leg < 0 || t < 0) { if (leg !== t) horseOk = false; continue; }   // 腿出界 ⇔ 目标出界
+      horseCount++;
+      const ldx = xs(leg) - xs(i), ldy = ys(leg) - ys(i);
+      const tdx = xs(t) - xs(i), tdy = ys(t) - ys(i);
+      const k = `${tdx},${tdy}|${ldx},${ldy}`;
+      if (disp === null) disp = k;
+      else if (disp !== k) horseOk = false;
+      if (Math.abs(ldx) + Math.abs(ldy) !== 1) horseOk = false;             // 腿必须正交相邻
+      if (!((Math.abs(tdx) === 2 && Math.abs(tdy) === 1)
+            || (Math.abs(tdx) === 1 && Math.abs(tdy) === 2))) horseOk = false;
+      const longOk = Math.abs(tdx) === 2
+        ? (ldx === tdx / 2 && ldy === 0)
+        : (ldy === tdy / 2 && ldx === 0);
+      if (!longOk) horseOk = false;                                        // 腿在长边
+    }
+  }
+  check('HORSE_LEG / HORSE_TARGET：位移一致、腿正交相邻且在长边、目标是日字', horseOk, true);
+  check('HORSE：八个方向的位移互不重复', new Set([...Array(8).keys()].map((d) => {
+    for (let i = 0; i < CELLS; i++) {
+      const t = HORSE_TARGET[i * 8 + d];
+      if (t >= 0) return `${xs(t) - xs(i)},${ys(t) - ys(i)}`;
+    }
+    return null;
+  })).size, 8);
+  check('HORSE：棋盘内可达的（起点, 方向）组合数合理（8 方向的边界缺口都在）', horseCount > 0, true);
+
+  const knightTargets = (i) => [[1, -2], [-1, -2], [1, 2], [-1, 2], [2, -1], [2, 1], [-2, -1], [-2, 1]]
+    .map(([dx, dy]) => [xs(i) + dx, ys(i) + dy])
+    .filter(([nx, ny]) => nx >= 0 && nx < COLS_ && ny >= 0 && ny < ROWS_)
+    .map(([nx, ny]) => ny * COLS_ + nx).sort((a, b) => a - b);
+  let horseSetOk = true;
+  for (let i = 0; i < CELLS; i++) {
+    const got = [0, 1, 2, 3, 4, 5, 6, 7].map((d) => HORSE_TARGET[i * 8 + d]).filter((j) => j >= 0);
+    got.sort((a, b) => a - b);
+    if (JSON.stringify(got) !== JSON.stringify(knightTargets(i))) horseSetOk = false;
+  }
+  check('HORSE_TARGET：每格的目标集合正好是棋盘内的八个日字点', horseSetOk, true);
+}
+
+// --- isAttacked 的交叉验证 ---
+// 上面「攻击判定」那一组是**手写的规则点**（车 / 炮隔 0/1/2 子、蹩马腿、兵过河、照面各一条）。
+// 这一组换一个**结构完全不同**的写法：枚举棋盘上每一个攻击子，问「它攻击 idx 吗」——
+// 而 `isAttacked` 是「从 idx 往外扫」。E10 那条教训的正面用法：
+// **自洽的测试发现不了规则写错**，得让两套互不相同的实现互相印证。
+// 覆盖面：若干局面 × 90 格 × 双方，逐格比对。
+{
+  const { isAttacked } = await load('rules.js');
+  const cfg = await load('config.js');
+  const C_ = cfg.COLS, R_ = cfg.ROWS;
+
+  /** 从 `from` 出发的那枚子，攻击 `to` 吗？（士 / 象 不在射程内，见下面那条断言） */
+  const attacks = (cells, from, to, bySide) => {
+    // **自己不算攻击自己**：`isAttacked` 的契约是「从 idx 往外扫」，靶子格上那个子不参与
+    // （这一条不是细节 —— `orderScore` 的「坏吃子降级」正是拿它问「这个吃子格受不受对方保护」，
+    //  而受害子**不能算自己那一方的保护者**，否则每个吃子都被判成「受保护」）。
+    if (from === to) return false;
+    const p = cells[from];
+    const fx = from % C_, fy = (from - fx) / C_;
+    const tx = to % C_, ty = (to - tx) / C_;
+    const dx = tx - fx, dy = ty - fy;
+    const abs = Math.abs(p);
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+
+    if (abs === cfg.R) {
+      if (dx !== 0 && dy !== 0) return false;
+      for (let cx = fx + sx, cy = fy + sy; cx !== tx || cy !== ty; cx += sx, cy += sy) {
+        if (cells[cy * C_ + cx] !== 0) return false;
+      }
+      return true;
+    }
+    if (abs === cfg.C) {
+      if (dx !== 0 && dy !== 0) return false;
+      let screens = 0;
+      for (let cx = fx + sx, cy = fy + sy; cx !== tx || cy !== ty; cx += sx, cy += sy) {
+        if (cells[cy * C_ + cx] !== 0) screens++;
+      }
+      return screens === 1;                       // 炮：中间**正好一个**子
+    }
+    if (abs === cfg.N) {
+      if (!((Math.abs(dx) === 2 && Math.abs(dy) === 1)
+            || (Math.abs(dx) === 1 && Math.abs(dy) === 2))) return false;
+      const lx = fx + (Math.abs(dx) === 2 ? sx : 0);      // 腿是长边那一格
+      const ly = fy + (Math.abs(dy) === 2 ? sy : 0);
+      return cells[ly * C_ + lx] === 0;                   // 蹩马腿
+    }
+    if (abs === cfg.K) {
+      if (Math.abs(dx) + Math.abs(dy) === 1) return true;              // 贴身
+      if (dx === 0 && cells[to] === -p) {                              // 照面：同一**纵线**、中间无子
+        for (let cy = Math.min(fy, ty) + 1; cy < Math.max(fy, ty); cy++) {
+          if (cells[cy * C_ + fx] !== 0) return false;
+        }
+        return true;
+      }
+      return false;
+    }
+    if (abs === cfg.P) {
+      // y 轴**向下**：红兵朝 y 减小的方向走，所以它攻击的格子是 (fx, fy − 1)。
+      if (dx === 0 && ty === fy - bySide) return true;                 // 正前方一格
+      if (Math.abs(dx) === 1 && dy === 0 && (bySide === 1 ? fy <= 4 : fy >= 5)) return true;  // 过河后左右
+      return false;
+    }
+    return false;
+  };
+  const isAttackedRef = (cells, idx, bySide) => {
+    for (let i = 0; i < CELLS; i++) {
+      const v = cells[i];
+      if (v === 0 || Math.sign(v) !== bySide) continue;
+      if (attacks(cells, i, idx, bySide)) return true;
+    }
+    return false;
+  };
+
+  const samples = [
+    parseFen(START_FEN).cells,
+    parseFen('1rbakabnr/9/1cn4c1/p1p1p1p1p/9/9/P1P1P1P1P/4CC3/9/RNBAKABNR w - - 0 1').cells,
+    parseFen('1nbak4/4a1c2/4bC3/p1C1p3p/9/2Pn1N3/P3P3P/N8/9/2BAKAB2 b - - 0 1').cells,
+    build(['K@4,9', 'k@4,0', 'R@0,4', 'r@8,0', 'C@2,5', 'c@7,2', 'N@6,6', 'n@1,8',
+      'P@2,3', 'p@6,6', 'P@5,4', 'p@3,5']).cells,
+    build(['K@3,9', 'k@5,0', 'P@0,8', 'p@8,1', 'c@0,2', 'n@4,4']).cells,
+  ];
+  let mismatch = 0;
+  for (const cells of samples) {
+    for (let idx = 0; idx < CELLS; idx++) {
+      for (const bySide of [1, -1]) {
+        if (isAttacked(cells, idx, bySide) !== isAttackedRef(cells, idx, bySide)) mismatch++;
+      }
+    }
+  }
+  check(`isAttacked 与「从每个攻击子出发」的参考实现逐格一致（${samples.length} 个局面 × 90 格 × 2 方）`,
+    mismatch, 0);
+
+  // 射程的**边界**单独钉住：士 / 象 不算攻击者。
+  // 对「将帅是否被攻击」无害（士出不了自己的九宫、象过不了河，两者永远够不到对方的将）；
+  // 但 `orderScore` 的「坏吃子降级」也拿它问「这个格子受不受保护」—— 那里会漏掉士象，
+  // 是**已知的近似**（`decisions.md` 第 34 条与 `future-work.md` 的 C2 都记着）。
+  // 谁要是给 isAttacked 加上士象，这条会红：那是个会改排序的行为改动，得重新量。
+  check('isAttacked 的射程不含士 / 象（几何上够不到对方将，所以对「被将军」无害）',
+    [isAttacked(build(['P@4,4', 'A@3,3']).cells, idxOf('4,4'), 1),
+      isAttacked(build(['P@4,4', 'B@2,2']).cells, idxOf('4,4'), 1)],
+    [false, false]);
+
+  // 「靶子格上那个子算不算自己的保护者」= 不算（见 attacks 开头那段说明）。
+  // 这里的**提问方就是靶子那一方**（`orderScore` 的用法：问「受不受对方保护」，保护者属于
+  // 受害子那一方），所以用黑车当靶子、bySide = −1。
+  check('isAttacked：不算「靶子格上那个子攻击自己」（否则每个吃子都会被判成受保护）',
+    [isAttacked(build(['r@4,4']).cells, idxOf('4,4'), -1),
+      isAttacked(build(['r@4,4', 'c@4,0']).cells, idxOf('4,4'), -1),           // 炮没炮架 → 保护不到
+      isAttacked(build(['r@4,4', 'c@4,0', 'p@4,2']).cells, idxOf('4,4'), -1)], // 有炮架 → 真的受保护
+    [false, false, true]);
+}
+
 console.log(`\n${failed === 0 ? '全部通过' : `${failed} 项失败`}`);
 process.exit(failed === 0 ? 0 : 1);

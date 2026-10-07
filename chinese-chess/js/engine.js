@@ -11,10 +11,10 @@ import {
   PAWN_BONUS_OPENING, PAWN_BONUS_ENDGAME, MOBILITY_WEIGHT,
   PHASE_WEIGHT, PHASE_MAX, MIRROR_INDEX, LEVELS,
 } from './config.js';
-import { yOf, parseFen, zobristKey, hashPiece, hashSide } from './position.js';
+import { parseFen, zobristKey, hashPiece, hashSide } from './position.js';
 import {
-  ORTHO, HORSE, generateMoves, generateLegalMoves, isAttacked, inCheck, findKing,
-  perpetualChecker, moveFrom, moveTo,
+  RAY_NEXT, HORSE_LEG, HORSE_TARGET, generateMoves, generateLegalMoves, isAttacked, inCheck,
+  findKing, perpetualChecker, moveFrom, moveTo,
 } from './rules.js';
 import { pickOpening } from './openings.js';
 
@@ -61,6 +61,12 @@ for (let i = 0; i < CELLS; i++) {
 }
 
 /**
+ * 机动性用的「下一格 / 马腿 / 跳点」查表在 **`rules.js`** 里（`RAY_NEXT` / `HORSE_LEG` /
+ * `HORSE_TARGET`）—— `isAttacked()` 与这里的机动性用的是同一套方向，表只留一份，
+ * 理由与实测都写在那张表的说明上：评估是整个引擎最贵的一处（`evaluate` 自耗时 40.3%），
+ * 而热循环里原来每个方向都要 `ORTHO[d][0]`（数组套数组）+ 逐格边界判断。
+ */
+/**
  * 着法排序里「已经取过」的哨兵分值。用 Int32 最小值 —— 任何真实分值（历史启发 ≥ 0、
  * 杀手 8e5、吃子 1e6、置换表着法 1e7）都比它高，所以标记不会跟真分值混淆。
  */
@@ -69,6 +75,25 @@ const PICKED = -2147483648;
 /** 连将杀探测最多能用掉的时间预算：总预算的这么一份，且不超过绝对上限（毫秒） */
 const MATE_PROBE_SHARE = 0.7;
 const MATE_PROBE_MAX_MS = 1400;
+
+/**
+ * 置换表的条数上限 —— 到了就**整表清空**（而不是继续往里塞）。
+ *
+ * **这是一个真 bug 的修法，不是防御性编程**：置换表原来是一个不封顶的 `Map`，
+ * 而 V8 对 Map 有硬上限（约 2^24 = 1677 万条），超过就抛
+ * `RangeError: Map maximum size exceeded` —— 那个异常会从 `negamaxNode` 里
+ * 一路穿出 `negamax` 的 try/finally 和 `guarded`，**整个 search() 直接崩**，
+ * 上层拿不到任何结果（表现成「AI 不动了」，同 E9）。
+ *
+ * 触发条件只是「节点数够多」，与挡位无关：网页那边 1.5 秒大约 240~270 万节点，
+ * 够不到；但**固定深度的工具**（`eval-compare --depth 8`、探针脚本）会到几千万节点，
+ * 实测深度 8 就已经 4700 万节点 —— 这在 `deep ≥ 8` 时必崩，
+ * 而「固定深度的结论要在 ≥2 个深度上复核」这条规矩正需要更深的深度。
+ *
+ * 上限取 800 万条：远高于生产路径（< 300 万），又明显低于 V8 的硬上限。
+ * `level.ttCap` 可以调小它 —— 测试就是用一个很小的上限来验证「满了会清空、不会崩」。
+ */
+const TT_MAX_ENTRIES = 8 << 20;
 
 /**
  * 超时中断用的哨兵。
@@ -132,44 +157,38 @@ const TIMEOUT = { timeout: true };
  * 车：空位一格一分，吃到第一个子（敌子）再加一分。
  * 炮：空位一格一分；**吃子另算** —— 炮要吃子必须隔一个炮架，所以这里继续往后找第一个子，
  * 是敌子才算。一门连炮架都找不到的炮，这个数会很低。
+ *
+ * `i` 是格子下标（不再传 x / y）：走 `RAY_NEXT` 查表，热循环里没有乘法和边界判断，
+ * 见上面那张表的说明。语义与「逐格加减 + 判边界」那一版**逐位相同**。
  */
-function rayMobility(cells, x, y, side, isCannon) {
+function rayMobility(cells, i, side, isCannon) {
   let n = 0;
   for (let d = 0; d < 4; d++) {
-    const dx = ORTHO[d][0], dy = ORTHO[d][1];
-    let cx = x + dx, cy = y + dy;
-    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
-      n++; cx += dx; cy += dy;
-    }
-    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+    let j = RAY_NEXT[i * 4 + d];
+    while (j >= 0 && cells[j] === EMPTY) { n++; j = RAY_NEXT[j * 4 + d]; }
+    if (j < 0) continue;
 
-    const first = cells[cy * COLS + cx];
+    const first = cells[j];
     if (!isCannon) {
       if (first * side < 0) n++;          // 车：第一格是敌子就能吃
       continue;
     }
     // 炮：第一个子（不分敌我）都能当炮架，继续找它后面的第一个子
-    cx += dx; cy += dy;
-    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
-      cx += dx; cy += dy;
-    }
-    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
-    if (cells[cy * COLS + cx] * side < 0) n++;
+    j = RAY_NEXT[j * 4 + d];
+    while (j >= 0 && cells[j] === EMPTY) j = RAY_NEXT[j * 4 + d];
+    if (j >= 0 && cells[j] * side < 0) n++;
   }
   return n;
 }
 
-/** 马的「可达格数」（马腿被蹩住的方向不算） */
-function horseMobility(cells, x, y, side) {
+/** 马的「可达格数」（马腿被蹩住的方向不算）。`i` 是格子下标，查 `HORSE_LEG` / `HORSE_TARGET` */
+function horseMobility(cells, i, side) {
   let n = 0;
+  const base = i * 8;
   for (let d = 0; d < 8; d++) {
-    const h = HORSE[d];
-    const legX = x + h[2], legY = y + h[3];
-    if (legX < 0 || legX >= COLS || legY < 0 || legY >= ROWS) continue;
-    if (cells[legY * COLS + legX] !== EMPTY) continue;
-    const cx = x + h[0], cy = y + h[1];
-    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
-    if (cells[cy * COLS + cx] * side <= 0) n++;   // 空位或敌子
+    const leg = HORSE_LEG[base + d];
+    if (leg < 0 || cells[leg] !== EMPTY) continue;   // −1 = 这个方向的腿出界
+    if (cells[HORSE_TARGET[base + d]] * side <= 0) n++;   // 空位或敌子
   }
   return n;
 }
@@ -201,7 +220,7 @@ export function evaluate(cells, side, useMobility = true) {
     let bonusOpening = 0;
     let bonusEndgame = 0;
     if (abs === P) {
-      const y = yOf(i);
+      const y = RANK_OF[i];        // 不调 yOf()：这个循环里少一次函数调用
       if (red ? y <= 4 : y >= 5) {
         bonusOpening = PAWN_BONUS_OPENING;
         bonusEndgame = PAWN_BONUS_ENDGAME;
@@ -216,10 +235,8 @@ export function evaluate(cells, side, useMobility = true) {
     if (useMobility) {
       const w = MOBILITY_WEIGHT[abs];
       if (w) {
-        const x = i % COLS, y = (i - x) / COLS;
         const sg = red ? 1 : -1;
-        const m = abs === N ? horseMobility(cells, x, y, sg)
-          : rayMobility(cells, x, y, sg, abs === C);
+        const m = abs === N ? horseMobility(cells, i, sg) : rayMobility(cells, i, sg, abs === C);
         mobility += sg * m * w;
       }
     }
@@ -250,6 +267,8 @@ export class Searcher {
     // useTT = false 用来做对照实验：验证置换表只省节点、不改结果
     this.useTT = level.useTT !== false;
     this.tt = new Map();      // key -> { depth, score, flag, move }
+    /** 置换表条数上限，满了整表清空。见 TT_MAX_ENTRIES 的说明（原来不封顶会崩） */
+    this.ttCap = level.ttCap || TT_MAX_ENTRIES;
     this.killers = [];        // killers[ply] = [move1, move2]
     this.history = new Int32Array(CELLS * CELLS);
 
@@ -264,8 +283,25 @@ export class Searcher {
     this.usePVS = level.usePVS === true;
     // useLazyOrder = false 用来做对照实验：验证「懒选择排序」与旧的「拷贝 + 全排序」结果一致
     this.useLazyOrder = level.useLazyOrder !== false;
-    // badCaptureOrder = false 用来做对照实验：验证「坏吃子降级」值不值
+    // 坏吃子降级 = false 用来做对照实验：验证「坏吃子降级」值不值
     this.badCaptureOrder = level.badCaptureOrder !== false;
+    /**
+     * 静态搜索里**跳过**「明显亏的吃子」（近似 SEE，与 orderScore 里那套同一个判据）。
+     *
+     * `badCaptureOrder` 只是把这些吃子**排到后面**（仍然搜），这里是真的**不搜** ——
+     * 目的是两件事一起做：**减树**，以及少犯「水平线错误」（在兑子序列中途停下、
+     * 把明显亏的一口当成便宜占了）。
+     *
+     * **量过了（2026-10-07），结论是「不采纳」，所以默认关。** 节点确实省得多
+     * （269 个局面、深度 6：−28.6%，中局 −39%），但它**会改结论**，而且改差了：
+     * 105 个局面的固定深度对照里，配对是 **31 胜 / 20 平 / 49 负**（中局；总损失那 −59cp
+     * 是被少数局面带跑的，正是第 24 条那个陷阱）；真实 1.5 秒预算下中局均值
+     * 15.8 → **23.8**、漏着 1 → **2**。（`tools/strength.mjs --badcap-filter` 可复现。）
+     *
+     * 留开关的理由与 PVS 相同：哪天把「受不受保护」换成**真的 SEE**（算完整条交换序列，
+     * 而不是只问一句 `isAttacked`），值得照同样的办法再量一次。见 `docs/decisions.md` 第 31 条。
+     */
+    this.filterBadCaptures = level.filterBadCaptures === true;
 
     // 空着裁剪（见 negamaxNode 里的说明）。`useNullMove: false` 用来做对照实验 ——
     // 也就是「全宽搜索」那一版，返回值与它逐位可比。
@@ -580,12 +616,21 @@ export class Searcher {
    * 排序的第三个参数传 0 表示「没有置换表着法」—— 0 这个编码
    * （from = to = 0）永远不可能是合法着法，当哨兵用是安全的。
    */
-  quiesce(alpha, beta, ply, qdepth) {
+  quiesce(alpha, beta, ply, qdepth, checkedIn) {
     this.nodes++;
 
-    const checked = this.inCheck(this.side);
+    // `checkedIn`：从 `negamaxNode` 的 `depth <= 0` 那条支路进来时，它**刚刚**为**同一个局面**
+    // 算过 `this.inCheck(this.side)`（两处之间棋盘和轮走方都没动），再算一遍是白花钱 ——
+    // 采样里 `isAttacked` 占自耗时 12.7%，其中由 quiesce 出的就有 4.0%（`tmp/xq-prof-callers.mjs`）。
+    // 递归调用自己时**照旧现算**（那边已经 make 过一步、轮走方翻了）。
+    const checked = checkedIn === undefined ? this.inCheck(this.side) : checkedIn;
+    // `stand` 留到下面「层数用尽」那一步复用：那两个分支的条件允许**同时**成立
+    // （没被将军 + 已经到层数上限），原来会拿同一组参数把 `evaluate` 调两遍 ——
+    // 第一次的值直接丢掉、第二次算出一模一样的数。评估是这个引擎最贵的一处
+    // （见 RAY_NEXT 的说明），省掉一次就是白赚。
+    let stand = 0;
     if (!checked) {
-      const stand = evaluate(this.cells, this.side, this.useMobility);
+      stand = evaluate(this.cells, this.side, this.useMobility);
       if (stand >= beta) return beta;
       if (stand > alpha) alpha = stand;
     }
@@ -595,7 +640,9 @@ export class Searcher {
     // 而 iterativeDeepen 判断「找到杀棋」的条件是 |score| > MATE - 1000，
     // 于是会把 -INF 当成杀棋、提前停止加深（表现为挡位突然只搜 1 层）。
     // 这个 bug 是自对弈冒烟测试发现的。
-    if (qdepth <= 0) return evaluate(this.cells, this.side, this.useMobility);
+    if (qdepth <= 0) {
+      return checked ? evaluate(this.cells, this.side, this.useMobility) : stand;
+    }
 
     let best = alpha;
     let legalCount = 0;
@@ -607,6 +654,19 @@ export class Searcher {
 
     for (let i = 0; i < nMoves; i++) {
       const move = this.useLazyOrder ? this.nextBest(moves, ply, nMoves) : moves[i];
+
+      // 「明显亏的吃子」直接跳过（见 filterBadCaptures 的说明）：目标格受对方保护、
+      // 而吃到的子并不比自己的子值钱 —— 这种多半要亏。用的是 orderScore 里那套
+      // 近似 SEE（只问「受不受保护」，不算整条交换序列）。
+      // **被将军时不能跳**：那时每个着法都是应将着法，跳掉可能把「唯一的应手」删了。
+      if (this.filterBadCaptures && !checked) {
+        const to = moveTo(move);
+        const victim = this.cells[to];
+        if (victim !== EMPTY
+            && PIECE_VALUE[Math.abs(victim)] <= PIECE_VALUE[Math.abs(this.cells[moveFrom(move)])]
+            && isAttacked(this.cells, to, -this.side)) continue;
+      }
+
       const captured = this.make(move);
       if (!this.leavesKingSafe(move, checked)) {
         this.unmake(move, captured);
@@ -700,7 +760,7 @@ export class Searcher {
 
     if (depth <= 0) {
       return this.level.quiescence
-        ? this.quiesce(alpha, beta, ply, MAX_QUIESCE_DEPTH)
+        ? this.quiesce(alpha, beta, ply, MAX_QUIESCE_DEPTH, checked)
         : evaluate(this.cells, this.side, this.useMobility);
     }
 
@@ -780,6 +840,8 @@ export class Searcher {
     // （MATE 约 1e5、长将 2e4，都高于任何子力分，一道阈值就够了。）
     if (this.useTT && Math.abs(best) < REPETITION_WIN) {
       const flag = best <= alphaOrig ? TT_UPPER : best >= beta ? TT_LOWER : TT_EXACT;
+      // 满了先清空再写：宁可丢掉历史（只是慢一点），也不能让 Map 继续涨到 V8 的硬上限崩掉。
+      if (this.tt.size >= this.ttCap) this.tt.clear();
       this.tt.set(this.key, { depth, score: best, flag, move: bestMove });
     }
     return best;

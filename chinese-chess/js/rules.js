@@ -25,6 +25,41 @@ export const HORSE = [
 // 象 / 相：田字，象眼是两格位移的中点
 const ELEPHANT = [[2, 2], [2, -2], [-2, 2], [-2, -2]];
 
+/**
+ * **把上面两张方向表摊平成「按格子查」的查表** —— 搜索 / 评估里最热的两处共用它。
+ *
+ * `isAttacked()`（搜索里最热的单个函数）与 `engine.js` 的机动性（评估里最贵的一项）
+ * 用的是**同一套方向**，而两处的热循环原来都长这样：
+ * `ORTHO[d][0]`（数组套数组）+ 逐格 `cx >= 0 && cx < COLS && cy < ROWS` 的边界判断 ——
+ * 一次评估要跑 90 格、一次 `isAttacked` 要扫 4 条射线，这点开销被放大上百万倍。
+ * 摊平之后热循环里只剩一次查表加一次 `j >= 0`：**乘法和边界比较全部消失**。
+ *
+ * 定义**只留这一份**（`iccs.js` 那条「换算只该有一份」同一个理由）；语义与
+ * 「逐格加减 + 判边界」那一版**逐位相同**，所以节点数一个不差 ——
+ * `tools/test-engine.mjs` 里有一条「查表版 vs 逐格扫描」的等价性断言，`tools/move-diff.mjs`
+ * 也能整批比快照。实测（2026-10-07）：固定深度 7 的 4 个局面合计 **1.25 倍**（见 `decisions.md` 第 32 / 34 条）。
+ */
+export const RAY_NEXT = new Int16Array(CELLS * 4).fill(-1);      // 沿方向 d 的下一格；出界 = −1
+export const HORSE_LEG = new Int16Array(CELLS * 8).fill(-1);     // 马从 i 出发第 d 个方向的腿格
+export const HORSE_TARGET = new Int16Array(CELLS * 8).fill(-1);  //                     目标格
+for (let i = 0; i < CELLS; i++) {
+  const x = i % COLS, y = (i - x) / COLS;
+  for (let d = 0; d < 4; d++) {
+    const cx = x + ORTHO[d][0], cy = y + ORTHO[d][1];
+    if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS) RAY_NEXT[i * 4 + d] = cy * COLS + cx;
+  }
+  for (let d = 0; d < 8; d++) {
+    const h = HORSE[d];
+    const lx = x + h[2], ly = y + h[3];
+    const tx = x + h[0], ty = y + h[1];
+    // 腿出界 ⇒ 目标必然也出界（目标是腿再往前一格），所以只判这两处就够
+    if (lx < 0 || lx >= COLS || ly < 0 || ly >= ROWS) continue;
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) continue;
+    HORSE_LEG[i * 8 + d] = ly * COLS + lx;
+    HORSE_TARGET[i * 8 + d] = ty * COLS + tx;
+  }
+}
+
 // 士 / 仕：斜走一格
 const ADVISOR = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 
@@ -234,8 +269,8 @@ export function findKing(cells, side) {
  * 于是「走完之后两将照面」会被合法性检查直接拒掉，不需要额外的规则代码。
  */
 export function isAttacked(cells, idx, bySide) {
-  // 采样里这是整个搜索**最热的单个函数**（自耗时约 27%），所以这里的写法偏执：
-  //   - 方向表按索引循环，不用 `for (const [dx, dy] of …)`（迭代器 + 解构每次调用都要走一遍）；
+  // 采样里这是整个搜索**最热的单个函数**（自耗时约 12.7%），所以这里的写法偏执：
+  //   - 射线走 `RAY_NEXT` 查表（`ORTHO[d][0]` + 逐格边界判断都省了，见那张表的说明）；
   //   - 行列直接算，不调 xOf / yOf / indexOf / inBoard；
   //   - 判色判型不调 Math.sign / Math.abs，改成「与敌方棋子编码直接比」（一次乘法预算好）。
   // 语义与改前逐字对应 —— 改完**节点数必须一个不差**（tools/test-engine.mjs 里钉着）。
@@ -245,26 +280,26 @@ export function isAttacked(cells, idx, bySide) {
 
   // 车 / 炮 / 将：沿四个正交方向
   for (let d = 0; d < 4; d++) {
-    const dx = ORTHO[d][0], dy = ORTHO[d][1];
-    let cx = x + dx, cy = y + dy;
-    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
-      cx += dx; cy += dy;
-    }
-    if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+    const first = RAY_NEXT[idx * 4 + d];
+    let j = first;
+    while (j >= 0 && cells[j] === EMPTY) j = RAY_NEXT[j * 4 + d];
+    if (j < 0) continue;
 
-    const first = cells[cy * COLS + cx];
-    if (first === eR) return true;                                   // 车
-    if (first === eK) {
-      if (cx - x === dx && cy - y === dy) return true;               // 将贴身
-      if (target === -eK) return true;                               // 将帅照面（中间无子）
+    const piece = cells[j];
+    if (piece === eR) return true;                                   // 车
+    if (piece === eK) {
+      if (j === first) return true;                                  // 将贴身（就在邻格）
+      // 将帅照面：**同一纵线**、中间无子。纵线这一条必须写出来 ——
+      // 少了它，同一横线上的两只将也会被判成互相攻击（棋规里照面只在纵线上）。
+      // 实测走不到（两只将各自困在自己的九宫里、永远不同行），但那是靠别处的不变量兜着，
+      // 不该让这里「碰巧对」；写出来之后行为与棋规一致，节点数一个不差。
+      if (target === -eK && x === j % COLS) return true;
     }
 
-    // 炮：隔一个子才能吃
-    cx += dx; cy += dy;
-    while (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === EMPTY) {
-      cx += dx; cy += dy;
-    }
-    if (cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && cells[cy * COLS + cx] === eC) return true;
+    // 炮：隔一个子才能吃（越过刚才那个子——它是炮架）
+    j = RAY_NEXT[j * 4 + d];
+    while (j >= 0 && cells[j] === EMPTY) j = RAY_NEXT[j * 4 + d];
+    if (j >= 0 && cells[j] === eC) return true;
   }
 
   // 马：反过来找八个能跳到 idx 的位置

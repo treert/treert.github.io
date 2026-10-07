@@ -225,6 +225,69 @@ console.log('AI 层测试\n');
     // 左右对称的局面：子力、位置表、机动性都得各自抵消
     check('左右对称的局面评估为 0（机动性也抵消）',
       evaluate(build(['K@4,9', 'k@4,0', 'R@1,7', 'r@7,2']).cells, 1), 0);
+
+    // 机动性现在是**查表**（`rules.js` 的 `RAY_NEXT` / `HORSE_LEG` / `HORSE_TARGET`
+    // 把方向表摊平，`isAttacked()` 与这里的机动性共用同一份，见那张表的说明）：
+    // 表是**生成**的，生成循环写错不会报错、只会让评估悄悄偏向。
+    // 这里照方向表**另写一遍逐格扫描**（不复用那几张表），逐局面断言
+    // 「有 / 无机动性两个分值之差」与它逐分相等 —— 连**黑方视角的符号**一起钉。
+    {
+      const { ORTHO: O, HORSE: HR } = await load('rules.js');
+      const { MOBILITY_WEIGHT: MW } = await load('config.js');
+      const refMobility = (cells) => {
+        let m = 0;
+        for (let i = 0; i < 90; i++) {
+          const v = cells[i];
+          if (!v) continue;
+          const abs = Math.abs(v);
+          const w = MW[abs];
+          if (!w) continue;
+          const sg = v > 0 ? 1 : -1;
+          const x = i % 9, y = (i - x) / 9;
+          let n = 0;
+          if (abs === 4) {                                   // 马：腿格被蹩住不算
+            for (const [tx, ty, lx, ly] of HR) {
+              const a = x + lx, b = y + ly, c = x + tx, d = y + ty;
+              if (a < 0 || a > 8 || b < 0 || b > 9 || cells[b * 9 + a] !== 0) continue;
+              if (c < 0 || c > 8 || d < 0 || d > 9) continue;
+              if (cells[d * 9 + c] * sg <= 0) n++;
+            }
+          } else {                                            // 车 / 炮
+            const isC = abs === 6;
+            for (const [dx, dy] of O) {
+              let cx = x + dx, cy = y + dy;
+              while (cx >= 0 && cx < 9 && cy >= 0 && cy < 10 && cells[cy * 9 + cx] === 0) {
+                n++; cx += dx; cy += dy;
+              }
+              if (cx < 0 || cx > 8 || cy < 0 || cy > 9) continue;
+              if (!isC) { if (cells[cy * 9 + cx] * sg < 0) n++; continue; }
+              cx += dx; cy += dy;
+              while (cx >= 0 && cx < 9 && cy >= 0 && cy < 10 && cells[cy * 9 + cx] === 0) {
+                cx += dx; cy += dy;
+              }
+              if (cx < 0 || cx > 8 || cy < 0 || cy > 9) continue;
+              if (cells[cy * 9 + cx] * sg < 0) n++;
+            }
+          }
+          m += sg * n * w;
+        }
+        return m;
+      };
+      const samples = [
+        build(['K@3,9', 'k@5,0', 'R@4,4', 'P@4,3', 'P@4,2', 'P@4,1']).cells,
+        build(['K@3,9', 'k@5,0', 'C@4,4', 'p@4,2', 'r@4,0']).cells,
+        build(['K@3,9', 'k@5,0', 'N@1,7', 'n@7,2', 'C@2,7', 'c@6,2']).cells,
+        parseFen(START_FEN).cells,
+        parseFen('1nbak4/4a1c2/4bC3/p1C1p3p/9/2Pn1N3/P3P3P/N8/9/2BAKAB2 b - - 0 1').cells,
+      ];
+      let same = true;
+      for (const cells of samples) {
+        const red = evaluate(cells, 1, true) - evaluate(cells, 1, false);
+        const black = evaluate(cells, -1, true) - evaluate(cells, -1, false);
+        if (red !== refMobility(cells) || black !== -refMobility(cells)) same = false;
+      }
+      check('机动性查表与「逐格扫描」现算逐分相等（含黑方视角的符号）', same, true);
+    }
   }
 
   // 相位插值（开局 ⇄ 残局）
@@ -387,7 +450,7 @@ console.log('AI 层测试\n');
 // --- 置换表与着法排序 ---
 {
   const { Searcher, search } = await load('engine.js');
-  const { generateMoves, moveTo } = await load('rules.js');
+  const { generateMoves, generateLegalMoves, moveTo } = await load('rules.js');
 
   const base = { id: 'test', name: '测试', depth: 4, timeLimitMs: 60000,
                  quiescence: false, noise: 0, blunderRate: 0 };
@@ -399,6 +462,20 @@ console.log('AI 层测试\n');
     check('开启置换表后最优着法不变', b.move, a.move);
     check('开启置换表后分值不变', b.score, a.score);
     check('开启置换表后访问的节点不增加', b.nodes <= a.nodes, true);
+  }
+
+  // 置换表**满了要清空、不能崩**（2026-10-07 修）。
+  // 原来它是个不封顶的 Map，节点数一大就抛 `RangeError: Map maximum size exceeded` ——
+  // 网页侧（1.5 秒约 240~270 万节点）够不到，但**固定深度的工具**会（深度 8 实测 4700 万节点，
+  // 必崩）。用一个极小的上限把「清空」那条路径走满，同时钉住
+  // 「清空只影响快慢、不改结论」（它丢的只是缓存，不是信息）。
+  {
+    const small = { ...base, ttCap: 8 };
+    const normal = search(START_FEN, base, { rng: seededRng(5) });
+    const tiny = search(START_FEN, small, { rng: seededRng(5) });
+    check('置换表满时清空而不是崩（极小上限也搜得完）', tiny.move, normal.move);
+    check('置换表清空只影响快慢、不改分值', tiny.score, normal.score);
+    check('极小上限确实把置换表撑满了（节点变多）', tiny.nodes > normal.nodes, true);
   }
 
   // 着法排序：吃子必须排在非吃子前面
@@ -428,6 +505,7 @@ console.log('AI 层测试\n');
                  noise: 0, blunderRate: 0, checkExtension: 2, book: 0 };
     let sameLazy = true; let samePVS = true; let nodesEqual = true;
     let sameBadcap = true; let badcapHelps = 0;
+    let filterHelps = 0; let filterLegal = true;
     for (const fen of fens) {
       const sorted = search(fen, { ...lv, useLazyOrder: false, usePVS: false }, { rng: seededRng(3) });
       const lazy = search(fen, { ...lv, useLazyOrder: true, usePVS: false }, { rng: seededRng(3) });
@@ -442,12 +520,55 @@ console.log('AI 层测试\n');
       const on = search(fen, { ...lv, badCaptureOrder: true }, { rng: seededRng(3) });
       if (off.score !== on.score) sameBadcap = false;
       if (on.nodes < off.nodes) badcapHelps++;
+
+      // 静态搜索里过滤明显亏的吃子（默认关，见 engine.js 的 filterBadCaptures）：
+      // 它是**删着法**、会改分值（不是排序），所以钉不了「分值不变」，只钉
+      // 「路径能跑、着法合法、确实省节点」。
+      const filt = search(fen, { ...lv, filterBadCaptures: true }, { rng: seededRng(3) });
+      if (!filt || !generateLegalMoves(parseFen(fen)).includes(filt.move)) filterLegal = false;
+      else if (filt.nodes < sorted.nodes) filterHelps++;
     }
     check('懒选择排序：结论与「拷贝 + 全排序」完全一致', sameLazy, true);
     check('懒选择排序：节点数一模一样（它省的是每节点开销，不是节点）', nodesEqual, true);
     check('PVS：结论与全窗口完全一致', samePVS, true);
     check('坏吃子降级：分值不变', sameBadcap, true);
     check('坏吃子降级：确实省节点', badcapHelps > 0, true);
+    check('静态搜索过滤坏吃子（默认关）：着法仍然合法', filterLegal, true);
+    check('静态搜索过滤坏吃子（默认关）：确实省节点', filterHelps > 0, true);
+  }
+
+  // quiesce 的 `checkedIn`：`negamaxNode` 把「刚为同一个局面算过的」那个值传进去，
+  // 省掉一次 `inCheck`（`isAttacked` 占自耗时 12.7%，其中由 quiesce 出的就有 4.0%，
+  // 见 `decisions.md` 第 34 条）。传错（方向反了、或传成上一步局面的）会**静默**改分，
+  // 所以这里钉「显式传入 == 自己现算」，安静局面与**被将军**的局面各一个。
+  {
+    const lvq = { ...base, quiescence: true };
+    const quiet = parseFen('1nbak4/4a1c2/4bC3/p1C1p3p/9/2Pn1N3/P3P3P/N8/9/2BAKAB2 b - - 0 1');
+    const checkedPos = build(['K@4,9', 'k@4,0', 'R@4,4'], 'b');
+    let same = true;
+    for (const pos of [quiet, checkedPos]) {
+      const s = new Searcher(pos.cells.slice(), pos.side, lvq);
+      const selfComputed = s.quiesce(-1e9, 1e9, 1, 3);
+      const passedIn = s.quiesce(-1e9, 1e9, 1, 3, s.inCheck(s.side));
+      if (selfComputed !== passedIn) same = false;
+    }
+    check('quiesce：显式传入的 checkedIn 与自己现算的等价（安静 + 被将军）', same, true);
+  }
+
+  // 生产挡位**不带实验开关**。`filterBadCaptures`（第 31 条：量出来更差）、`usePVS`
+  // （第 16 条：+1.9%）都是默认关的对照开关，顺手打开会**静默**改掉产品行为；
+  // 反过来 `useTT` / `useNullMove` / `useMobility` / `repetitionRule` 被关掉同样是静默变弱。
+  // 想动它就得先量 —— 这条红了正好提醒回去看那几条决策。
+  {
+    const { LEVELS } = await load('config.js');
+    const bad = [];
+    for (const l of LEVELS) {
+      for (const key of ['filterBadCaptures', 'usePVS']) if (l[key] === true) bad.push(`${l.id}:${key}`);
+      for (const key of ['useTT', 'useNullMove', 'useMobility', 'repetitionRule']) {
+        if (l[key] === false) bad.push(`${l.id}:${key}=false`);
+      }
+    }
+    check('生产挡位不带实验开关（量过更差 / 未量过的对照开关都不许打开）', bad, []);
   }
 
   // 置换表命中率：连搜两次同一局面，第二次的节点数应明显更少
