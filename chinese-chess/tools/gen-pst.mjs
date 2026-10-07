@@ -11,7 +11,14 @@
  *   node chinese-chess/tools/gen-pst.mjs sample --n 20000 --budget-ms 240000
  *   node chinese-chess/tools/gen-pst.mjs fit        # 解最小二乘 + 与手写表对照
  *   node chinese-chess/tools/gen-pst.mjs agree      # 尺度无关的体检（同局面内排名相关）
+ *   node chinese-chess/tools/gen-pst.mjs nn --samples games --hidden 32   # 小网络（2026-10-07 加的）
  *   node chinese-chess/tools/gen-pst.mjs emit       # 写成 js/pst-generated.js（**目前没跑，见下**）
+ *
+ * `nn` 是「**换个形式**」那一问的仪器：与线性拟合**用同一套特征**（子力 6 + 7 类 × 50 组折叠格
+ * × 2 相位 = 706），只在中间加一层 ReLU 隐藏单元（`--hidden 0` 就是线性对照）。训练集切法
+ * 与 `fit` 一致（前 80% 训练，其中再留 20% 做早停），`agree` 用的留出集（最后 20%）不参与训练
+ * —— 所以 `agree` 上比出来的差距不是过拟合。权重存 `tmp/nn-*.json`，`agree` 会自动把它们
+ * 一起体检（这是 next-session-prompt §3.2 那件事：**同样这些信息，换个形式能更准吗**）。
  *
  * ## 为什么是「拟合」而不是「探测」
  *
@@ -91,7 +98,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -139,6 +146,14 @@ const POLICY = opt('policy', 'random');
  */
 const SAMPLE_TAG = opt('samples', opt('teacher', 'search'));
 const SAMPLE_FILE = resolve(ROOT, `tmp/pst-samples-${SAMPLE_TAG}.json`);
+
+// === 小网络（`nn` 阶段）的参数 ==============================================
+const HIDDEN = Number(opt('hidden', 32));      // 隐藏单元数；0 = 退化成线性（对照组）
+const EPOCHS = Number(opt('epochs', 300));     // 上限，早停会先停
+const LR = Number(opt('lr', 0.003));           // Adam 的学习率
+const L2 = Number(opt('l2', 1e-3));            // 权重衰减（AdamW 的解耦那一项）
+const BATCH = Number(opt('batch', 64));
+const SEED = Number(opt('seed', 12345));
 
 // === 特征布局 =================================================================
 // 6 个子力（士象马车炮兵，帅恒 0）+ 7 类 × 50 组「左右折叠后的格子」× 2 个相位。
@@ -663,6 +678,20 @@ async function agree() {
       predict: (cells, phase) => predictStruct(w, cells, phase),
     });
   } catch { /* 没跑过 --mode struct 就算了 */ }
+  // 小网络（`nn` 阶段训出来的）：扫 tmp/nn-*.json，有几个体检几个。
+  // 它们与上面那几个**用同一套特征**，区别只在「线性 → 一层 ReLU」—— 这正是要问的那件事。
+  // tmp/ 是随时可以整个删掉的（见根目录 AGENTS.md），所以这里必须容错。
+  try {
+    for (const f of readdirSync(resolve(ROOT, 'tmp'))) {
+      if (!/^nn-.+\.json$/.test(f)) continue;
+      const nnw = JSON.parse(readFileSync(resolve(ROOT, 'tmp', f), 'utf8'));
+      const rt = runtimeNet(nnw);
+      models.push({
+        name: rt.label || f,
+        predict: (cells, phase) => predictNet(rt, cells, phase),
+      });
+    }
+  } catch { /* 没有 tmp/ 或者文件坏了：当作没有小网络 */ }
 
   send('uci');
   await waitLine((l) => l === 'uciok', 20000, 'uciok');
@@ -728,6 +757,254 @@ async function agree() {
   console.log('\n（ρ 越接近 1 越好，0 = 与引擎的排序无关。这个指标两边刻度自动抵消）');
   send('quit');
   setTimeout(() => process.exit(0), 200);
+}
+
+// === 小网络（`nn` 阶段）=====================================================
+// 「换个**形式**」那一问的仪器。特征与线性拟合完全同一套（见 nnFeatures 的注释），
+// 区别只在中间加一层 ReLU 隐藏单元；`--hidden 0` 退化成线性，作为**同一套特征、同一套
+// 训练过程**下的对照组 —— 这样「非线性有没有用」才是干净的对照。
+
+/** 小网络的稀疏特征：与 `featuresOf` 同一个布局，但**子力恒在**（不受 --fix-mat 影响） */
+function nnFeatures(cells, phase) {
+  const phi = phase / PHASE_MAX;
+  const idxs = [];
+  const vals = [];
+  for (let i = 0; i < CELLS; i++) {
+    const v = cells[i];
+    if (v === EMPTY) continue;
+    const abs = Math.abs(v);
+    const red = v > 0;
+    const sg = red ? 1 : -1;
+    const cell = red ? i : MIRROR_INDEX[i];   // 黑方 y 镜像，与 evaluate() 一致
+    if (abs >= A) { idxs.push(matIdx(abs)); vals.push(sg); }
+    idxs.push(OP_OFF + (abs - 1) * N_PAIR + pairOf(cell));
+    vals.push(sg * phi);
+    idxs.push(EG_OFF + (abs - 1) * N_PAIR + pairOf(cell));
+    vals.push(sg * (1 - phi));
+  }
+  return { idxs, vals };
+}
+
+/** 可复现的随机源（初始化 + 打乱样本） */
+function mulberry32(a) {
+  return () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * 把样本预处理成「稀疏特征 + 目标」，训练时不再解析 FEN。
+ *
+ * 目标与 `fit` 的 `targetFn` **同一个口径**（这样两种形式才可比）：
+ *
+ *   - `--fix-mat 1`（默认）：目标里扣掉子力与过河兵分 ⇒ **网络只扮演位置表的角色**，
+ *     预测时再加回来。这正是「线性位置表拟合失败」那件事的**同口径对照**。
+ *   - `--fix-mat 0`：目标就是老师分本身（子力一起学）。
+ */
+function nnPrepare(samples) {
+  return samples.map((s) => {
+    const pos = parseFen(s.fen);
+    const { idxs, vals } = nnFeatures(pos.cells, s.phase);
+    const y = FIX_MAT
+      ? s.cp - matTerm(pos.cells) - bonusTerm(pos.cells, s.phase)
+      : s.cp;
+    return { idxs, vals, y };
+  });
+}
+
+/** ReLU 前向。`h` 是调用方给的缓冲，**回来时已经被 ReLU 就地改过**（反向要用它当掩码） */
+function netForward(net, idxs, vals, h) {
+  const { w1, b1, w2, b2, nHid } = net;
+  for (let k = 0; k < nHid; k++) h[k] = b1[k];
+  for (let a = 0; a < idxs.length; a++) {
+    const base = idxs[a] * nHid;
+    const v = vals[a];
+    for (let k = 0; k < nHid; k++) h[k] += w1[base + k] * v;
+  }
+  let out = b2[0];
+  for (let k = 0; k < nHid; k++) {
+    if (h[k] < 0) h[k] = 0; else out += w2[k] * h[k];
+  }
+  return out;
+}
+
+/**
+ * 训练一个小网络（Adam + 早停）。
+ *
+ * 目标做了**标准化**（减均值除标准差）：它的倒数正好放进输出层，于是学习率不必随
+ * 老师分的刻度调 —— 与 `agree` 的 ρ 尺度无关这一点也是一致的。
+ *
+ * **线性对照不在这里**：`--hidden 0` 会被拒掉。理由是同口径的线性基线已经有了，
+ * 而且比随机梯度下降强 —— `fit` 阶段用最小二乘（`solveNormal`）解的就是这套特征。
+ */
+function trainNet(train, val, nIn, nHid, rng, log) {
+  const ys = train.map((s) => s.y);
+  const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const std = Math.sqrt(ys.reduce((a, b) => a + (b - mean) ** 2, 0) / ys.length) || 1;
+  const scale = (y) => (y - mean) / std;
+
+  const w1 = new Float64Array(nIn * nHid);
+  const b1 = new Float64Array(nHid);
+  const w2 = new Float64Array(nHid);
+  const b2 = new Float64Array(1);
+  const lim = 1 / Math.sqrt(nIn);
+  for (let i = 0; i < w1.length; i++) w1[i] = (rng() * 2 - 1) * lim;
+  for (let i = 0; i < w2.length; i++) w2[i] = (rng() * 2 - 1) * lim * 4;
+  const net = { w1, b1, w2, b2, nHid, nIn, mean, std };
+  const h = new Float64Array(nHid);
+  const dz = new Float64Array(nHid);
+  const g1 = new Float64Array(nIn * nHid);
+  const gb1 = new Float64Array(nHid);
+  const g2 = new Float64Array(nHid);
+  const gb2 = new Float64Array(1);
+  // Adam 的一阶 / 二阶动量
+  const m1 = new Float64Array(w1.length); const v1 = new Float64Array(w1.length);
+  const mb1 = new Float64Array(nHid); const vb1 = new Float64Array(nHid);
+  const m2 = new Float64Array(nHid); const v2 = new Float64Array(nHid);
+  const mb2 = new Float64Array(1); const vb2 = new Float64Array(1);
+  let step = 0;
+
+  const mse = (set) => {
+    let s = 0;
+    for (const x of set) s += (netForward(net, x.idxs, x.vals, h) - scale(x.y)) ** 2;
+    return s / set.length;
+  };
+  const order = train.map((_, i) => i);
+  let best = { val: Infinity, epoch: 0, copy: null };
+  const copy = () => ({
+    w1: w1.slice(), b1: b1.slice(), w2: w2.slice(), b2: b2.slice(),
+  });
+
+  for (let epoch = 1; epoch <= EPOCHS; epoch++) {
+    for (let i = order.length - 1; i > 0; i--) {   // 每个 epoch 重新打乱
+      const j = Math.floor(rng() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    for (let start = 0; start < order.length; start += BATCH) {
+      const end = Math.min(start + BATCH, order.length);
+      g1.fill(0); gb1.fill(0); g2.fill(0); gb2.fill(0);
+      for (let b = start; b < end; b++) {
+        const x = train[order[b]];
+        const out = netForward(net, x.idxs, x.vals, h);
+        // h 已经被 ReLU 就地改过：<=0 的就是被截掉的单元，反向时梯度为 0
+        const dOut = 2 * (out - scale(x.y));
+        gb2[0] += dOut;
+        for (let k = 0; k < nHid; k++) {
+          if (h[k] <= 0) { dz[k] = 0; continue; }
+          g2[k] += dOut * h[k];
+          dz[k] = dOut * w2[k];
+        }
+        for (let k = 0; k < nHid; k++) {
+          if (dz[k] === 0) continue;
+          gb1[k] += dz[k];
+          const d = dz[k];
+          for (let a = 0; a < x.idxs.length; a++) g1[x.idxs[a] * nHid + k] += d * x.vals[a];
+        }
+      }
+      const n = end - start;
+      step++;
+      // AdamW：权重衰减是**解耦**的那一项（不经过 Adam 归一化）。
+      // 不这么做的话 L2 会被 Adam 的自适应步长吃掉 —— 实测过：衰减 1e-5 那版第 2 轮就开始过拟合。
+      const adam = (p, g, m, v, decay) => {
+        const bc1 = 1 - 0.9 ** step;
+        const bc2 = 1 - 0.999 ** step;
+        for (let i = 0; i < p.length; i++) {
+          const gi = g[i] / n;
+          m[i] = 0.9 * m[i] + 0.1 * gi;
+          v[i] = 0.999 * v[i] + 0.001 * gi * gi;
+          p[i] -= LR * ((m[i] / bc1) / (Math.sqrt(v[i] / bc2) + 1e-8) + decay * p[i]);
+        }
+      };
+      adam(w1, g1, m1, v1, L2);
+      adam(w2, g2, m2, v2, L2);
+      adam(b1, gb1, mb1, vb1, 0);
+      adam(b2, gb2, mb2, vb2, 0);
+    }
+    const vNow = mse(val);
+    if (vNow < best.val - 1e-4) {
+      best = { val: vNow, epoch, copy: copy() };
+    } else if (epoch - best.epoch >= 30) {
+      log(`  早停于第 ${epoch} 轮（最好在 ${best.epoch} 轮，留出 MSE ${best.val.toFixed(4)}）`);
+      break;
+    }
+  }
+  Object.assign(net, best.copy);
+  return { net, scale, trainMse: mse(train), valMse: best.val, epoch: best.epoch };
+}
+
+/** 存储态（JSON 里的普通数组）→ 运行态（TypedArray）。每张网只转一次 */
+function runtimeNet(nnw) {
+  return {
+    label: nnw.label, nHid: nnw.nHid, mean: nnw.mean, std: nnw.std, pstOnly: !!nnw.pstOnly,
+    w1: Float64Array.from(nnw.w1), b1: Float64Array.from(nnw.b1),
+    w2: Float64Array.from(nnw.w2), b2: Float64Array.from(nnw.b2),
+  };
+}
+
+/**
+ * 用训好的权重预测**红方视角的分值**（`agree` 的 model.predict 接口）。
+ * `net` 是 runtimeNet() 的产物。`pstOnly` 的那一版要把子力与过河兵分加回来 ——
+ * 训练时它们被扣掉了（见 nnPrepare），这样网络的角色与「位置表」完全对齐。
+ */
+function predictNet(net, cells, phase) {
+  const { idxs, vals } = nnFeatures(cells, phase);
+  let s = net.mean + net.std * netForward(net, idxs, vals, new Float64Array(net.nHid));
+  if (net.pstOnly) s += matTerm(cells) + bonusTerm(cells, phase);
+  return Math.round(s);
+}
+
+function nn() {
+  if (HIDDEN < 1) {
+    console.log('--hidden 至少 1（线性那一版用 `fit` 的最小二乘，比 SGD 强，不在这儿比）');
+    return;
+  }
+  const all = JSON.parse(readFileSync(SAMPLE_FILE, 'utf8'));
+  // 6 : 2 : 2 —— 训练 / 早停 / 留出。**留出集与 agree() 用的是同一段**（最后 20%），
+  // 但它不参与训练也不参与早停，所以 agree 上的差距不是过拟合。
+  const nTrain = Math.floor(all.length * 0.6);
+  const nVal = Math.floor(all.length * 0.2);
+  const train = nnPrepare(all.slice(0, nTrain));
+  const val = nnPrepare(all.slice(nTrain, nTrain + nVal));
+  const nIn = N_FEAT;
+  console.log(`样本 ${all.length}（训练 ${train.length} / 早停 ${val.length} / 留出 ${all.length - nTrain - nVal}）`
+    + `｜特征 ${nIn}｜隐藏 ${HIDDEN}｜分布 ${SAMPLE_TAG}｜种子 ${SEED}`
+    + `｜目标 ${FIX_MAT ? '只学位置项（子力 + 过河兵固定）' : '老师分全体'}`);
+  const t0 = Date.now();
+  const { net, trainMse, valMse, epoch } = trainNet(train, val, nIn, HIDDEN, mulberry32(SEED), console.log);
+  console.log(`训练用了 ${((Date.now() - t0) / 1000).toFixed(1)}s｜最好第 ${epoch} 轮｜`
+    + `训练 MSE ${trainMse.toFixed(4)}｜早停 MSE ${valMse.toFixed(4)}（目标是标准化后的老师分，`
+    + `所以 MSE 的量纲是「标准差」）`);
+  const label = `小网络 H${HIDDEN}（${SAMPLE_TAG}${FIX_MAT ? '，只换位置项' : ''}）`;
+  const file = `nn-${SAMPLE_TAG}-h${HIDDEN}${FIX_MAT ? '-pst' : ''}.json`;
+  const out = resolve(ROOT, `tmp/${file}`);
+  const saved = {
+    label, hidden: HIDDEN, samples: SAMPLE_TAG, n: all.length, seed: SEED, epochs: epoch,
+    pstOnly: FIX_MAT, mean: net.mean, std: net.std,
+    nIn: net.nIn, nHid: net.nHid,
+    w1: [...net.w1], b1: [...net.b1], w2: [...net.w2], b2: [...net.b2],
+  };
+  writeFileSync(out, JSON.stringify(saved));
+
+  // **公平性对照**：留出集（最后 20%，与 agree() 用的是同一段）上的 cp 误差，
+  // 与手写表在**同一批样本**上的误差并排打出来。只报 ρ 的话，没法区分
+  // 「网络拟合得更准、只是排序差」与「网络根本没训好」—— 这两件事的结论完全不同。
+  const rt = runtimeNet(saved);
+  const holdout = all.slice(nTrain + nVal);
+  let eNet = 0; let eOld = 0;
+  for (const s of holdout) {
+    const pos = parseFen(s.fen);
+    eNet += (predictNet(rt, pos.cells, s.phase) - s.cp) ** 2;
+    eOld += (predictOld(pos.cells, s.phase) - s.cp) ** 2;
+  }
+  const rmse = (e) => Math.sqrt(e / holdout.length);
+  console.log(`留出集（${holdout.length} 个样本）上的 RMSE（cp）：`
+    + `小网络 ${rmse(eNet).toFixed(1)}｜现有手写表 ${rmse(eOld).toFixed(1)}`
+    + `  —— MAE/RMSE 不是判据（见文件头），这里只用来分辨「拟合得准不准」`);
+  console.log(`权重已存 tmp/${file}（${label}）`
+    + ` —— 跑 agree --samples ${SAMPLE_TAG} 就会把它一起体检`);
 }
 
 /** 只用 PST、子力取模块自己的值（对应 --fix-mat 1 的产物） */
@@ -800,6 +1077,7 @@ ${arr(endgame)}
 if (stage === 'sample') await sample();
 else if (stage === 'fit') fit();
 else if (stage === 'agree') await agree();
+else if (stage === 'nn') nn();
 else if (stage === 'snapshot') snapshot();
 else if (stage === 'emit') emit();
-else console.log('用法：snapshot｜sample｜fit｜emit（详见文件头部注释）');
+else console.log('用法：snapshot｜sample｜fit｜nn｜agree｜emit（详见文件头部注释）');
