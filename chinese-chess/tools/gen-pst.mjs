@@ -15,10 +15,17 @@
  *   node chinese-chess/tools/gen-pst.mjs emit       # 写成 js/pst-generated.js（**目前没跑，见下**）
  *
  * `nn` 是「**换个形式**」那一问的仪器：与线性拟合**用同一套特征**（子力 6 + 7 类 × 50 组折叠格
- * × 2 相位 = 706），只在中间加一层 ReLU 隐藏单元（`--hidden 0` 就是线性对照）。训练集切法
- * 与 `fit` 一致（前 80% 训练，其中再留 20% 做早停），`agree` 用的留出集（最后 20%）不参与训练
- * —— 所以 `agree` 上比出来的差距不是过拟合。权重存 `tmp/nn-*.json`，`agree` 会自动把它们
+ * × 2 相位 = 706），只在中间加一层 ReLU 隐藏单元。训练集切法与 `fit` 一致（6 : 2 : 2 ——
+ * 训练 / 早停 / 留出），`agree` 用的留出集（最后 20%）**不参与训练也不参与早停**，
+ * 所以 `agree` 上比出来的差距不是过拟合。权重存 `tmp/nn-*.json`，`agree` 会自动把它们
  * 一起体检（这是 next-session-prompt §3.2 那件事：**同样这些信息，换个形式能更准吗**）。
+ *
+ * ## 线程数分两处（别搞混）
+ *
+ * - **采样**（`sample`）= `--threads`，默认 **4**：要的是吞吐，数据采完就冻结成 json 复用。
+ * - **裁判**（`agree` 里的 Pikafish）= `--pf-threads`，默认 **1**：ρ 的基线随线程数漂 ±0.05
+ *   （同一份手写表 4 线程 0.288 / 单线程 0.240），而**单线程两次跑逐位相同** ——
+ *   0.05 正好是「明显」那个阈值。详见 `decisions.md` 第 36 条。
  *
  * ## 为什么是「拟合」而不是「探测」
  *
@@ -130,7 +137,20 @@ const N_SAMPLES = Number(opt('n', 12000));
 const BUDGET = Number(opt('budget-ms', 240000));
 const TEACHER_DEPTH = Number(opt('depth', 8));
 const RIDGE = Number(opt('ridge', 1));
+/**
+ * **采样**那一侧的线程数（`sample`）：要的是吞吐（一次性采两万条，采完冻结成 json 复用），
+ * 数据的「可复现」没有意义 —— 所以这里保持 4。
+ */
 const THREADS = Number(opt('threads', 4));
+/**
+ * **裁判**那一侧的线程数（`agree`）：默认 1。
+ *
+ * `agree` 量的是 ρ，而多线程 Pikafish（Lazy SMP）同一局面同一深度两次跑会给不同的分 ——
+ * 实测（`decisions.md` 第 36 条）：同一份手写表，4 线程量出 0.288、单线程 0.240，
+ * 而**单线程两次跑逐位相同**。0.05 正好是判据里「明显」的阈值，所以这不设默认值就等于
+ * 每次都在踩坑（这名字与 `strength.mjs` / `eval-compare.mjs` / `move-diff.mjs` 一致）。
+ */
+const PF_THREADS = Number(opt('pf-threads', 1));
 /** 固定模块自己的子力值、只拟合位置表（默认）。`--fix-mat 0` 则连子力一起拟合（对照用） */
 const FIX_MAT = opt('fix-mat', '1') !== '0';
 /** `free` = 700 个自由格子；`struct` = 模块原有的「纵线分 + 行分 + 单点」结构（默认试 struct） */
@@ -695,7 +715,7 @@ async function agree() {
 
   send('uci');
   await waitLine((l) => l === 'uciok', 20000, 'uciok');
-  send(`setoption name Threads value ${THREADS}`);
+  send(`setoption name Threads value ${PF_THREADS}`);
   send('setoption name MultiPV value 8');
   send('isready');
   await waitLine((l) => l === 'readyok', 30000, 'readyok');
@@ -748,7 +768,8 @@ async function agree() {
       }
     }
   }
-  console.log(`用 ${used} 个留出局面（每个取引擎 MultiPV 8 的着法与分）体检：\n`);
+  console.log(`用 ${used} 个留出局面（每个取引擎 MultiPV 8 的着法与分）体检`
+    + `（裁判 depth ${TEACHER_DEPTH} / ${PF_THREADS} 线程）：\n`);
   console.log('  模型                      平均排名相关 ρ    与引擎首选一致率');
   for (const m of models) {
     console.log(`  ${m.name.padEnd(22)} ${(sum.get(m.name) / used).toFixed(3)}`

@@ -42,6 +42,9 @@
  *   想量深度收益得看 `middlegame`。`--tactical` 只对 `opening` 生效
  *   （只取走子方有吃子的局面）—— 中局 / 残局那两组本来就是照真实对弈采的，不再筛。
  * - 时间预算是**有抖动**的：同一配置连跑两次差几个 cp 是正常的，差别要明显才算数。
+ *   ⚠️ 但别把**裁判**的抖动也算进「正常」里：裁判以前写死 4 线程，多线程 Pikafish 在
+ *   中局局面上会让「同一配置两遍」差出 122cp（20 个局面，见第 36 条补记）——
+ *   那时上面这句话会**低估**噪声。现在裁判默认单线程，这一层已经消掉。
  *
  * ## 用法
  *
@@ -53,10 +56,14 @@
  *   node chinese-chess/tools/strength.mjs --no-null             # 对照：关掉空着裁剪
  *   node chinese-chess/tools/strength.mjs --no-mobility         # 对照：关掉某个评估项
  *   node chinese-chess/tools/strength.mjs --badcap-filter       # 打开：静态搜索里过滤明显亏的吃子
+ *   node chinese-chess/tools/strength.mjs --pf-threads 4         # 裁判 4 线程：快一点，但数字会飘
  *
  * `--n N` 是**每组**取多少个（默认 30）。
  * **需要本地有 Pikafish**（路径与 `gen-solutions.mjs` 等工具一致）。裁判默认搜到
  * depth 16 —— 再深出分很慢，而它对「这一手差多少」的判断已经足够了。
+ * `--pf-threads N`（**默认 1**）是裁判的线程数：多线程的 Pikafish 每次给的分会有出入
+ * （Lazy SMP），量出来「同一配置两遍」能差 122cp —— 理由与实测见 `PF_THREADS` 的注释
+ * 与 `decisions.md` 第 36 条。
  * 进度打在 **stderr**，报错表打在 stdout（这样 `... > 报告.txt` 拿到的还是干净的报告）。
  */
 import { spawn } from 'node:child_process';
@@ -87,6 +94,28 @@ const arg = (name, dflt) => {
 const MS = Number(arg('ms', 1500));          // 模块的时间预算（0 = 用 --depth 的固定深度）
 const DEPTH = Number(arg('depth', 6));       // MS 为 0 时用它
 const PF = Number(arg('pf', 16));            // 裁判搜多深
+/**
+ * 裁判用几个线程：**默认 1（单线程 = 可复现）**，`--pf-threads 4` 快一点但数字会飘。
+ *
+ * Pikafish 的多线程是 **Lazy SMP**（每个线程各自跑完整搜索、共用一张置换表，谁先算到谁写进去），
+ * 所以「同一局面、同一深度」两次跑会给出**不同的分、甚至不同的首选着法** ——
+ * 它的**平均棋力**不受影响，受影响的是**可复现性**，而本工具的分辨率（几个 cp，见第 33 条）
+ * 正好落在这个量级上。2026-10-07 直接把裁判抠出来量了一次
+ * （`tmp/xq-judge-jitter.mjs`：模块走子钉在固定深度 6，只有裁判在变；20 个中局局面）：
+ *
+ * | 对比 | 裁判分不同的局面 | 最大差 | 损失差之和 |
+ * |---|---|---|---|
+ * | **4 线程两遍** | **16 / 20** | 16cp | **122cp** |
+ * | **1 线程两遍** | **0 / 20** | 0 | **0** |
+ *
+ * 也就是「同一配置跑两遍」在 4 线程下能差出 122cp，而尺子自己的噪声底记录是 ±4cp（第 33 条）；
+ * 单线程多花的时间只多 33%（这一批 40 次判分：3s → 4s）。所以默认取 1。
+ *
+ * ⚠️ **换裁判设置 = 换了一把尺子**：文档里 2026-10-07 之前记下的那些数（opening 41.9、
+ * middlegame 18.4…）都是 4 线程判的，与新的默认值不完全可比 —— 准备采纳改动时按规矩
+ * 为它自己重测一次基线（那本来也是必须做的事）。详见 `decisions.md` 第 36 条的补记。
+ */
+const PF_THREADS = Number(arg('pf-threads', 1));
 const N = Number(arg('n', 30));              // **每组**用多少个局面
 const NO_NULL = process.argv.includes('--no-null');
 const NO_MOBILITY = process.argv.includes('--no-mobility');
@@ -180,7 +209,7 @@ async function judge(fen) {
 
 send('uci');
 await waitLine((l) => l === 'uciok', 20000, 'uciok');
-send('setoption name Threads value 4');
+send(`setoption name Threads value ${PF_THREADS}`);
 send('setoption name Hash value 256');
 send('isready');
 await waitLine((l) => l === 'readyok', 30000, 'readyok');
@@ -198,7 +227,7 @@ const lv = {
 
 console.log(`模块：${MS > 0 ? `真实预算 ${MS}ms` : `固定深度 ${DEPTH}`}｜空着裁剪 ${NO_NULL ? '关' : '开'}`
   + `｜机动性 ${NO_MOBILITY ? '关' : '开'}｜静态搜索过滤坏吃子 ${BADCAP_FILTER ? '开' : '关'}`
-  + `｜裁判 Pikafish depth ${PF}`
+  + `｜裁判 Pikafish depth ${PF} / ${PF_THREADS} 线程`
   + `｜${groups.map((g) => `${g.name} ${g.positions.length}`).join(' + ')} = ${TOTAL} 个局面`
   + `${TACTICAL ? '（opening 只取有吃子的）' : ''}\n`);
 

@@ -28,7 +28,8 @@
  *
  * `--set` / `--n` / `--tactical` 与 `strength.mjs` 完全一样 —— **取局面用的是同一个函数**
  * （`strength-positions.mjs` 的 `strengthPositions()`），两把仪器跑的一定是同一批局面。
- * `--depth` 默认 6。`--judge` 需要本地有 Pikafish（路径与其它工具一致，见 `docs/pikafish.md`）。
+ * `--depth` 默认 6。`--judge` 需要本地有 Pikafish（路径与其它工具一致，见 `docs/pikafish.md`），
+ * 它那一侧还有 `--pf`（裁判深度，默认 16）与 `--pf-threads`（裁判线程数，**默认 1**）。
  *
  * ## 怎么读
  *
@@ -38,7 +39,9 @@
  *   固定深度 6 的快照里**中局一步没变**，真实预算下中局平均损失 **37.0 → 14.9、漏着 2 → 0**。
  *   **所以准备采纳的改动，`strength.mjs` 的真实预算对照必须跑，哪怕这里显示 0 步。**
  * - **只看 `--judge` 的合计**：那是在「行为真的不同」的地方量的，比全量均值灵敏得多。
- *   但它是单个局面各判一次，抖动仍在（Pikafish 4 线程下就有）—— 结论要能复跑出来才算数。
+ *   但它是**单个局面各判一次**，而且模块那一侧虽然完全确定，**裁判那一侧不是** ——
+ *   多线程 Pikafish 同一局面两次跑会有出入，所以裁判默认单线程（`--pf-threads 1`，
+ *   单线程两次跑逐位相同；实测见 `decisions.md` 第 36 条的补记）。
  * - **它回答的是「着法选择变没变」，不是「真实预算下更强没有」。**
  *   两个都答完才能下结论：先用它筛（0 步就不必上尺子），再用尺子量全量。
  */
@@ -72,6 +75,16 @@ const flag = (name) => argv.includes(`--${name}`);
 const DEPTH = Number(opt('depth', 6));
 const N = Number(opt('n', 30));
 const TACTICAL = flag('tactical');
+/**
+ * `--judge` 那一侧裁判用几个线程：**默认 1（单线程 = 可复现）**，`--pf-threads 4` 快一点但会飘。
+ *
+ * 模块这一侧是**完全确定**的（固定深度、noise 0、无探测），但裁判不是：
+ * 多线程 Pikafish（Lazy SMP）同一局面同一深度两次跑会有出入（20 个中局局面：4 线程两遍之间
+ * 16 个局面的裁判分不同、损失差之和 122cp；1 线程两遍逐位相同）。本工具只在**行为不同的
+ * 那几个局面**上判分 —— 一两个局面各几十 cp 的抖动，正好能把结论读反。
+ * 理由与实测见 `strength.mjs` 里 `PF_THREADS` 的注释与 `decisions.md` 第 36 条的补记。
+ */
+const PF_THREADS = Number(opt('pf-threads', 1));
 let SETS;
 try {
   SETS = resolveSets(opt('set', 'opening,regression'));
@@ -184,12 +197,12 @@ async function judgeDiff(changed) {
   }
   send('uci');
   await waitLine((l) => l === 'uciok', 20000, 'uciok');
-  send('setoption name Threads value 4');
+  send(`setoption name Threads value ${PF_THREADS}`);
   send('setoption name Hash value 256');
   send('isready');
   await waitLine((l) => l === 'readyok', 30000, 'readyok');
 
-  console.log(`\n裁判（Pikafish depth ${PF}）只判这 ${changed.length} 个局面：`);
+  console.log(`\n裁判（Pikafish depth ${PF} / ${PF_THREADS} 线程）只判这 ${changed.length} 个局面：`);
   let sumNow = 0; let sumOld = 0;
   for (const [now, old] of changed) {
     const before = await judge(now.fen);
@@ -211,7 +224,8 @@ async function judgeDiff(changed) {
   }
   console.log(`\n合计：现在 ${sumNow}cp｜基线 ${sumOld}cp → `
     + `${sumNow === sumOld ? '打平' : (sumNow < sumOld ? '现在好' : '基线好')}`);
-  console.log('（单个局面各判一次，抖动仍在 —— 结论要能复跑出来才算数）');
+  console.log(`（单个局面各判一次；裁判 ${PF_THREADS} 线程`
+    + `${PF_THREADS === 1 ? ' ⇒ 同一个 diff 两次跑逐位相同' : ' ⇒ 数字会有出入，要复跑就用 --pf-threads 1'}）`);
   send('quit');
   setTimeout(() => process.exit(0), 200);
 }

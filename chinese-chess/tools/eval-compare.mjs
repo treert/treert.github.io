@@ -22,6 +22,7 @@
  *   3. **裁判评分按 `(局面, 着法)` 缓存**：同一个 `(局面, 着法)` 只判一次，
  *      所以扫一组配置的总开销只与「**不同着法的个数**」成正比，不与「配置数 × 局面数」成正比。
  *      缓存还能落到 json 里跨次复用（默认 `tmp/eval-cache.json`，在 tmp/ 里随时可删）。
+ *      ⚠️ 缓存里的分带着**裁判设置**（深度 + 线程数），所以换那两者任何一个都会让缓存失效。
  *
  * ## 用法
  *
@@ -32,7 +33,14 @@
  *   node chinese-chess/tools/eval-compare.mjs --configs "piece=200/200/400/900/450/100,piece=200/200/400/900/500/100"
  *
  * 参数：`--set`（默认 `all`）/ `--n`（每组取多少个，默认 300）/ `--depth`（默认 6）/
- * `--pf`（裁判深度，默认 16）/ `--base`（第几组当基线，默认 0）/ `--no-cache`（不用磁盘缓存）。
+ * `--pf`（裁判深度，默认 16）/ `--pf-threads`（裁判线程数，**默认 1**）/ `--base`（第几组当基线，默认 0）/
+ * `--no-cache`（不用磁盘缓存）。
+ *
+ * ⚠️ **裁判的线程数也是判据的一部分**：多线程 Pikafish（Lazy SMP）同一局面同一深度两次跑
+ * 会有出入，而本工具的分辨率就是几个 cp（配对那一列尤其敏感）。默认取 1 ——
+ * 20 个中局局面实测：4 线程两遍之间损失差之和 122cp、1 线程两遍逐位相同（只慢 33%）。
+ * 缓存也跟着线程数走：换了线程数旧缓存自动失效，否则两种设置的分会混在一张表里。
+ * 详见 `decisions.md` 第 36 条的补记。
  *
  * ## 怎么读（三条都是踩出来的）
  *
@@ -78,14 +86,29 @@ const arg = (name, dflt) => {
 };
 const DEPTH = Number(arg('depth', 6));
 const PF = Number(arg('pf', 16));
+/**
+ * 裁判的线程数：**默认 1（单线程 = 可复现）**，`--pf-threads 4` 快一点但数字会飘。
+ *
+ * 理由与实测见 `strength.mjs` 里 `PF_THREADS` 那段注释（20 个中局局面：4 线程两遍之间
+ * 16 个局面的裁判分不同、损失差之和 122cp；1 线程两遍逐位相同、只慢 33%）。
+ * 本工具比尺子更依赖这一点 —— 它报的「配对 胜/平/负」就在**平局那一大堆**里翻面，
+ * 几个 cp 的裁判抖动足以把 3 胜 2 负读成 2 胜 3 负。
+ *
+ * ⚠️ 本工具有 `(局面, 着法)` 缓存，缓存里的分是**用某个线程数判出来的**，
+ * 所以缓存也跟着线程数走：换了线程数就当缓存失效（否则两种设置的分数会混在一张表里）。
+ */
+const PF_THREADS = Number(arg('pf-threads', 1));
 const COUNT = Number(arg('n', 300));
 const BASE = Number(arg('base', 0));
 const SETS = resolveSets(arg('set', 'all'));
 const CACHE_FILE = resolve(ROOT, arg('cache', 'tmp/eval-cache.json'));
-let CACHE = { pf: PF, before: {}, after: {} };
+let CACHE = { pf: PF, pfThreads: PF_THREADS, before: {}, after: {} };
 if (!argv.includes('--no-cache') && existsSync(CACHE_FILE)) {
   const old = JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
-  if (old.pf === PF) CACHE = old;      // 换了裁判深度就重判（分数不可比）
+  // 换了裁判深度就重判（分数不可比）；线程数同理。历史缓存没记这个字段 ——
+  // 那时候这个工具写死 4 线程（`decisions.md` 第 36 条量到的那件事之前），所以缺失按 4 认。
+  const oldThreads = old.pfThreads === undefined ? 4 : old.pfThreads;
+  if (old.pf === PF && oldThreads === PF_THREADS) CACHE = old;
 }
 
 /**
@@ -135,7 +158,8 @@ const POSITIONS = strengthPositions({ sets: SETS, n: COUNT });
 const bySet = {};
 for (const p of POSITIONS) bySet[p.set] = (bySet[p.set] || 0) + 1;
 console.log(`局面：${Object.entries(bySet).map(([k, v]) => `${k} ${v}`).join(' + ')} = ${POSITIONS.length} 个`
-  + `｜固定深度 ${DEPTH}｜裁判 depth ${PF}｜配置 ${configs.length} 组（基线：${configs[BASE].label}）\n`);
+  + `｜固定深度 ${DEPTH}｜裁判 depth ${PF} / ${PF_THREADS} 线程｜配置 ${configs.length} 组`
+  + `（基线：${configs[BASE].label}）\n`);
 
 // === 第一遍：每组配置各走一遍（完全确定） ===
 const runs = [];
@@ -199,7 +223,7 @@ if (todo.length) {
   }
   send('uci');
   await waitLine((l) => l === 'uciok', 20000, 'uciok');
-  send('setoption name Threads value 4');
+  send(`setoption name Threads value ${PF_THREADS}`);
   send('setoption name Hash value 256');
   send('isready');
   await waitLine((l) => l === 'readyok', 30000, 'readyok');
