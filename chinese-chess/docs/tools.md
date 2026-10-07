@@ -17,7 +17,7 @@
 | `node chinese-chess/tools/verify-solutions.mjs` | 残局解法校验：逐步合法、末局将死、长度与 mate 对得上（**不需要引擎**） |
 | `node chinese-chess/tools/gen-solutions.mjs` | 残局解法生成：`fast` / `slow` / `emit` / `issues`（**需要本地有 Pikafish**，用法见文件头） |
 | `node chinese-chess/tools/gen-openings.mjs` | 开局谱生成：`grow`（可分批，`--budget-ms`）/ `emit` / `report`，产出 `js/openings-generated.js`（**需要本地有 Pikafish**，用法与参数见文件头） |
-| `node chinese-chess/tools/gen-pst.mjs` | 位置表蒸馏：`snapshot` / `sample` / `fit` / `agree` —— **试过，结论是没换成**（详见文件头与 `future-work.md` C1） |
+| `node chinese-chess/tools/gen-pst.mjs` | 位置表 / 评估蒸馏：`snapshot` / `sample` / `fit` / **`nn`**（训一个小网络，`--hidden 32 --lr 0.0003 --l2 0.1`）/ `agree`（ρ 体检；**会自动把 `tmp/nn-*.json` 一起体检**）。`agree` 比较 ρ 时**必须 `--threads 1` 且同一次运行内比** —— 基线随 Pikafish 线程数漂 ±0.05。**试过两轮，结论都是没换成**（详见文件头、`future-work.md` C1 与 `decisions.md` 第 36 条） |
 | `node chinese-chess/tools/strength.mjs` | **棋力尺子**：拿 Pikafish 当裁判量「平均损失 / 中位数 / 漏着率」，**按局面集分组报**，回归集另外逐条列出「改主意了吗」。`--set opening,middlegame,endgame,regression`（或 `all`，默认 `opening,regression`）、`--tactical` 只看有吃子的开局局面、`--no-null` / `--no-mobility` 做对照。判评估 / 搜索改动好不好用它，别看感觉（**需要本地有 Pikafish**） |
 | `node chinese-chess/tools/move-diff.mjs` | **着法对照**：固定深度（noise 0、无连杀探测 ⇒ **完全可复现**）跑两遍，比「**换了哪几步棋**」；`--judge` 再**只在不同的那几个局面上**让 Pikafish 定向判分。尺子自己的抖动就有几个 cp，小幅改动它分辨不出来 —— 先用它筛（`dump` / `compare`）。判据怎么用见 `decisions.md` 第 21 条（**`--judge` 需要本地有 Pikafish**） |
 | `node chinese-chess/tools/eval-compare.mjs` | **配置对照**：把若干组**评估参数**各走一遍（固定深度 ⇒ 完全确定），逐局面算损失并做**配对对照**（胜/平/负）。裁判评分按 `(局面, 着法)` 缓存（默认落 `tmp/eval-cache.json`），所以扫一组配置很便宜。`--configs "mobility=3/2/3,mobility=0/0/0"` / `"piece=200/200/400/900/450/100"`。**读法与两条陷阱（固定深度必须在 ≥2 个深度上复核）写在文件头**（**需要本地有 Pikafish**） |
