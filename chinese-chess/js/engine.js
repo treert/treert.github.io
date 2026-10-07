@@ -964,9 +964,13 @@ export class Searcher {
   iterativeDeepen() {
     const moves = generateLegalMoves({ cells: this.cells, side: this.side });
     if (moves.length === 0) return null;
-    if (moves.length === 1) {
-      return { move: moves[0], score: 0, scores: new Map([[moves[0], 0]]), depth: 1 };
-    }
+    // ⚠️ 这里原来有一个「只剩一个合法着法就直接返回、分数写 0」的短路（2026-10-07 删）。
+    // 着法确实没得选，但**分数有**：直接写 0 等于假装「这局面是和棋」，而这个假分数
+    // 会被 worker 送到界面上显示（用户看到的是「自评 0」），也让所有工具的「自评」列失真 ——
+    // 定式转换测试诊断第 547 局时就被它骗过：那个局面再走两步就是困毙，
+    // 而引擎报「自评 0」。代价是这类局面不再「瞬时返回」，但**连将杀探测本来就在它之前**，
+    // 所以省下的也主要是常规搜索那一部分。
+    // 上界测试只钉了「必须返回那个着法」（test-engine.mjs），分数没有断言。
 
     let best = null;
     let ordered = this.orderRootMoves(moves);
