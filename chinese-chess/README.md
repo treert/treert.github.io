@@ -237,6 +237,10 @@ depth 3 是 80%（6 胜 4 和 0 负）、**depth 6 正好 50%**，所以**没饱
 
 **量棋力请用 [`tools/strength.mjs`](./tools/strength.mjs)**（拿 Pikafish 当裁判算平均损失 / 漏着率）——
 别靠感觉，也别用「离老师的 MAE」那种判据（那是 `future-work.md` C1 踩过的坑）。
+裁判那一侧现在**默认单线程**（`--pf-threads`）：多线程的 Pikafish 是 Lazy SMP，
+同一局面同一深度两次跑会给不同的分 —— 实测 20 个中局局面「同一配置两遍」能差 **122cp**，
+而尺子自己的噪声底只有几个 cp。想要快可以 `--pf-threads 4`，但两次跑的数字就没法比了。
+见 `decisions.md` 第 36 条的补记。
 
 **小改动先看它换了几步棋** —— 用 [`tools/move-diff.mjs`](./tools/move-diff.mjs)：
 固定深度 + 无随机性 ⇒ **完全可复现**，比的是离散量「选了哪一步」，不受时间抖动影响；
