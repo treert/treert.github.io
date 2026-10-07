@@ -10,10 +10,14 @@
  * | 实用残局（`practical`，8 局） | 8 | **8 / 8**，depth 16 上同样 8/8 |
  * | 卷六「和局研究」（`composed-endgame`，**全 84 局**） | 84 | `--depth 6` **69 / 84**（71 秒）；真实预算复核后真失败 **7** 局 |
 
- * **固定深度会明显高估失败**：84 局里 `--depth 6` 报 15 个 ❌，逐个拿真实预算复核后只剩 **7** 个
+ * ⚠️ **汇总稳、逐局不稳**（2026-10-07 查清，见 `decisions.md` 第 28 条）：同一配置只换对手线程数，
+ * 汇总 69/84 vs 70/84（差 1 局），但**失败清单只重合 9 个**（14 个里）。两个抖动源已查明 ——
+ * Pikafish 多线程（**已修**：默认 `--pf-threads 1`）与连将杀探测的 1400ms 墙钟上限（未修）。
+ * **所以它只能看「总数有没有掉」，别把某一局的 ✅/❌ 当回归项。**
+ *
+ * **固定深度还会明显高估失败**：84 局里 `--depth 6` 报 15 个 ❌，逐个拿真实预算复核后只剩 **7** 个
  * （浅一层就差得远：`第493局` 在深度 6 上自己走成长将判负，真实预算下 15 半回合就将死对方）。
- * 所以**推荐的工作流是**：日常用 `--depth 6` 当护栏（71 秒、可复现），
- * 任何**新增**的 ❌ 再拿真实预算复核一局（约 1 分钟）。
+ * 推荐的用法：`--depth 6` 跑总数，**任何看不懂的 ❌ 再拿真实预算复核一局**（约 1 分钟）。
  * 那 7 个真失败：`第470局` 和棋走输、`第480局` **赢棋走和**、`第495局`/`第527局` 被将死、
  * `第518局` **自己长将判负**、`第532局`/`第536局` **被困毙**（象棋里困毙判负）。
  *
@@ -87,7 +91,7 @@ const EXE = process.env.PIKAFISH
 const load = (rel) => import(pathToFileURL(resolve(HERE, '../js', rel)).href);
 
 const { CELLS, EMPTY, RED, LEVELS } = await load('config.js');
-const { search } = await load('engine.js');
+const { search, evaluate } = await load('engine.js');
 const { generateLegalMoves, gameStatus, classifyRepetition, inCheck } = await load('rules.js');
 const { parseFen, toFen, positionSignature } = await load('position.js');
 const { moveOfIccs, iccsOfMove } = await load('iccs.js');
@@ -104,11 +108,24 @@ const LIMIT = Number(arg('limit', 999));
 const SKIP = Number(arg('skip', 0));         // 分批跑：从第几局开始
 const OUT = arg('out', '');                  // 逐局追加 JSONL（分批跑完再汇总）
 const DEFENDER = arg('defender', 'pf:12');
+/**
+ * 防守方（Pikafish）的线程数。
+ *
+ * **默认 1 —— 这是「可复现」的关键**：多线程搜索（4 线程）在固定深度下**每次跑出的着法都可能不同**，
+ * 于是对局会分岔。2026-10-07 实测：同一个局面、同样 `--depth 6`，两次跑出完全不同的过程
+ * （一次 37 半回合被将死、另一次约 100 半回合）。而把防守方换成模块自己（`--defender self`）
+ * 两遍一模一样 —— 所以抖动**只来自引擎的多线程**，不是模块侧。
+ * 单线程在固定深度下是确定的；代价是引擎每步慢一些（可接受：84 局也就一两分钟）。
+ */
+const PF_THREADS = Number(arg('pf-threads', 1));
 const MAX_PLY = Number(arg('max-ply', 300));
 const VERBOSE = process.argv.includes('--verbose');
+/** 诊断模式：逐步打印 走子方 / 着法 / 合法着法数 / 静态评估 /（模块的）自评 —— 用来查「哪一步开始输」 */
+const WHY = process.argv.includes('--why');
 const NO_CAPTURE_PLY = Number(arg('no-capture', 120));   // 棋规：60 回合（=120 半回合）无吃子判和
 const LEVEL = String(arg('level', 'hard'));
-const DEPTH = Number(arg('depth', 0));   // >0 = 固定深度（**可复现**）；0 = 用挡位的时间预算
+// >0 = 固定深度（**模块这一侧确定**；要整局可复现还得 `--pf-threads 1`）；0 = 用挡位的时间预算
+const DEPTH = Number(arg('depth', 0));
 const baseLevel = LEVELS.find((l) => l.id === LEVEL);
 const level = DEPTH > 0
   ? { ...baseLevel, depth: DEPTH, timeLimitMs: 600000, noise: 0, blunderRate: 0 }
@@ -142,7 +159,7 @@ async function startEngine() {
   });
   send('uci');
   await waitLine((l) => l === 'uciok', 20000, 'uciok');
-  send('setoption name Threads value 4');
+  send(`setoption name Threads value ${PF_THREADS}`);
   send('setoption name Hash value 128');
   send('isready');
   await waitLine((l) => l === 'readyok', 30000, 'readyok');
@@ -198,17 +215,28 @@ for (const game of picked) {
     if (sinceCapture >= NO_CAPTURE_PLY) { outcome = 'draw'; why = `自然限着（${NO_CAPTURE_PLY} 半回合无吃子）`; break; }
     const fen = toFen(pos);
     let iccs;
-    if (pos.side === moduleSide || pfDepth === 0) {
+    let selfScore = null;
+    const mine = pos.side === moduleSide || pfDepth === 0;
+    if (mine) {
       // 防守方也是模块时（self），两边都用模块走
       const r = search(fen, level, { history: fens });
       if (!r) { outcome = 'lose'; why = '模块没有着法'; break; }
       iccs = iccsOfMove(r.move);
+      selfScore = r.score;
     } else {
       iccs = await pfMove(fen);
       if (!iccs) { outcome = 'lose'; why = 'Pikafish 没有着法'; break; }
     }
     const legal = generateLegalMoves(pos).map((m) => iccsOfMove(m));
     if (!legal.includes(iccs)) { outcome = 'abort'; why = `非法着法 ${iccs}`; break; }
+    if (WHY) {
+      console.log(`  ${String(plies).padStart(3)} ${mine ? '我' : '对'} `
+        + `${toNotation(pos, moveOfIccs(iccs)).padEnd(6)} [${iccs}]`
+        + `　合法着法 ${String(legal.length).padStart(2)}`
+        + `　静态评估(我) ${String(evaluate(pos.cells, moduleSide)).padStart(5)}`
+        + (mine ? `　自评 ${String(selfScore).padStart(6)}` : '　（对手）'));
+      console.log(`      ${fen}`);
+    }
     notations.push(`${pos.side === moduleSide ? '我' : '对'}${toNotation(pos, moveOfIccs(iccs))}`);
     const mv = moveOfIccs(iccs);
     const from = Math.floor(mv / CELLS), to = mv % CELLS;
